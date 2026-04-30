@@ -1,0 +1,41 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Database (local SQLite only — cloud uses PostgreSQL via env var)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Node
+frontend/setup-panel/node_modules/
+
+# One-time migration/setup scripts (sensitive, local only)
+backend/migrate_rodmat_v1.py
+backend/setup_accounts.py
+
+# Reports state
+.report_state.json
+
+# Logs
+logs/
+*.log
+cf_out.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
