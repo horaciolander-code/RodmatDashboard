@@ -82,11 +82,19 @@ def health_check():
 
 
 # Serve React panel — must be after all API routes
+# Supports two layouts: full repo checkout (dist is 3 levels up) or backend-only deploy (dist alongside backend)
 _dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "setup-panel" / "dist"
+if not _dist.exists():
+    # Railway with rootDirectory=backend places the repo at /app/backend, so go up one less level
+    _dist = Path(__file__).resolve().parent.parent / "frontend" / "setup-panel" / "dist"
+
 if _dist.exists():
     app.mount("/assets", StaticFiles(directory=str(_dist / "assets")), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_react(full_path: str):
-        # API routes are already handled above — this only catches non-API paths
         return FileResponse(str(_dist / "index.html"))
+else:
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return {"app": "Rodmat Dashboard V2", "version": APP_VERSION, "docs": "/docs", "health": "/api/health"}
