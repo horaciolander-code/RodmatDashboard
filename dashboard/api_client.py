@@ -9,7 +9,7 @@ def api_get(endpoint: str, params: dict = None) -> dict | list | None:
         return None
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        r = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params, timeout=30)
+        r = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params, timeout=60)
         if r.status_code == 401:
             st.session_state.pop("jwt_token", None)
             st.error("Session expired. Please log in again.")
@@ -26,7 +26,7 @@ def api_post(endpoint: str, json_data: dict = None, files: dict = None) -> dict 
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         r = requests.post(f"{API_BASE_URL}{endpoint}", headers=headers, json=json_data,
-                          files=files, timeout=120)
+                          files=files, timeout=300)
         if r.status_code == 401:
             st.session_state.pop("jwt_token", None)
             st.error("Session expired. Please log in again.")

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+import logging
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.config import MAX_UPLOAD_SIZE
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.user import User
 from app.dependencies import get_current_user
 from app.schemas.import_schemas import ImportResult
@@ -15,6 +16,7 @@ from app.services.import_service import (
     parse_pending_inventory_excel,
 )
 
+logger = logging.getLogger("rodmat.imports")
 router = APIRouter(prefix="/api/import", tags=["import"])
 
 
@@ -33,8 +35,20 @@ def _target_store(user: User, store_id: str | None) -> str:
     return user.store_id
 
 
-@router.post("/orders", response_model=ImportResult)
+def _run_orders_bg(content: bytes, store_id: str):
+    db = SessionLocal()
+    try:
+        result = parse_orders_csv(content, store_id, db)
+        logger.info("bg orders import done: %s", result)
+    except Exception as exc:
+        logger.exception("bg orders import failed: %s", exc)
+    finally:
+        db.close()
+
+
+@router.post("/orders")
 async def import_orders(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     store_id: str | None = Query(None),
     user: User = Depends(get_current_user),
@@ -42,7 +56,9 @@ async def import_orders(
 ):
     content = await file.read()
     _validate_upload(file, content, ".csv")
-    return parse_orders_csv(content, _target_store(user, store_id), db)
+    target = _target_store(user, store_id)
+    background_tasks.add_task(_run_orders_bg, content, target)
+    return {"status": "processing", "message": f"Import started for {len(content)//1024}KB. Refresh dashboard in ~30 seconds."}
 
 
 @router.post("/affiliates", response_model=ImportResult)
