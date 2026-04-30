@@ -1,8 +1,10 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -12,17 +14,14 @@ from app.config import APP_VERSION, CORS_ORIGINS, ENVIRONMENT
 from app.database import engine, Base, SessionLocal
 from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin
 
-# Import all models so Base.metadata knows about them
 import app.models  # noqa: F401
 
-# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("rodmat")
 
-# Rate limiter (shared instance, imported by route modules)
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="Rodmat Dashboard V2", version=APP_VERSION)
@@ -51,7 +50,7 @@ app.include_router(admin.router)
 
 @app.on_event("startup")
 def on_startup():
-    import app.models  # noqa: F401 — ensure all models are registered
+    import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables verified/created on startup")
 
@@ -80,3 +79,14 @@ def health_check():
         "version": APP_VERSION,
         "database": "connected" if db_ok else "error",
     }
+
+
+# Serve React panel — must be after all API routes
+_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "setup-panel" / "dist"
+if _dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(_dist / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_react(full_path: str):
+        # API routes are already handled above — this only catches non-API paths
+        return FileResponse(str(_dist / "index.html"))
