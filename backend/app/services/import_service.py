@@ -1,9 +1,10 @@
 """
 CSV/Excel Import Service
 Ports V1 data loading logic to DB-based import with upsert support.
+pandas/openpyxl imported lazily inside functions to reduce startup memory.
 """
+from __future__ import annotations
 import io
-import pandas as pd
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -52,6 +53,7 @@ def _safe_datetime(val) -> datetime | None:
 
 def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     """Parse TikTok orders CSV (AllBBDD format). Upserts by (store_id, order_id, sku)."""
+    import pandas as pd
     sep = _detect_separator(content)
     df = pd.read_csv(
         io.BytesIO(content), sep=sep, skiprows=[1],
@@ -108,7 +110,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 recipient=_safe_str(row.get('Recipient')),
                 city=_safe_str(row.get('City')),
                 state=_safe_str(row.get('State')),
-                raw_data={k: str(v) for k, v in row.to_dict().items()},
+                raw_data=None,
             )
 
             if (order_id, sku_id) in existing_keys:
@@ -140,6 +142,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
 
 def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
     """Parse affiliate/creator CSV. Upserts by (store_id, order_id, sku)."""
+    import pandas as pd
     df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig')
     df.columns = df.columns.str.strip()
 
@@ -176,7 +179,7 @@ def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
                 time_created=_safe_datetime(row.get('Time Created')),
                 commission_rate=_safe_float(row.get('Standard commission rate')),
                 est_commission_base=_safe_float(row.get('Est. Commission Base')),
-                raw_data={k: str(v) for k, v in row.to_dict().items()},
+                raw_data=None,
             )
 
             if existing:
@@ -204,6 +207,7 @@ def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
 
 def parse_products_excel(content: bytes, store_id: str, db: Session) -> dict:
     """Parse Productos individualizados.xlsx. Upserts by (store_id, sku)."""
+    import pandas as pd
     df = pd.read_excel(io.BytesIO(content))
     df.columns = df.columns.str.strip()
 
@@ -258,6 +262,7 @@ def parse_products_excel(content: bytes, store_id: str, db: Session) -> dict:
 
 def parse_combos_excel(content: bytes, store_id: str, db: Session) -> dict:
     """Parse Listado de combos tiktok.xlsx. Creates combo + items."""
+    import pandas as pd
     df = pd.read_excel(io.BytesIO(content))
     df.columns = df.columns.str.strip()
 
@@ -328,6 +333,7 @@ def parse_combos_excel(content: bytes, store_id: str, db: Session) -> dict:
 
 def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:
     """Parse Inventario inicial.xlsx. Full replace for store."""
+    import pandas as pd
     df = pd.read_excel(io.BytesIO(content))
     df.columns = df.columns.str.strip()
 
@@ -379,6 +385,7 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
 
 def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:
     """Parse Inventario pendiente de recibir.xlsx. Full replace for store."""
+    import pandas as pd
     df = pd.read_excel(io.BytesIO(content))
     df.columns = df.columns.str.strip()
 

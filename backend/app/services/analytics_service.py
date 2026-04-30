@@ -1,10 +1,9 @@
 """
 Analytics Service - Ported from V1 data_model.py query methods.
-All methods take (db, store_id) and return dicts/lists ready for JSON serialization.
+pandas imported lazily inside functions to reduce Railway startup memory.
 """
-import pandas as pd
-import numpy as np
-from datetime import timedelta
+from __future__ import annotations
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -12,26 +11,25 @@ from app.models.sales import SalesOrder, AffiliateSale
 from app.models.store import Store
 from app.services.stock_calculator import _load_orders_df, _build_combo_dict, decompose_orders, calculate_stock, get_unknown_combo_skus
 
-# Simple in-memory cache: {(store_id, cache_key): (timestamp, data)}
 _cache: dict = {}
-_CACHE_TTL = 300  # 5 minutes
+_CACHE_TTL = 300
 
 
 def _get_cached(store_id: str, key: str):
     cache_key = (store_id, key)
     if cache_key in _cache:
         ts, data = _cache[cache_key]
-        if (pd.Timestamp.now() - ts).total_seconds() < _CACHE_TTL:
+        if (datetime.now() - ts).total_seconds() < _CACHE_TTL:
             return data
     return None
 
 
 def _set_cache(store_id: str, key: str, data):
-    _cache[(store_id, key)] = (pd.Timestamp.now(), data)
+    _cache[(store_id, key)] = (datetime.now(), data)
 
 
 def get_overview_metrics(db: Session, store_id: str) -> dict:
-    """12 KPI cards: GMV, net orders, commissions, etc."""
+    import pandas as pd
     cached = _get_cached(store_id, "overview")
     if cached:
         return cached
@@ -52,7 +50,6 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
 
-    # Creator data
     affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     creator_commission = sum(a.commission or 0 for a in affiliates)
     creator_payment = sum(a.payment_amount or 0 for a in affiliates)
@@ -60,10 +57,9 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
 
     referral_fees = gmv * 0.06
 
-    # % vs prev month
     today = pd.Timestamp.now()
     month_start = today.replace(day=1)
-    prev_start = (month_start - pd.DateOffset(months=1))
+    prev_start = month_start - pd.DateOffset(months=1)
     dom = today.day
 
     curr_sales = df[(df["Order_Date"] >= month_start) & (df["Order_Date"] <= today)]["SKU Subtotal After Discount"].sum()
@@ -91,6 +87,7 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
 
 def get_sales_by_month(db: Session, store_id: str,
                        date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+    import pandas as pd
     df = _load_orders_df(db, store_id)
     if df.empty:
         return []
@@ -98,7 +95,6 @@ def get_sales_by_month(db: Session, store_id: str,
         df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
     if date_to:
         df = df[df["Order_Date"] <= pd.to_datetime(date_to)]
-
     df["Month"] = df["Order_Date"].dt.to_period("M").astype(str)
     monthly = df.groupby("Month").agg(
         GMV=("SKU Subtotal After Discount", "sum"),
@@ -110,6 +106,7 @@ def get_sales_by_month(db: Session, store_id: str,
 
 def get_sales_by_day(db: Session, store_id: str,
                      date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+    import pandas as pd
     df = _load_orders_df(db, store_id)
     if df.empty:
         return []
@@ -117,7 +114,6 @@ def get_sales_by_day(db: Session, store_id: str,
         df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
     if date_to:
         df = df[df["Order_Date"] <= pd.to_datetime(date_to)]
-
     df["Day"] = df["Order_Date"].dt.date.astype(str)
     daily = df.groupby("Day").agg(
         GMV=("SKU Subtotal After Discount", "sum"),
@@ -131,11 +127,9 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30) -> li
     cached = _get_cached(store_id, f"stock_{coverage_days}")
     if cached:
         return cached
-
     stock = calculate_stock(db, store_id, coverage_days)
     if stock.empty:
         return []
-
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
             "PedidosPendiente", "StockConPedidos", "Sales_7d", "Sales_30d", "Sales_60d",
             "AvgVentas30d", "WeeklyAvg_30d", "Days_Coverage", "SellThroughRate",
@@ -150,7 +144,6 @@ def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30) -> lis
     stock = calculate_stock(db, store_id, coverage_days)
     if stock.empty:
         return []
-
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
             "PedidosPendiente", "StockConPedidos", "Sales_7d", "Sales_30d", "Sales_60d",
             "AvgVentas30d", "AvgVentas60d", "WeeklyAvg_30d", "Days_Coverage",
@@ -174,6 +167,7 @@ def get_reorder_list(db: Session, store_id: str, coverage_days: int = 30) -> lis
 
 
 def get_top_creators(db: Session, store_id: str, n: int = 20) -> list:
+    import pandas as pd
     affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     if not affiliates:
         return []
@@ -189,6 +183,7 @@ def get_top_creators(db: Session, store_id: str, n: int = 20) -> list:
 
 
 def get_creator_by_type(db: Session, store_id: str) -> list:
+    import pandas as pd
     affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     if not affiliates:
         return []
@@ -204,6 +199,7 @@ def get_creator_by_type(db: Session, store_id: str) -> list:
 
 
 def get_creator_by_month(db: Session, store_id: str) -> list:
+    import pandas as pd
     affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     if not affiliates:
         return []
@@ -251,7 +247,7 @@ def get_filtered_orders(db: Session, store_id: str,
 
     rows = []
     for o in orders:
-        row = {
+        rows.append({
             "order_id": o.tiktok_order_id,
             "order_date": str(o.order_date) if o.order_date else None,
             "sku": o.sku,
@@ -272,11 +268,7 @@ def get_filtered_orders(db: Session, store_id: str,
             "cancelation_return_type": o.cancelation_return_type,
             "city": o.city,
             "state": o.state,
-        }
-        if o.raw_data:
-            row["raw_data"] = o.raw_data
-        rows.append(row)
-
+        })
     return {"total": total, "orders": rows}
 
 
@@ -284,7 +276,6 @@ def get_frequent_buyers(db: Session, store_id: str) -> list:
     df = _load_orders_df(db, store_id)
     if df.empty or "Buyer Username" not in df.columns:
         return []
-
     buyers = df.groupby("Buyer Username").agg(
         GMV=("SKU Subtotal After Discount", "sum"),
         OrderCount=("Order ID", "nunique"),
@@ -297,21 +288,17 @@ def get_top_combos(db: Session, store_id: str, n: int = 15) -> list:
     df = _load_orders_df(db, store_id)
     if df.empty:
         return []
-
     if "Order Status" in df.columns:
         df = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
-
     group_cols = ["SKU ID", "Seller SKU", "Product Name"]
     available = [c for c in group_cols if c in df.columns]
     if not available:
         return []
-
     combos = df.groupby(available).agg(
         OrderCount=("Order ID", "nunique"),
         GMV=("SKU Subtotal After Discount", "sum"),
         Units=("Quantity", "sum"),
     ).reset_index().sort_values("OrderCount", ascending=False).head(n)
-
     combos["WeeklyAvg"] = (combos["GMV"] / 4.28).round(2)
     return combos.to_dict(orient="records")
 
@@ -320,8 +307,7 @@ def get_finances(db: Session, store_id: str) -> list:
     stock = calculate_stock(db, store_id)
     if stock.empty:
         return []
-    cols = ["ProductoNombre", "Tipo", "StockActualizado", "Coste", "PRECIO",
-            "ValorInventario"]
+    cols = ["ProductoNombre", "Tipo", "StockActualizado", "Coste", "PRECIO", "ValorInventario"]
     available = [c for c in cols if c in stock.columns]
     result = stock[available].fillna(0).copy()
     result["ValorRetail"] = result["StockActualizado"] * result.get("PRECIO", 0)
@@ -329,5 +315,4 @@ def get_finances(db: Session, store_id: str) -> list:
 
 
 def get_unknown_combos(db: Session, store_id: str) -> list:
-    """Return list of SKUs in orders not mapped to combos or products."""
     return get_unknown_combo_skus(db, store_id)

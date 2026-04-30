@@ -1,9 +1,9 @@
 """
 Stock Calculator - Ported from V1 data_model.py
 Handles combo decomposition, shipped component aggregation, and stock KPI calculation.
+pandas/numpy imported lazily inside functions to reduce Railway startup memory.
 """
-import pandas as pd
-import numpy as np
+from __future__ import annotations
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,6 @@ from app.models.inventory import InitialInventory, IncomingStock
 
 
 def _build_combo_dict(db: Session, store_id: str) -> dict:
-    """Build {seller_sku: [{product_name, product_id, units}]} from DB combos."""
     combos = db.query(Combo).filter(Combo.store_id == store_id).all()
     combo_dict = {}
     for combo in combos:
@@ -32,8 +31,8 @@ def _build_combo_dict(db: Session, store_id: str) -> dict:
     return combo_dict
 
 
-def _load_orders_df(db: Session, store_id: str) -> pd.DataFrame:
-    """Load all sales orders for a store into a DataFrame."""
+def _load_orders_df(db: Session, store_id: str):
+    import pandas as pd
     orders = db.query(SalesOrder).filter(SalesOrder.store_id == store_id).all()
     if not orders:
         return pd.DataFrame()
@@ -70,8 +69,8 @@ def _load_orders_df(db: Session, store_id: str) -> pd.DataFrame:
     return df
 
 
-def decompose_orders(df: pd.DataFrame, combo_dict: dict) -> pd.DataFrame:
-    """Decompose orders by combo mapping. Returns df with ComponentKey, ComponentQty."""
+def decompose_orders(df, combo_dict: dict):
+    import pandas as pd
     if not combo_dict or df.empty:
         df = df.copy()
         df["ComponentKey"] = df.get("Product Name", df.get("SKU_ID_Clean", ""))
@@ -100,8 +99,8 @@ def decompose_orders(df: pd.DataFrame, combo_dict: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def build_shipped_components(decomposed: pd.DataFrame, initial_date: pd.Timestamp) -> pd.DataFrame:
-    """Aggregate shipped component quantities since initial_date."""
+def build_shipped_components(decomposed, initial_date):
+    import pandas as pd
     df = decomposed.copy()
     df = df[df["Order_Date"] >= initial_date]
 
@@ -126,27 +125,19 @@ def build_shipped_components(decomposed: pd.DataFrame, initial_date: pd.Timestam
 
 
 def get_unknown_combo_skus(db: Session, store_id: str) -> list:
-    """Detect seller SKUs in orders that are not in combos or product catalog.
-    Returns list of dicts: {seller_sku, product_name, order_count, total_qty}."""
     orders_df = _load_orders_df(db, store_id)
     if orders_df.empty:
         return []
 
     combo_dict = _build_combo_dict(db, store_id)
-
-    # Known combo SKUs (lowered)
     known_combo_lower = {k.strip().lower() for k in combo_dict.keys()}
 
-    # Known product names (lowered)
     products = db.query(Product).filter(Product.store_id == store_id).all()
     known_product_lower = {p.name.strip().lower() for p in products}
-
     known_lower = known_combo_lower | known_product_lower
 
-    # All unique SKUs from orders
     order_skus = orders_df['SKU_ID_Clean'].dropna().unique()
     sku_map = {s.strip().lower(): s for s in order_skus if s and s != 'nan'}
-
     unknown_originals = [orig for lower, orig in sku_map.items() if lower not in known_lower]
 
     if not unknown_originals:
@@ -159,16 +150,16 @@ def get_unknown_combo_skus(db: Session, store_id: str) -> list:
         total_qty=('Quantity', 'sum'),
     ).reset_index().rename(columns={'SKU_ID_Clean': 'seller_sku'})
 
-    summary = summary.sort_values('order_count', ascending=False)
-    return summary.to_dict(orient='records')
+    return summary.sort_values('order_count', ascending=False).to_dict(orient='records')
 
 
-def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.DataFrame:
-    """Full stock calculation pipeline. Returns stock summary DataFrame with KPIs."""
+def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
+    import pandas as pd
+    import numpy as np
+
     combo_dict = _build_combo_dict(db, store_id)
     orders_df = _load_orders_df(db, store_id)
 
-    # Get initial_inventory_date from store settings
     from app.models.store import Store
     store = db.query(Store).filter(Store.id == store_id).first()
     initial_date_str = "2026-01-01"
@@ -176,7 +167,6 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
         initial_date_str = store.settings["initial_inventory_date"]
     initial_date = pd.to_datetime(initial_date_str)
 
-    # Decompose
     if not orders_df.empty:
         decomposed = decompose_orders(orders_df, combo_dict)
         shipped = build_shipped_components(decomposed, initial_date)
@@ -184,7 +174,6 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
         decomposed = pd.DataFrame()
         shipped = pd.DataFrame(columns=["ComponentKey", "QtyShipped"])
 
-    # Initial inventory from DB
     inv_records = db.query(InitialInventory).filter(InitialInventory.store_id == store_id).all()
     inv_rows = []
     for r in inv_records:
@@ -208,23 +197,16 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
     else:
         inv_stock = pd.DataFrame(columns=["ProductKey", "Initial_Stock", "Tipo", "ProductoNombre", "product_id"])
 
-    # Pending inventory
     incoming = db.query(IncomingStock).filter(IncomingStock.store_id == store_id).all()
     if incoming:
-        inc_rows = []
-        for r in incoming:
-            product = db.query(Product).filter(Product.id == r.product_id).first()
-            if product:
-                inc_rows.append({
-                    "_pk": product.name.strip().lower(),
-                    "_status": (r.status or "pending").strip(),
-                    "qty": r.qty_ordered,
-                })
-        pending_df = pd.DataFrame(inc_rows)
+        inc_rows = [{"_pk": db.query(Product).filter(Product.id == r.product_id).first().name.strip().lower(),
+                     "_status": (r.status or "pending").strip(), "qty": r.qty_ordered}
+                    for r in incoming
+                    if db.query(Product).filter(Product.id == r.product_id).first()]
+        pending_df = pd.DataFrame(inc_rows) if inc_rows else pd.DataFrame(columns=["_pk", "_status", "qty"])
     else:
         pending_df = pd.DataFrame(columns=["_pk", "_status", "qty"])
 
-    # Add Recibido to initial stock
     if not pending_df.empty:
         recibido = pending_df[pending_df["_status"] == "Recibido"]
         if not recibido.empty:
@@ -236,19 +218,14 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
             inv_stock.drop(columns=["Recibido_Add"], inplace=True)
 
         pendiente_active = pending_df[pending_df["_status"] != "Recibido"]
-        if not pendiente_active.empty:
-            pend_agg = pendiente_active.groupby("_pk")["qty"].sum().reset_index()
-            pend_agg.columns = ["ProductKey", "PedidosPendiente"]
-        else:
-            pend_agg = pd.DataFrame(columns=["ProductKey", "PedidosPendiente"])
+        pend_agg = pendiente_active.groupby("_pk")["qty"].sum().reset_index() if not pendiente_active.empty else pd.DataFrame(columns=["_pk", "qty"])
+        pend_agg.columns = ["ProductKey", "PedidosPendiente"] if not pend_agg.empty else ["ProductKey", "PedidosPendiente"]
     else:
         pend_agg = pd.DataFrame(columns=["ProductKey", "PedidosPendiente"])
 
-    # Shipped components
     shipped["ProductKey"] = shipped["ComponentKey"].str.strip().str.lower()
     shipped_agg = shipped.groupby("ProductKey")["QtyShipped"].sum().reset_index()
 
-    # Merge
     stock = inv_stock.merge(shipped_agg, on="ProductKey", how="left")
     stock["QtyShipped"] = stock["QtyShipped"].fillna(0)
     stock["StockActualizado"] = stock["Initial_Stock"] - stock["QtyShipped"]
@@ -263,7 +240,6 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
     if stock.empty:
         return stock
 
-    # Product catalog info
     products = db.query(Product).filter(Product.store_id == store_id).all()
     cat_map = {p.name.strip().lower(): {
         "Coste": p.price_cost or 0,
@@ -276,7 +252,6 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
     stock["UNIDADES POR CAJA"] = stock["ProductKey"].map(lambda k: cat_map.get(k, {}).get("UNIDADES POR CAJA", 1))
     stock["ValorInventario"] = stock["StockActualizado"] * stock["Coste"]
 
-    # KPIs
     if not decomposed.empty:
         today = pd.Timestamp.now()
         active = decomposed[decomposed["Order_Date"] >= initial_date].copy()
@@ -288,12 +263,12 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
             cutoff = today - timedelta(days=days)
             return active[active["Order_Date"] >= cutoff].groupby("_pk")["ComponentQty"].sum()
 
-        s7 = sales_in_period(7)
+        s7  = sales_in_period(7)
         s30 = sales_in_period(30)
         s60 = sales_in_period(60)
         total_sales = active.groupby("_pk")["ComponentQty"].sum()
 
-        stock["Sales_7d"] = stock["ProductKey"].map(s7).fillna(0)
+        stock["Sales_7d"]  = stock["ProductKey"].map(s7).fillna(0)
         stock["Sales_30d"] = stock["ProductKey"].map(s30).fillna(0)
         stock["Sales_60d"] = stock["ProductKey"].map(s60).fillna(0)
         stock["DaysSelectedTotal"] = stock["ProductKey"].map(total_sales).fillna(0)
@@ -301,16 +276,15 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
         for col in ["Sales_7d", "Sales_30d", "Sales_60d", "DaysSelectedTotal"]:
             stock[col] = 0
 
-    # Ensure numeric types
     for col in ["Sales_7d", "Sales_30d", "Sales_60d", "DaysSelectedTotal",
                 "Initial_Stock", "QtyShipped", "StockActualizado", "PedidosPendiente",
                 "StockConPedidos", "Coste", "PRECIO", "UNIDADES POR CAJA", "ValorInventario"]:
         if col in stock.columns:
             stock[col] = pd.to_numeric(stock[col], errors="coerce").fillna(0)
 
-    stock["AvgVentas30d"] = (stock["Sales_30d"] / 30).round(2)
-    stock["AvgVentas60d"] = (stock["Sales_60d"] / 60).round(2)
-    stock["WeeklyAvg_30d"] = (stock["Sales_30d"] / 4.28).round(2)
+    stock["AvgVentas30d"]   = (stock["Sales_30d"] / 30).round(2)
+    stock["AvgVentas60d"]   = (stock["Sales_60d"] / 60).round(2)
+    stock["WeeklyAvg_30d"]  = (stock["Sales_30d"] / 4.28).round(2)
 
     stock["Days_Coverage"] = np.where(
         stock["AvgVentas30d"] > 0,
@@ -318,9 +292,9 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30) -> pd.D
         999,
     )
 
-    stock["Inv_deseado"] = (stock["AvgVentas30d"] * coverage_days).round(0)
-    stock["Unid_a_comprar"] = np.maximum(0, stock["Inv_deseado"] - stock["StockActualizado"]).round(0)
-    stock["Cajas_a_comprar"] = np.where(
+    stock["Inv_deseado"]      = (stock["AvgVentas30d"] * coverage_days).round(0)
+    stock["Unid_a_comprar"]   = np.maximum(0, stock["Inv_deseado"] - stock["StockActualizado"]).round(0)
+    stock["Cajas_a_comprar"]  = np.where(
         stock["UNIDADES POR CAJA"] > 0,
         np.ceil(stock["Unid_a_comprar"] / stock["UNIDADES POR CAJA"]),
         stock["Unid_a_comprar"],
