@@ -34,6 +34,6 @@ CORS_ORIGINS = [origin.strip() for origin in _cors_raw.split(",") if origin.stri
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 
 # Upload limits
-MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 
 APP_VERSION = "2.0.0"

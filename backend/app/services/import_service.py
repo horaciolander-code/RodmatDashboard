@@ -59,24 +59,25 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     )
     df.columns = df.columns.str.strip()
 
+    # Load existing (order_id, sku) pairs for fast lookup — avoids N+1 queries
+    existing_keys = set(
+        db.query(SalesOrder.tiktok_order_id, SalesOrder.sku)
+        .filter(SalesOrder.store_id == store_id)
+        .all()
+    )
+
     inserted, updated, errors = 0, 0, 0
-    batch = []
+    new_batch = []
+    update_batch = []
 
     for _, row in df.iterrows():
         try:
             order_id = _safe_str(row.get('Order ID'))
             sku_id = _safe_str(row.get('SKU ID'))
-            seller_sku = _safe_str(row.get('Seller SKU'))
 
             if not order_id:
                 errors += 1
                 continue
-
-            existing = db.query(SalesOrder).filter(and_(
-                SalesOrder.store_id == store_id,
-                SalesOrder.tiktok_order_id == order_id,
-                SalesOrder.sku == sku_id,
-            )).first()
 
             created_time = _safe_datetime(row.get('Created Time'))
             shipped_time = _safe_datetime(row.get('Shipped Time'))
@@ -86,7 +87,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 tiktok_order_id=order_id,
                 order_date=created_time,
                 sku=sku_id,
-                seller_sku=seller_sku,
+                seller_sku=_safe_str(row.get('Seller SKU')),
                 product_name=_safe_str(row.get('Product Name')),
                 quantity=_safe_int(row.get('Quantity', 1)),
                 status=_safe_str(row.get('Order Status')),
@@ -110,24 +111,28 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 raw_data={k: str(v) for k, v in row.to_dict().items()},
             )
 
-            if existing:
-                for k, v in data.items():
-                    if k != 'store_id':
-                        setattr(existing, k, v)
+            if (order_id, sku_id) in existing_keys:
+                update_batch.append(data)
                 updated += 1
             else:
-                batch.append(SalesOrder(**data))
+                new_batch.append(SalesOrder(**data))
+                existing_keys.add((order_id, sku_id))
                 inserted += 1
 
-            if len(batch) >= 1000:
-                db.bulk_save_objects(batch)
+            if len(new_batch) >= 2000:
+                db.bulk_save_objects(new_batch)
                 db.flush()
-                batch = []
+                new_batch = []
         except Exception:
             errors += 1
 
-    if batch:
-        db.bulk_save_objects(batch)
+    if new_batch:
+        db.bulk_save_objects(new_batch)
+
+    # Bulk update existing records
+    if update_batch:
+        db.bulk_update_mappings(SalesOrder, update_batch)
+
     db.commit()
 
     return {"total_rows": len(df), "inserted": inserted, "updated": updated, "errors": errors}
