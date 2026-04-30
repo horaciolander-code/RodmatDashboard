@@ -82,11 +82,10 @@ def health_check():
 
 
 # Serve React panel — must be after all API routes
-# Supports two layouts: full repo checkout (dist is 3 levels up) or backend-only deploy (dist alongside backend)
-_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "setup-panel" / "dist"
+# Priority: backend/static/ (Railway deploy) → full repo frontend/setup-panel/dist (local dev)
+_dist = Path(__file__).resolve().parent.parent / "static"
 if not _dist.exists():
-    # Railway with rootDirectory=backend places the repo at /app/backend, so go up one less level
-    _dist = Path(__file__).resolve().parent.parent / "frontend" / "setup-panel" / "dist"
+    _dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "setup-panel" / "dist"
 
 if _dist.exists():
     app.mount("/assets", StaticFiles(directory=str(_dist / "assets")), name="assets")
