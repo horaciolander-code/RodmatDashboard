@@ -9,7 +9,6 @@ import urllib.error
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-import pandas as pd
 from sqlalchemy.orm import Session
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
@@ -84,24 +83,26 @@ def load_kpis(db: Session, store_id: str) -> pd.DataFrame:
     return calculate_stock(db, store_id)
 
 
-def load_creator_df(db: Session, store_id: str) -> pd.DataFrame:
+def load_creator_df(db: Session, store_id: str):
+    import pandas as pd
     from app.models.sales import AffiliateSale
     rows = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame([{
-        "Order ID":        a.order_id,
+        "Order ID":         a.order_id,
         "Creator Username": a.creator_username,
-        "Payment Amount":  a.payment_amount or 0,
-        "Product Name":    a.product_name,
-        "Order Status":    a.status or "COMPLETED",
-        "Time Created":    pd.to_datetime(a.time_created) if a.time_created else pd.NaT,
-        "Content Type":    a.content_type,
-        "Commission":      a.commission or 0,
+        "Payment Amount":   a.payment_amount or 0,
+        "Product Name":     a.product_name,
+        "Order Status":     a.status or "COMPLETED",
+        "Time Created":     pd.to_datetime(a.time_created) if a.time_created else pd.NaT,
+        "Content Type":     a.content_type,
+        "Commission":       a.commission or 0,
     } for a in rows])
 
 
-def load_pending_df(db: Session, store_id: str) -> pd.DataFrame:
+def load_pending_df(db: Session, store_id: str):
+    import pandas as pd
     from app.models.inventory import IncomingStock
     from app.models.product import Product
     rows = (db.query(IncomingStock, Product)
@@ -112,10 +113,10 @@ def load_pending_df(db: Session, store_id: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame([{
-        "Producto":                 prod.name,
-        "Unidades pedidas":         inc.qty_ordered,
-        "Importe total":            (inc.cost or 0) * inc.qty_ordered,
-        "Fecha estimada entrega":   inc.expected_arrival,
-        "Fecha pedido":             inc.order_date,
-        "Status":                   inc.status,
+        "Producto":               prod.name,
+        "Unidades pedidas":       inc.qty_ordered,
+        "Importe total":          (inc.cost or 0) * inc.qty_ordered,
+        "Fecha estimada entrega": inc.expected_arrival,
+        "Fecha pedido":           inc.order_date,
+        "Status":                 inc.status,
     } for inc, prod in rows])
