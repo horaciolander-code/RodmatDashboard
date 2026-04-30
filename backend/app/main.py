@@ -53,6 +53,11 @@ def on_startup():
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables verified/created on startup")
+    logger.info("__file__: %s", Path(__file__).resolve())
+    _s = Path(__file__).resolve().parent.parent / "static"
+    logger.info("static path: %s  exists=%s", _s, _s.exists())
+    _f = Path(__file__).resolve().parent.parent.parent / "frontend" / "setup-panel" / "dist"
+    logger.info("frontend dist path: %s  exists=%s", _f, _f.exists())
 
 
 @app.exception_handler(Exception)
