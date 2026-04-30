@@ -199,11 +199,15 @@ def run_store_report(db: Session, store_id: str) -> bool:
     return send_report(html, recipients, store.name)
 
 
-def run_all_reports(db: Session):
+def run_all_reports(db: Session) -> dict:
     """Run reports for all stores that have reporting enabled."""
     stores = db.query(Store).all()
+    results = {}
     for store in stores:
         settings = store.settings or {}
         if settings.get("report_enabled", False) and settings.get("report_recipients"):
-            print(f"Running report for store: {store.name}")
-            run_store_report(db, store.id)
+            ok = run_store_report(db, store.id)
+            results[store.name] = "sent" if ok else "failed"
+        else:
+            results[store.name] = "skipped (reporting not configured)"
+    return results
