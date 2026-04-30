@@ -628,6 +628,7 @@ def main():
         st.write(f"**{user.get('email', '')}**")
         st.caption(f"Store: {user.get('store_id', '')[:8]}...")
         if st.button("Refresh Data"):
+            api_post("/analytics/clear-cache")
             st.cache_data.clear()
             st.rerun()
         if st.button("Logout"):

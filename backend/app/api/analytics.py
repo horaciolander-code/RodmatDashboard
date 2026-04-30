@@ -142,3 +142,12 @@ def unknown_combos(
     db: Session = Depends(get_db),
 ):
     return svc.get_unknown_combos(db, user.store_id)
+
+
+@router.post("/clear-cache")
+def clear_cache(user: User = Depends(get_current_user)):
+    """Force-clear the backend analytics cache for this store."""
+    keys_removed = [k for k in list(svc._cache.keys()) if k[0] == user.store_id]
+    for k in keys_removed:
+        del svc._cache[k]
+    return {"cleared": len(keys_removed)}

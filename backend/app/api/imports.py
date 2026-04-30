@@ -35,30 +35,19 @@ def _target_store(user: User, store_id: str | None) -> str:
     return user.store_id
 
 
-def _run_orders_bg(content: bytes, store_id: str):
-    db = SessionLocal()
-    try:
-        result = parse_orders_csv(content, store_id, db)
-        logger.info("bg orders import done: %s", result)
-    except Exception as exc:
-        logger.exception("bg orders import failed: %s", exc)
-    finally:
-        db.close()
-
-
-@router.post("/orders")
+@router.post("/orders", response_model=ImportResult)
 async def import_orders(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     store_id: str | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from app.services.analytics_service import _cache
     content = await file.read()
     _validate_upload(file, content, ".csv")
-    target = _target_store(user, store_id)
-    background_tasks.add_task(_run_orders_bg, content, target)
-    return {"status": "processing", "message": f"Import started for {len(content)//1024}KB. Refresh dashboard in ~30 seconds."}
+    result = parse_orders_csv(content, _target_store(user, store_id), db)
+    _cache.clear()
+    return result
 
 
 @router.post("/affiliates", response_model=ImportResult)

@@ -56,7 +56,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     import pandas as pd
     sep = _detect_separator(content)
     df = pd.read_csv(
-        io.BytesIO(content), sep=sep, skiprows=[1],
+        io.BytesIO(content), sep=sep,
         encoding='utf-8-sig', on_bad_lines='skip', engine='python'
     )
     df.columns = df.columns.str.strip()
