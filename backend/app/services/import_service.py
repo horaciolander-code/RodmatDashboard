@@ -60,7 +60,10 @@ def _safe_datetime(val) -> datetime | None:
 
 def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     """Parse TikTok orders CSV (AllBBDD format). Upserts by (store_id, order_id, sku)."""
+    import uuid as _uuid
     import pandas as pd
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     sep = _detect_separator(content)
     df = pd.read_csv(
         io.BytesIO(content), sep=sep,
@@ -68,31 +71,22 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     )
     df.columns = df.columns.str.strip()
 
-    # Load existing (order_id, sku) → db_id mapping for upsert
-    existing_map: dict = {
-        (r.tiktok_order_id, r.sku): r.id
-        for r in db.query(SalesOrder.tiktok_order_id, SalesOrder.sku, SalesOrder.id)
-            .filter(SalesOrder.store_id == store_id)
-            .all()
-    }
-
-    inserted, updated, errors = 0, 0, 0
-    new_batch = []
-    update_batch = []
+    rows = []
+    errors = 0
 
     for _, row in df.iterrows():
         try:
             order_id = _safe_str(row.get('Order ID'))
-            sku_id = _safe_str(row.get('SKU ID'))
-
             if not order_id:
                 errors += 1
                 continue
 
+            sku_id = _safe_str(row.get('SKU ID'))
             created_time = _safe_datetime(row.get('Created Time'))
             shipped_time = _safe_datetime(row.get('Shipped Time'))
 
-            data = dict(
+            rows.append(dict(
+                id=str(_uuid.uuid4()),
                 store_id=store_id,
                 tiktok_order_id=order_id,
                 order_date=created_time,
@@ -119,34 +113,36 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 city=_safe_str(row.get('City')),
                 state=_safe_str(row.get('State')),
                 raw_data=None,
-            )
-
-            existing_id = existing_map.get((order_id, sku_id))
-            if existing_id:
-                data['id'] = existing_id
-                update_batch.append(data)
-                updated += 1
-            else:
-                new_batch.append(SalesOrder(**data))
-                existing_map[(order_id, sku_id)] = True  # mark seen to avoid duplicate inserts
-                inserted += 1
-
-            if len(new_batch) >= 2000:
-                db.bulk_save_objects(new_batch)
-                db.flush()
-                new_batch = []
+            ))
         except Exception:
             errors += 1
 
-    if new_batch:
-        db.bulk_save_objects(new_batch)
-
-    if update_batch:
-        db.bulk_update_mappings(SalesOrder, update_batch)
+    # PostgreSQL native upsert — one round-trip per batch, handles insert+update atomically
+    UPDATE_COLS = [
+        'status', 'substatus', 'shipped_time', 'order_date', 'created_time',
+        'price', 'quantity', 'order_amount', 'order_refund_amount',
+        'sku_subtotal_after_discount', 'shipping_fee_after_discount',
+        'sku_seller_discount', 'sku_platform_discount',
+        'fulfillment_type', 'cancelation_return_type',
+        'product_name', 'seller_sku', 'buyer_username', 'variation',
+        'recipient', 'city', 'state',
+    ]
+    BATCH = 3000
+    total_processed = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i:i + BATCH]
+        stmt = pg_insert(SalesOrder).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint='uq_store_order_sku',
+            set_={col: stmt.excluded[col] for col in UPDATE_COLS},
+        )
+        db.execute(stmt)
+        db.flush()
+        total_processed += len(batch)
 
     db.commit()
 
-    return {"total_rows": len(df), "inserted": inserted, "updated": updated, "errors": errors}
+    return {"total_rows": len(df), "inserted": total_processed, "updated": 0, "errors": errors}
 
 
 def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
