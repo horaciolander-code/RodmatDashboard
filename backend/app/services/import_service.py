@@ -23,28 +23,35 @@ def _detect_separator(content: bytes) -> str:
 def _safe_float(val) -> float | None:
     try:
         v = float(val)
-        return v if pd.notna(v) else None
+        return v if v == v else None  # NaN check without pandas
     except (ValueError, TypeError):
         return None
 
 
 def _safe_int(val) -> int:
     try:
-        v = int(float(val))
-        return v if pd.notna(v) else 0
+        v = float(val)
+        return int(v) if v == v else 0
     except (ValueError, TypeError):
         return 0
 
 
 def _safe_str(val) -> str | None:
-    if pd.isna(val):
+    if val is None:
         return None
+    try:
+        import math
+        if isinstance(val, float) and math.isnan(val):
+            return None
+    except Exception:
+        pass
     s = str(val).strip()
     return s if s and s != 'nan' else None
 
 
 def _safe_datetime(val) -> datetime | None:
     try:
+        import pandas as pd
         dt = pd.to_datetime(val, errors='coerce', format='mixed')
         return dt.to_pydatetime() if pd.notna(dt) else None
     except Exception:
@@ -61,12 +68,13 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     )
     df.columns = df.columns.str.strip()
 
-    # Load existing (order_id, sku) pairs for fast lookup — avoids N+1 queries
-    existing_keys = set(
-        db.query(SalesOrder.tiktok_order_id, SalesOrder.sku)
-        .filter(SalesOrder.store_id == store_id)
-        .all()
-    )
+    # Load existing (order_id, sku) → db_id mapping for upsert
+    existing_map: dict = {
+        (r.tiktok_order_id, r.sku): r.id
+        for r in db.query(SalesOrder.tiktok_order_id, SalesOrder.sku, SalesOrder.id)
+            .filter(SalesOrder.store_id == store_id)
+            .all()
+    }
 
     inserted, updated, errors = 0, 0, 0
     new_batch = []
@@ -113,12 +121,14 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 raw_data=None,
             )
 
-            if (order_id, sku_id) in existing_keys:
+            existing_id = existing_map.get((order_id, sku_id))
+            if existing_id:
+                data['id'] = existing_id
                 update_batch.append(data)
                 updated += 1
             else:
                 new_batch.append(SalesOrder(**data))
-                existing_keys.add((order_id, sku_id))
+                existing_map[(order_id, sku_id)] = True  # mark seen to avoid duplicate inserts
                 inserted += 1
 
             if len(new_batch) >= 2000:
@@ -131,7 +141,6 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
     if new_batch:
         db.bulk_save_objects(new_batch)
 
-    # Bulk update existing records
     if update_batch:
         db.bulk_update_mappings(SalesOrder, update_batch)
 
