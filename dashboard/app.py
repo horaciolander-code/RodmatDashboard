@@ -773,11 +773,14 @@ def page_gestion_inventario():
         df = pd.DataFrame(columns=["id", "product_id", "qty_ordered", "status",
                                     "supplier", "tracking", "cost", "notes", "order_date"])
 
-    status_options = ["pending", "Recibido", "En transito", "Cancelado", "Ajuste"]
+    status_options = ["Pendiente", "Recibido", "En transito", "Cancelado", "Ajuste"]
 
     if "status" in df.columns:
         df["status"] = df["status"].astype(str).str.strip()
-        df.loc[df["status"].isin(["nan", "", "None"]), "status"] = "pending"
+        df.loc[df["status"].isin(["nan", "", "None", "pending"]), "status"] = "Pendiente"
+
+    if "order_date" in df.columns:
+        df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce").dt.date
 
     # Filters
     fcol1, fcol2 = st.columns(2)
@@ -833,7 +836,7 @@ def page_gestion_inventario():
             st.rerun()
     with col_info:
         if not df.empty and "status" in df.columns:
-            n_p = len(df[df["status"] == "pending"])
+            n_p = len(df[df["status"] == "Pendiente"])
             n_r = len(df[df["status"] == "Recibido"])
             n_t = len(df[df["status"] == "En transito"])
             total_v = len(df_view)
@@ -855,6 +858,16 @@ def page_listado_productos():
     else:
         df = pd.DataFrame(columns=["id", "sku", "name", "category", "price_cost",
                                     "price_sale", "units_per_box", "supplier", "status"])
+
+    if "status" in df.columns:
+        df["status"] = df["status"].fillna("active").astype(str).str.strip()
+        df.loc[df["status"].isin(["nan", "", "None"]), "status"] = "active"
+
+    for col in ["price_cost", "price_sale"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    if "units_per_box" in df.columns:
+        df["units_per_box"] = pd.to_numeric(df["units_per_box"], errors="coerce").fillna(1).astype(int)
 
     edited = st.data_editor(
         df, num_rows="dynamic",
@@ -1031,6 +1044,9 @@ def page_inventario_fbt():
         df = pd.DataFrame(data)
     else:
         df = pd.DataFrame(columns=["id", "goods_code", "goods_name", "total_units", "fecha_envio"])
+
+    if "fecha_envio" in df.columns:
+        df["fecha_envio"] = pd.to_datetime(df["fecha_envio"], errors="coerce").dt.date
 
     st.subheader("Envíos a FBT")
     edited = st.data_editor(
