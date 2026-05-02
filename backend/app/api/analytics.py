@@ -12,9 +12,13 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 @router.get("/overview")
 def overview(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if date_from or date_to:
+        return svc.get_overview_metrics_filtered(db, user.store_id, date_from, date_to)
     return svc.get_overview_metrics(db, user.store_id)
 
 
@@ -96,8 +100,12 @@ def filtered_orders(
     date_to: Optional[str] = None,
     status: Optional[str] = None,
     sku: Optional[str] = None,
+    seller_sku: Optional[str] = None,
     buyer: Optional[str] = None,
     fulfillment: Optional[str] = None,
+    cancel_type: Optional[str] = None,
+    city: Optional[str] = None,
+    recipient: Optional[str] = None,
     order_id: Optional[str] = None,
     product_name: Optional[str] = None,
     limit: int = Query(500, le=5000),
@@ -107,7 +115,8 @@ def filtered_orders(
 ):
     return svc.get_filtered_orders(
         db, user.store_id, date_from, date_to, status, sku,
-        buyer, fulfillment, order_id, product_name, limit, offset
+        buyer, fulfillment, order_id, product_name, limit, offset,
+        seller_sku=seller_sku, cancel_type=cancel_type, city=city, recipient=recipient,
     )
 
 
@@ -142,6 +151,44 @@ def unknown_combos(
     db: Session = Depends(get_db),
 ):
     return svc.get_unknown_combos(db, user.store_id)
+
+
+@router.get("/affiliates/orders")
+def filtered_affiliates(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    content_type: Optional[str] = None,
+    creator: Optional[str] = None,
+    product: Optional[str] = None,
+    order_id: Optional[str] = None,
+    order_status: Optional[str] = None,
+    limit: int = Query(1000, le=5000),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_filtered_affiliates(
+        db, user.store_id, date_from, date_to,
+        content_type, creator, product, order_id, order_status, limit,
+    )
+
+
+@router.get("/combo-sales")
+def combo_sales(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_combo_sales_summary(db, user.store_id, date_from, date_to)
+
+
+@router.get("/product-monthly-sales")
+def product_monthly_sales(
+    product_name: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_monthly_product_sales(db, user.store_id, product_name)
 
 
 @router.post("/clear-cache")

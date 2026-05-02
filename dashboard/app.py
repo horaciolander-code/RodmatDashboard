@@ -1,7 +1,6 @@
 """
 Rodmat Dashboard V2 - Multi-tenant Streamlit Dashboard
-Consumes the V2 FastAPI backend via JWT-authenticated REST API.
-9 tabs ported from V1.
+Full parity with V1: all pages, filters, charts, and features.
 """
 import streamlit as st
 import pandas as pd
@@ -27,10 +26,26 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] p { color: #31333F !important; font-weight: 600; }
     [data-testid="stMetricValue"] { color: #0e1117 !important; font-size: 1.3rem; }
+    [data-testid="stMetricDelta"] { color: #31333F !important; }
     @media (prefers-color-scheme: dark) {
         [data-testid="stMetric"] { background-color: #262730; border-left: 4px solid #4da6ff; }
         [data-testid="stMetricLabel"] p { color: #fafafa !important; }
         [data-testid="stMetricValue"] { color: #ffffff !important; }
+        [data-testid="stMetricDelta"] { color: #c0c0c0 !important; }
+    }
+    @media (max-width: 768px) {
+        [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+        [data-testid="stHorizontalBlock"] > div { flex: 1 1 45% !important; min-width: 45% !important; }
+        [data-testid="stMetric"] { padding: 0.5rem; margin-bottom: 0.25rem; }
+        [data-testid="stMetricValue"] { font-size: 1rem; }
+        [data-testid="stMetricLabel"] p { font-size: 0.75rem !important; }
+        .block-container { padding-left: 0.5rem; padding-right: 0.5rem; padding-top: 0.5rem; }
+        [data-testid="stDataFrame"] { overflow-x: auto !important; }
+        button[data-baseweb="tab"] { font-size: 0.75rem !important; padding: 0.4rem 0.5rem !important; }
+    }
+    @media (max-width: 480px) {
+        [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; min-width: 100% !important; }
+        [data-testid="stMetricValue"] { font-size: 0.9rem; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -40,8 +55,11 @@ st.markdown("""
 #  CACHED API CALLS
 # ================================================================== #
 @st.cache_data(ttl=300)
-def fetch_overview():
-    return api_get("/analytics/overview") or {}
+def fetch_overview(date_from=None, date_to=None):
+    params = {}
+    if date_from: params["date_from"] = str(date_from)
+    if date_to: params["date_to"] = str(date_to)
+    return api_get("/analytics/overview", params) or {}
 
 @st.cache_data(ttl=300)
 def fetch_sales_by_month(date_from=None, date_to=None):
@@ -64,10 +82,6 @@ def fetch_stock_summary(coverage_days=30):
 @st.cache_data(ttl=300)
 def fetch_stock_detail(coverage_days=30):
     return api_get("/analytics/stock-detail", {"coverage_days": coverage_days}) or []
-
-@st.cache_data(ttl=300)
-def fetch_reorder(coverage_days=30):
-    return api_get("/analytics/reorder-list", {"coverage_days": coverage_days}) or []
 
 @st.cache_data(ttl=300)
 def fetch_top_creators(n=20):
@@ -98,6 +112,10 @@ def fetch_incoming_stock():
     return api_get("/inventory/incoming") or []
 
 @st.cache_data(ttl=300)
+def fetch_fbt_inventory():
+    return api_get("/inventory/fbt") or []
+
+@st.cache_data(ttl=300)
 def fetch_unknown_combos():
     return api_get("/analytics/unknown-combos") or []
 
@@ -105,104 +123,175 @@ def fetch_unknown_combos():
 def fetch_combos():
     return api_get("/combos") or []
 
+@st.cache_data(ttl=300)
+def fetch_products():
+    return api_get("/products") or []
+
+@st.cache_data(ttl=300)
+def fetch_combo_sales(date_from=None, date_to=None):
+    params = {}
+    if date_from: params["date_from"] = str(date_from)
+    if date_to: params["date_to"] = str(date_to)
+    return api_get("/analytics/combo-sales", params) or []
+
+@st.cache_data(ttl=300)
+def fetch_product_monthly_sales(product_name=None):
+    params = {}
+    if product_name: params["product_name"] = product_name
+    return api_get("/analytics/product-monthly-sales", params) or []
+
 
 # ================================================================== #
 #  PAGE 1: OVERVIEW
 # ================================================================== #
 def page_overview():
-    st.header("Overview")
+    st.header("Resumen General")
 
     unknown = fetch_unknown_combos()
     if unknown:
         st.warning(f"{len(unknown)} SKU(s) en pedidos sin combo asignado. Ve a Gestion > Gestion Combos para revisarlos.")
 
-    m = fetch_overview()
+    # Slicers
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        date_range = st.date_input("Período", value=[], key="ov_date")
+    with col_s2:
+        substatus_filter = st.text_input("Buscar Subestado", "", key="ov_substatus")
+    with col_s3:
+        order_search = st.text_input("Buscar Orden", "", key="ov_order")
+
+    date_from = str(date_range[0]) if len(date_range) >= 1 else None
+    date_to = str(date_range[1]) if len(date_range) == 2 else (str(date_range[0]) if len(date_range) == 1 else None)
+
+    m = fetch_overview(date_from, date_to)
     if not m:
-        st.warning("No data available.")
+        st.warning("No hay datos disponibles.")
         return
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Net Order Amount", f"${m.get('NetOrderAmount', 0):,.2f}")
-    c2.metric("GMV (SKU Subtotal)", f"${m.get('TITKOKGMVOrderAmount', 0):,.2f}")
-    c3.metric("Creator Commission", f"${m.get('CreatorCommission', 0):,.2f}")
-    c4.metric("Creator Payment", f"${m.get('CreatorPayment', 0):,.2f}")
+    c1.metric("Monto Neto", f"${m.get('NetOrderAmount', 0):,.2f}")
+    c2.metric("GMV (Subtotal SKU)", f"${m.get('TITKOKGMVOrderAmount', 0):,.2f}")
+    c3.metric("Comisión Pagada Creadores", f"${m.get('CreatorCommission', 0):,.2f}")
+    c4.metric("GMV Afiliados (completado)", f"${m.get('CreatorPayment', 0):,.2f}")
 
     c5, c6, c7, c8 = st.columns(4)
-    c5.metric("Net Orders", f"{m.get('netOrder', 0):,}")
-    c6.metric("% vs Prev Month", f"{m.get('PctVsPrevMonth', 0):+.1f}%")
-    c7.metric("Net w/o Shipping", f"${m.get('netOrderWOUshipping', 0):,.2f}")
-    c8.metric("Shipping Fees", f"${m.get('ShippingFees', 0):,.2f}")
+    c5.metric("Órdenes Netas", f"{m.get('netOrder', 0):,}")
+    c6.metric("Neto sin Envío", f"${m.get('netOrderWOUshipping', 0):,.2f}")
+    c7.metric("Gastos de Envío", f"${m.get('ShippingFees', 0):,.2f}")
+    c8.metric("% vs Mes Anterior", f"{m.get('PctVsPrevMonth', 0):+.1f}%")
 
     c9, c10, c11, c12 = st.columns(4)
-    c9.metric("Seller+Platform Disc.", f"${m.get('SellerDiscount',0) + m.get('PlatformDiscount',0):,.2f}")
-    c10.metric("Comm+Ref+PlatDisc", f"${m.get('CreatorCommission',0) + m.get('RefferarFees',0) + m.get('PlatformDiscount',0):,.2f}")
-    c11.metric("Creator Orders", f"{m.get('CreatorOrderCount', 0):,}")
-    c12.metric("Referrar Fees (est.)", f"${m.get('RefferarFees', 0):,.2f}")
+    c9.metric("Dto. Vendedor+Plataforma", f"${m.get('SellerDiscount', 0) + m.get('PlatformDiscount', 0):,.2f}")
+    c10.metric("Comis.+Ref.+DescPlat", f"${m.get('CreatorCommission', 0) + m.get('RefferarFees', 0) + m.get('PlatformDiscount', 0):,.2f}")
+    c11.metric("Comis. Referidos (est.)", f"${m.get('RefferarFees', 0):,.2f}")
+    c12.metric("Órdenes Afiliados", f"{m.get('CreatorOrderCount', 0):,}")
 
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("GMV Sales by Month")
-        monthly = fetch_sales_by_month()
-        if monthly:
-            df = pd.DataFrame(monthly)
-            fig = px.bar(df, x="Month", y="GMV", text_auto="$.2s")
-            fig.update_layout(height=350, margin=dict(t=10, b=10))
-            st.plotly_chart(fig, use_container_width=True)
 
-    with col2:
-        st.subheader("GMV Sales by Day")
-        daily = fetch_sales_by_day()
-        if daily:
-            df = pd.DataFrame(daily)
-            fig = px.line(df, x="Day", y="GMV", markers=True)
+    monthly = fetch_sales_by_month(date_from, date_to)
+    st.subheader("GMV por Mes")
+    if monthly:
+        df_m = pd.DataFrame(monthly)
+        fig = px.bar(df_m, x="Month", y="GMV", text_auto="$.2s")
+        fig.update_layout(height=350, margin=dict(t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True, key="ov_monthly")
+
+    # Month filter buttons for daily chart
+    st.subheader("GMV por Día")
+    month_opts = sorted([r["Month"] for r in monthly]) if monthly else []
+    if month_opts:
+        if "ov_selected_month" not in st.session_state:
+            st.session_state["ov_selected_month"] = "All"
+        all_btns = ["All"] + month_opts
+        btn_cols = st.columns(len(all_btns))
+        for i, label in enumerate(all_btns):
+            with btn_cols[i]:
+                btn_type = "primary" if st.session_state["ov_selected_month"] == label else "secondary"
+                if st.button(label, key=f"ov_btn_{label}", type=btn_type):
+                    st.session_state["ov_selected_month"] = label
+                    st.rerun()
+        selected_month = st.session_state["ov_selected_month"]
+    else:
+        selected_month = "All"
+
+    daily_raw = fetch_sales_by_day(date_from, date_to)
+    if daily_raw:
+        df_d = pd.DataFrame(daily_raw)
+        if selected_month != "All" and not df_d.empty:
+            df_d["_m"] = df_d["Day"].astype(str).str[:7].str.replace("-", "/").apply(
+                lambda s: s[:4] + "-" + s[5:7] if "/" in s else s
+            )
+            # Filter by period string match
+            df_d["_period"] = pd.to_datetime(df_d["Day"], errors="coerce").dt.to_period("M").astype(str)
+            df_d = df_d[df_d["_period"] == selected_month]
+        if not df_d.empty:
+            fig = px.line(df_d, x="Day", y="GMV", markers=True, text="GMV")
+            fig.update_traces(textposition="top center", texttemplate="$%{text:,.0f}")
             fig.update_layout(height=350, margin=dict(t=10, b=10))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="ov_daily")
 
     col3, col4 = st.columns(2)
     with col3:
-        st.subheader("Top 10 Creators")
+        st.subheader("Top 10 Creadores por GMV")
         creators = fetch_top_creators(10)
         if creators:
-            df = pd.DataFrame(creators)
-            fig = px.bar(df, x="GMV", y="Creator Username", orientation="h",
+            df_c = pd.DataFrame(creators)
+            fig = px.bar(df_c, x="GMV", y="Creator Username", orientation="h",
                          color="GMV", color_continuous_scale="Blues")
             fig.update_layout(height=400, yaxis={"categoryorder": "total ascending"}, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True)
-
+            st.plotly_chart(fig, use_container_width=True, key="ov_creators")
     with col4:
-        st.subheader("Content Type Distribution")
+        st.subheader("Distribución por Contenido")
         ct = fetch_creator_by_type()
         if ct:
-            df = pd.DataFrame(ct)
-            fig = px.pie(df, values="GMV", names="Content Type")
+            df_ct = pd.DataFrame(ct)
+            fig = px.pie(df_ct, values="GMV", names="Content Type")
             fig.update_layout(height=400, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="ov_content")
 
 
 # ================================================================== #
 #  PAGE 2: INVENTARIO SUMMARY
 # ================================================================== #
 def page_inventario_summary():
-    st.header("Inventario Summary")
+    st.header("Resumen de Inventario")
+
     data = fetch_stock_summary()
     if not data:
-        st.warning("No stock data.")
+        st.warning("Sin datos de inventario.")
         return
     df = pd.DataFrame(data)
 
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        tipo_opts = ["Todos"] + sorted(df["Tipo"].dropna().unique().tolist()) if "Tipo" in df.columns else ["Todos"]
+        tipo_filter = st.selectbox("Tipo de Producto", tipo_opts, key="inv_tipo")
+    with col_s2:
+        df_for_opts = df[df["Tipo"] == tipo_filter] if tipo_filter != "Todos" else df
+        comp_opts = ["Todos"] + sorted(df_for_opts["ProductoNombre"].dropna().unique().tolist())
+        comp_filter = st.selectbox("Producto", comp_opts, key="inv_comp")
+    with col_s3:
+        days_filter = st.number_input("Días cobertura mínimos", min_value=0, value=0, key="inv_days")
+
+    if tipo_filter != "Todos" and "Tipo" in df.columns:
+        df = df[df["Tipo"] == tipo_filter]
+    if comp_filter != "Todos":
+        df = df[df["ProductoNombre"] == comp_filter]
+    if days_filter > 0 and "Days_Coverage" in df.columns:
+        df = df[df["Days_Coverage"] >= days_filter]
+
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Stock Actual", f"{df['StockActualizado'].sum():,.0f}")
+    c1.metric("Stock Actual", f"{int(df['StockActualizado'].sum()):,}")
     c2.metric("Valor Inventario", f"${df['ValorInventario'].sum():,.2f}")
-    low_count = len(df[(df.get("Days_Coverage", pd.Series(dtype=float)) < 7) & (df["Initial_Stock"] > 0)]) if "Days_Coverage" in df.columns else 0
-    total_with_stock = len(df[df["Initial_Stock"] > 0])
-    ruptura = (low_count / total_with_stock * 100) if total_with_stock > 0 else 0
-    c3.metric("Ruptura 7d %", f"{ruptura:.1f}%")
-    total_sold = df["Sales_30d"].sum() if "Sales_30d" in df.columns else 0
-    total_stock = df["StockActualizado"].sum()
-    str_rate = (total_sold / (total_sold + total_stock) * 100) if (total_sold + total_stock) > 0 else 0
-    c4.metric("Sell Through Rate", f"{str_rate:.1f}%")
-    c5.metric("Products Low Stock", f"{low_count}")
+    low_count = len(df[(df["Days_Coverage"] >= 0) & (df["Days_Coverage"] < 7) & (df["Initial_Stock"] > 0)]) if "Days_Coverage" in df.columns else 0
+    c3.metric("Productos Stock Bajo", f"{low_count}")
+    c4.metric("Stock Almacén", f"{int(df['Stock_Warehouse'].sum()):,}" if "Stock_Warehouse" in df.columns else "N/A")
+    c5.metric("Stock FBT", f"{int(df['Stock_FBT'].sum()):,}" if "Stock_FBT" in df.columns else "N/A")
+
+    if "Days_Coverage" in df.columns:
+        low_3 = df[(df["Days_Coverage"] >= 0) & (df["Days_Coverage"] < 999)].nsmallest(3, "Days_Coverage")
+        if not low_3.empty:
+            st.warning(f"Menor cobertura: {', '.join(low_3['ProductoNombre'].tolist())}")
 
     st.markdown("---")
     col1, col2 = st.columns(2)
@@ -210,141 +299,290 @@ def page_inventario_summary():
         st.subheader("Stock vs Ventas 30d")
         chart = df[["ProductoNombre", "StockActualizado", "Sales_30d"]].sort_values("StockActualizado", ascending=False).head(20)
         fig = go.Figure()
-        fig.add_trace(go.Bar(name="Stock", x=chart["ProductoNombre"], y=chart["StockActualizado"]))
-        fig.add_trace(go.Bar(name="Ventas 30d", x=chart["ProductoNombre"], y=chart["Sales_30d"]))
+        fig.add_trace(go.Bar(name="Stock", x=chart["ProductoNombre"], y=chart["StockActualizado"],
+                             text=chart["StockActualizado"], textposition="outside"))
+        fig.add_trace(go.Bar(name="Ventas 30d", x=chart["ProductoNombre"], y=chart["Sales_30d"],
+                             text=chart["Sales_30d"], textposition="outside"))
         fig.update_layout(barmode="group", height=400, margin=dict(t=10), xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
-
+        st.plotly_chart(fig, use_container_width=True, key="inv_stock_vs_sales")
     with col2:
         st.subheader("Valor Inventario por Tipo")
         if "Tipo" in df.columns:
             val = df.groupby("Tipo")["ValorInventario"].sum().reset_index()
             fig = px.bar(val, x="Tipo", y="ValorInventario", color="Tipo", text_auto="$.2s")
             fig.update_layout(height=400, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="inv_valor_tipo")
 
-    st.subheader("Stock Table")
-    display_cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
-                    "PedidosPendiente", "StockConPedidos", "Sales_30d", "Days_Coverage", "ValorInventario"]
+    st.subheader("Stock Actual por Producto")
+    display_cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped",
+                    "StockActualizado", "PedidosPendiente", "StockConPedidos",
+                    "Sales_30d", "Days_Coverage", "ValorInventario"]
     available = [c for c in display_cols if c in df.columns]
-    st.dataframe(df[available].sort_values("StockActualizado", ascending=True), use_container_width=True, height=400)
+    display_df = df[available].sort_values("StockActualizado", ascending=True).copy()
+    if "Days_Coverage" in display_df.columns:
+        display_df["Days_Coverage"] = display_df["Days_Coverage"].apply(
+            lambda v: "—" if isinstance(v, (int, float)) and v <= -999 else v
+        )
+    st.dataframe(display_df, use_container_width=True, height=400)
 
 
 # ================================================================== #
-#  PAGE 3: STOCK DETAIL
+#  PAGE 3: RESTOCK ANALYSIS
 # ================================================================== #
-def page_stock_detail():
-    st.header("Stock Detail")
-    coverage = st.number_input("Coverage days", min_value=7, max_value=180, value=30, key="sd_cov")
+def page_restock_analysis():
+    st.header("Análisis de Reabastecimiento")
+
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        coverage = st.number_input("Días de cobertura objetivo", min_value=7, max_value=180, value=30, key="ra_cov")
+    with col_s2:
+        data_all = fetch_stock_detail(30)
+        tipo_opts = ["Todos"]
+        if data_all:
+            df_all = pd.DataFrame(data_all)
+            if "Tipo" in df_all.columns:
+                tipo_opts += sorted(df_all["Tipo"].dropna().unique().tolist())
+        tipo_filter = st.selectbox("Tipo de Producto", tipo_opts, key="ra_tipo")
+
     data = fetch_stock_detail(coverage)
     if not data:
-        st.warning("No stock data.")
+        st.warning("Sin datos de stock.")
         return
     df = pd.DataFrame(data)
 
+    if tipo_filter != "Todos" and "Tipo" in df.columns:
+        df = df[df["Tipo"] == tipo_filter]
+
     df["Inv_deseado_custom"] = (df["AvgVentas30d"] * coverage).round(0)
-    df["Unid_a_comprar_custom"] = np.maximum(0, df["Inv_deseado_custom"] - df["StockActualizado"]).round(0)
+    df["Unid_a_comprar_custom"] = np.maximum(0, df["Inv_deseado_custom"] - df["StockConPedidos"]).round(0)
     if "UNIDADES POR CAJA" in df.columns:
-        df["Cajas_custom"] = np.where(df["UNIDADES POR CAJA"] > 0,
-                                       np.ceil(df["Unid_a_comprar_custom"] / df["UNIDADES POR CAJA"]),
-                                       df["Unid_a_comprar_custom"])
+        df["Cajas_custom"] = np.where(
+            df["UNIDADES POR CAJA"] > 0,
+            np.ceil(df["Unid_a_comprar_custom"] / df["UNIDADES POR CAJA"]),
+            df["Unid_a_comprar_custom"]
+        ).astype(int)
     if "Coste" in df.columns:
-        df["Importe_custom"] = df["Unid_a_comprar_custom"] * df["Coste"]
+        df["Importe_custom"] = (df["Unid_a_comprar_custom"] * df["Coste"]).round(2)
         st.metric("Total Importe a Comprar", f"${df['Importe_custom'].sum():,.2f}")
 
-    st.subheader("Stock Analysis")
+    st.markdown("---")
+    st.subheader("Análisis Total Stock")
     table_cols = ["ProductoNombre", "Tipo", "QtyShipped", "StockActualizado", "StockConPedidos",
-                  "AvgVentas30d", "AvgVentas60d", "Inv_deseado_custom", "Unid_a_comprar_custom",
+                  "WeeklyAvg_30d", "Inv_deseado_custom", "Unid_a_comprar_custom",
                   "Days_Coverage", "SellThroughRate"]
     available = [c for c in table_cols if c in df.columns]
 
     def color_coverage(val):
-        if isinstance(val, (int, float)):
-            if val < 7: return "background-color: #ffcccc"
-            elif val < 14: return "background-color: #ffffcc"
-            else: return "background-color: #ccffcc"
-        return ""
+        if not isinstance(val, (int, float)):
+            return ""
+        if val <= -999:
+            return "background-color: #d0d0d0; color: #555555"
+        elif val < 0:
+            return "background-color: #ff6666; color: #5c0000"
+        elif val < 7:
+            return "background-color: #ffcccc; color: #8b0000"
+        elif val < 14:
+            return "background-color: #ffffcc; color: #8b6914"
+        elif val >= 365:
+            return "background-color: #e8e8ff; color: #333388"
+        else:
+            return "background-color: #ccffcc; color: #006400"
 
-    styled = df[available].style.map(color_coverage, subset=["Days_Coverage"] if "Days_Coverage" in available else [])
-    st.dataframe(styled, use_container_width=True, height=500)
+    styled = df[available].style.map(
+        color_coverage, subset=["Days_Coverage"] if "Days_Coverage" in available else []
+    )
+    st.dataframe(styled, use_container_width=True, height=500,
+                 column_config={"ProductoNombre": st.column_config.TextColumn("ProductoNombre", pinned=True)})
 
     st.markdown("---")
-    st.subheader("Purchase Order")
-    reorder = df[df["Unid_a_comprar_custom"] > 0].copy()
-    if not reorder.empty:
+    st.subheader("Ventas Mensuales por Producto")
+    product_opts = ["All"]
+    if "ProductoNombre" in df.columns:
+        product_opts += sorted(df["ProductoNombre"].dropna().unique().tolist())
+    sel_prod = st.selectbox("Filtrar por producto", product_opts, key="ra_prod_filter")
+    monthly_sales = fetch_product_monthly_sales(sel_prod if sel_prod != "All" else None)
+    if monthly_sales:
+        df_ms = pd.DataFrame(monthly_sales)
+        title = f"Ventas Mensuales — {sel_prod}" if sel_prod != "All" else "Ventas Mensuales — Todos"
+        fig = px.bar(df_ms, x="Mes", y="Unidades Vendidas", title=title, text_auto=True)
+        fig.update_layout(height=320, margin=dict(t=40), xaxis_title="")
+        fig.update_xaxes(type="category")
+        st.plotly_chart(fig, use_container_width=True, key="ra_monthly")
+
+    st.markdown("---")
+    st.subheader("Listado de Pedido (Purchase Order)")
+    order_list = df[df["Unid_a_comprar_custom"] > 0].copy()
+    if not order_list.empty:
         order_cols = ["ProductoNombre", "Unid_a_comprar_custom"]
-        if "Cajas_custom" in reorder.columns: order_cols.append("Cajas_custom")
-        if "Coste" in reorder.columns: order_cols.append("Coste")
-        if "Importe_custom" in reorder.columns: order_cols.append("Importe_custom")
-        st.dataframe(reorder[order_cols], use_container_width=True)
-        csv = reorder[order_cols].to_csv(index=False).encode("utf-8")
+        if "Cajas_custom" in order_list.columns: order_cols.append("Cajas_custom")
+        if "Coste" in order_list.columns: order_cols.append("Coste")
+        if "Importe_custom" in order_list.columns: order_cols.append("Importe_custom")
+        if "UNIDADES POR CAJA" in order_list.columns: order_cols.append("UNIDADES POR CAJA")
+        st.dataframe(order_list[order_cols].rename(columns={
+            "ProductoNombre": "Producto", "Unid_a_comprar_custom": "Unidades",
+            "Cajas_custom": "Cajas", "Importe_custom": "Importe",
+        }), use_container_width=True)
+        csv = order_list[order_cols].to_csv(index=False).encode("utf-8")
         st.download_button("Download Purchase Order CSV", data=csv,
-                           file_name="purchase_order.csv", mime="text/csv")
+                           file_name="purchase_order.csv", mime="text/csv", key="ra_download")
     else:
-        st.success("No products need reordering.")
+        st.success("No hay productos que reabastecer con esta cobertura.")
+
+    st.markdown("---")
+    st.subheader("Combos Vendidos")
+    st.caption("Unidades vendidas por combo (nivel Product Name).")
+    col_cf1, col_cf2 = st.columns(2)
+    with col_cf1:
+        combo_start = st.date_input("Desde", value=pd.to_datetime("2026-01-01").date(), key="ra_combo_start")
+    with col_cf2:
+        combo_end = st.date_input("Hasta", value=pd.Timestamp.today().date(), key="ra_combo_end")
+    combo_sales = fetch_combo_sales(str(combo_start), str(combo_end))
+    if combo_sales:
+        df_cs = pd.DataFrame(combo_sales)
+        st.dataframe(df_cs, use_container_width=True, height=400)
+        total_units = df_cs["Unidades Vendidas"].sum() if "Unidades Vendidas" in df_cs.columns else 0
+        st.caption(f"Total combos distintos: {len(df_cs)} | Total unidades: {total_units:,}")
+    else:
+        st.info("Sin combos vendidos en el periodo seleccionado.")
 
 
 # ================================================================== #
 #  PAGE 4: AFILIADOS
 # ================================================================== #
 def page_afiliados():
-    st.header("Afiliados Detail")
+    st.header("Detalle de Afiliados")
 
-    c1, c2, c3 = st.columns(3)
-    creators = fetch_top_creators(50)
-    ct_data = fetch_creator_by_type()
     cr_monthly = fetch_creator_by_month()
+    ct_data = fetch_creator_by_type()
 
-    if not creators:
-        st.warning("No affiliate data.")
+    # Filters row 1
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        ct_opts = ["Todos"]
+        if ct_data:
+            ct_opts += sorted({r.get("Content Type", "") for r in ct_data if r.get("Content Type")})
+        ct_filter = st.selectbox("Tipo de Contenido", ct_opts, key="af_ct")
+    with c2:
+        all_creators = fetch_top_creators(200)
+        cr_opts = ["Todos"] + sorted([r["Creator Username"] for r in all_creators if r.get("Creator Username")]) if all_creators else ["Todos"]
+        cr_filter = st.selectbox("Nombre Creador", cr_opts, key="af_creator")
+    with c3:
+        af_date = st.date_input("Período", value=[], key="af_date")
+
+    # Filters row 2
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        prod_search = st.text_input("Producto", "", key="af_prod")
+    with c5:
+        order_search = st.text_input("Buscar Orden", "", key="af_order")
+    with c6:
+        status_opts = ["Todos", "COMPLETED", "CANCELED", "PROCESSING"]
+        af_status = st.selectbox("Order Status", status_opts, key="af_status")
+
+    af_date_from = str(af_date[0]) if len(af_date) >= 1 else None
+    af_date_to = str(af_date[1]) if len(af_date) == 2 else (str(af_date[0]) if len(af_date) == 1 else None)
+
+    params = {
+        "limit": 2000,
+        "content_type": ct_filter if ct_filter != "Todos" else None,
+        "creator": cr_filter if cr_filter != "Todos" else None,
+        "product": prod_search or None,
+        "order_id": order_search or None,
+        "order_status": af_status if af_status != "Todos" else None,
+        "date_from": af_date_from,
+        "date_to": af_date_to,
+    }
+    params = {k: v for k, v in params.items() if v is not None}
+
+    result = api_get("/analytics/affiliates/orders", params) or {"total": 0, "orders": []}
+    total = result.get("total", 0)
+    orders = result.get("orders", [])
+
+    if not orders:
+        st.warning("Sin datos de afiliados para los filtros seleccionados.")
         return
 
-    cr_df = pd.DataFrame(creators)
-    c1.metric("Total Creators", f"{len(cr_df):,}")
-    c2.metric("Total GMV", f"${cr_df['GMV'].sum():,.2f}")
-    c3.metric("Total Commission", f"${cr_df['Commission'].sum():,.2f}")
+    df = pd.DataFrame(orders)
+    df_completed = df[df["Order Status"].astype(str).str.upper() == "COMPLETED"] if "Order Status" in df.columns else df
+    df_active = df[~df["Order Status"].astype(str).str.upper().str.contains("CANCEL", na=False)] if "Order Status" in df.columns else df
+
+    c1, c2, c3 = st.columns(3)
+    gmv_completado = df_completed["Payment Amount"].sum() if "Payment Amount" in df_completed.columns else 0
+    comision_pagada = df_completed["Commission"].sum() if "Commission" in df_completed.columns else 0
+    c1.metric("GMV Afiliados (completado)", f"${gmv_completado:,.2f}")
+    c2.metric("Comisión Pagada", f"${comision_pagada:,.2f}")
+    c3.metric("Órdenes Activas", f"{df_active['Order ID'].nunique():,}" if "Order ID" in df_active.columns else "0")
 
     st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Top 20 Creators by GMV")
-        fig = px.bar(cr_df.head(20), x="GMV", y="Creator Username", orientation="h",
-                     color="GMV", color_continuous_scale="Blues")
-        fig.update_layout(height=450, yaxis={"categoryorder": "total ascending"}, margin=dict(t=10))
-        st.plotly_chart(fig, use_container_width=True)
-
+        st.subheader("Top 15 Combos Vendidos (Afiliados)")
+        if "Product Name" in df.columns:
+            top_combos = df.groupby("Product Name").agg(
+                Units=("Quantity", "sum"), GMV=("Payment Amount", "sum"),
+            ).reset_index().sort_values("Units", ascending=False).head(15)
+            fig = px.bar(top_combos, x="Units", y="Product Name", orientation="h",
+                         color="GMV", color_continuous_scale="Blues")
+            fig.update_layout(height=450, yaxis={"categoryorder": "total ascending"}, margin=dict(t=10))
+            st.plotly_chart(fig, use_container_width=True, key="af_combos")
     with col2:
-        st.subheader("Content Type Distribution")
-        if ct_data:
-            df = pd.DataFrame(ct_data)
-            fig = px.pie(df, values="GMV", names="Content Type")
-            fig.update_layout(height=450, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Top 20 Rendimiento por Creador (Funnel)")
+        if "Creator Username" in df.columns and "Payment Amount" in df.columns:
+            top_perf = df.groupby("Creator Username").agg(GMV=("Payment Amount", "sum")).reset_index()
+            top_perf = top_perf.sort_values("GMV", ascending=False).head(20)
+            if not top_perf.empty:
+                fig = px.funnel(top_perf, x="GMV", y="Creator Username")
+                fig.update_layout(height=450, margin=dict(t=10))
+                st.plotly_chart(fig, use_container_width=True, key="af_funnel")
 
+    st.subheader("Detalle de Ventas por Creador")
+    detail_cols = ["Order ID", "Creator Username", "Product Name", "Quantity",
+                   "Payment Amount", "Content Type", "Commission",
+                   "Order Status", "Time Created"]
+    available = [c for c in detail_cols if c in df.columns]
+    st.dataframe(df[available].head(200), use_container_width=True, height=400)
+
+    st.markdown("---")
     col3, col4 = st.columns(2)
     with col3:
-        st.subheader("Sales by Month (Affiliates)")
+        st.subheader("Ventas por Mes (Afiliados)")
         if cr_monthly:
-            df = pd.DataFrame(cr_monthly)
-            monthly_agg = df.groupby("Month")["GMV"].sum().reset_index()
+            df_crm = pd.DataFrame(cr_monthly)
+            monthly_agg = df_crm.groupby("Month")["GMV"].sum().reset_index()
             fig = px.bar(monthly_agg, x="Month", y="GMV", text_auto="$.2s")
             fig.update_layout(height=350, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True)
-
+            st.plotly_chart(fig, use_container_width=True, key="af_monthly")
     with col4:
-        st.subheader("GMV by Content Type")
+        st.subheader("Creadores por Tipo de Contenido")
         if ct_data:
-            df = pd.DataFrame(ct_data)
-            fig = px.bar(df, x="Content Type", y="GMV", color="Content Type", text_auto="$.2s")
+            df_ct = pd.DataFrame(ct_data)
+            fig = px.bar(df_ct, x="Content Type", y="GMV", color="Content Type", text_auto="$.2s")
             fig.update_layout(height=350, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="af_by_type")
 
     if cr_monthly:
-        st.subheader("Creator by Month (Pivot)")
-        df = pd.DataFrame(cr_monthly)
-        if not df.empty:
-            pivot = df.pivot_table(index="Creator Username", columns="Month", values="GMV", fill_value=0, aggfunc="sum")
-            st.dataframe(pivot, use_container_width=True, height=300)
+        st.subheader("Top 10 Afiliados con más Productos")
+        if "Product Name" in df.columns and "Creator Username" in df.columns:
+            aff_prods = df.groupby("Creator Username")["Product Name"].nunique().reset_index()
+            aff_prods.columns = ["Creator Username", "Unique Products"]
+            aff_prods = aff_prods.sort_values("Unique Products", ascending=False).head(10)
+            fig = px.bar(aff_prods, x="Unique Products", y="Creator Username", orientation="h")
+            fig.update_layout(height=350, yaxis={"categoryorder": "total ascending"}, margin=dict(t=10))
+            st.plotly_chart(fig, use_container_width=True, key="af_top_prods")
+
+        st.subheader("Creadores por Mes (Pivot)")
+        df_crm = pd.DataFrame(cr_monthly)
+        if not df_crm.empty:
+            pivot = df_crm.pivot_table(index="Creator Username", columns="Month",
+                                       values="GMV", fill_value=0, aggfunc="sum")
+            pivot_fmt = pivot.map(lambda x: f"{int(x):,}" if x != 0 else "—")
+            st.dataframe(pivot_fmt, use_container_width=True, height=300)
+
+            top5 = df_crm.groupby("Creator Username")["GMV"].sum().nlargest(5).index
+            cr_top5 = df_crm[df_crm["Creator Username"].isin(top5)]
+            fig = px.line(cr_top5, x="Month", y="GMV", color="Creator Username", markers=True)
+            fig.update_layout(height=350, margin=dict(t=10))
+            st.plotly_chart(fig, use_container_width=True, key="af_line_monthly")
 
 
 # ================================================================== #
@@ -354,18 +592,22 @@ def page_finances():
     st.header("Finances")
     data = fetch_finances()
     if not data:
-        st.warning("No data.")
+        st.warning("Sin datos.")
         return
     df = pd.DataFrame(data)
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Stock Units", f"{df['StockActualizado'].sum():,.0f}")
-    c2.metric("Value (Cost)", f"${df['ValorInventario'].sum():,.2f}")
-    if "ValorRetail" in df.columns:
-        c3.metric("Value (Retail)", f"${df['ValorRetail'].sum():,.2f}")
+    c2.metric("Valor (Coste)", f"${df['ValorInventario'].sum():,.2f}")
+    if "PRECIO" in df.columns:
+        df["ValorVenta"] = df["StockActualizado"] * df["PRECIO"]
+        c3.metric("Valor (Retail)", f"${df['ValorVenta'].sum():,.2f}")
 
-    st.dataframe(df.sort_values("ValorInventario", ascending=False), use_container_width=True, height=600)
-    csv = df.to_csv(index=False).encode("utf-8")
+    fin_cols = ["ProductoNombre", "StockActualizado", "PRECIO", "Coste", "ValorInventario"]
+    available = [c for c in fin_cols if c in df.columns]
+    st.dataframe(df[available].sort_values("ValorInventario", ascending=False),
+                 use_container_width=True, height=600)
+    csv = df[available].to_csv(index=False).encode("utf-8")
     st.download_button("Download Finances CSV", data=csv, file_name="finances.csv", mime="text/csv")
 
 
@@ -375,41 +617,58 @@ def page_finances():
 def page_ordenes_check():
     st.header("Ordenes Check")
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        oc_order = st.text_input("Order ID", "", key="oc_order")
+        oc_date = st.date_input("Created Time", value=[], key="oc_date")
     with c2:
-        oc_sku = st.text_input("SKU", "", key="oc_sku")
+        oc_order = st.text_input("Order ID", "", key="oc_order")
+    with c3:
+        oc_sku = st.text_input("SKU ID", "", key="oc_sku")
+    with c4:
+        oc_seller_sku = st.text_input("Seller SKU", "", key="oc_seller_sku")
+    with c5:
+        oc_product = st.text_input("Product Name", "", key="oc_product")
 
     params = {"limit": 500}
+    if len(oc_date) >= 1: params["date_from"] = str(oc_date[0])
+    if len(oc_date) == 2: params["date_to"] = str(oc_date[1])
     if oc_order: params["order_id"] = oc_order
     if oc_sku: params["sku"] = oc_sku
+    if oc_seller_sku: params["seller_sku"] = oc_seller_sku
+    if oc_product: params["product_name"] = oc_product
 
     result = api_get("/analytics/orders", params)
     if not result:
-        st.warning("No orders.")
+        st.warning("Sin órdenes.")
         return
 
     orders = result.get("orders", [])
     total = result.get("total", 0)
-    st.metric("Total Matching", f"{total:,}")
+    st.metric("Total Coincidentes", f"{total:,}")
 
     if orders:
         df = pd.DataFrame(orders)
-        # Status summary
+        st.subheader("Orders by Status")
         if "status" in df.columns:
-            st.subheader("Orders by Status")
-            summary = df.groupby("status").agg(Count=("order_id", "nunique")).reset_index()
+            summary = df.groupby("status").agg(
+                Count=("order_id", "nunique"),
+                Quantity=("quantity", "sum"),
+                GMV=("sku_subtotal_after_discount", "sum"),
+            ).reset_index()
             st.dataframe(summary, use_container_width=True)
 
         st.subheader("Order Details")
-        st.dataframe(df.head(200), use_container_width=True, height=400)
+        detail_cols = ["order_id", "status", "substatus", "product_name",
+                       "seller_sku", "quantity", "sku_subtotal_after_discount",
+                       "order_amount", "order_date", "shipped_time", "fulfillment_type"]
+        available = [c for c in detail_cols if c in df.columns]
+        st.dataframe(df[available].head(200), use_container_width=True, height=400)
 
     st.markdown("---")
-    st.subheader("Top Combos")
+    st.subheader("Listado Top Combos")
     combos = fetch_top_combos(20)
     if combos:
-        st.dataframe(pd.DataFrame(combos), use_container_width=True)
+        st.dataframe(pd.DataFrame(combos), use_container_width=True, height=400)
 
 
 # ================================================================== #
@@ -418,17 +677,42 @@ def page_ordenes_check():
 def page_cupones():
     st.header("Analisis Cupones")
 
-    buyers = fetch_frequent_buyers()
-    if not buyers:
-        st.warning("No data.")
+    buyers_data = fetch_frequent_buyers()
+    if not buyers_data:
+        st.warning("Sin datos.")
         return
 
-    df = pd.DataFrame(buyers)
-    freq = df[df["OrderCount"] > 1].copy()
+    buyers_df = pd.DataFrame(buyers_data)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        buyer_opts = ["All"] + sorted(buyers_df["Buyer Username"].dropna().unique().tolist())[:100] if "Buyer Username" in buyers_df.columns else ["All"]
+        buyer_filter = st.selectbox("Buyer Username", buyer_opts, key="cup_buyer")
+    with c2:
+        cup_date = st.date_input("Created Time", value=[], key="cup_date")
 
     st.subheader("Clientes Frecuentes")
+    freq = buyers_df[buyers_df["OrderCount"] > 1].copy()
+    if buyer_filter != "All" and "Buyer Username" in freq.columns:
+        freq = freq[freq["Buyer Username"] == buyer_filter]
     st.metric("Repeat Customers", f"{len(freq):,}")
     st.dataframe(freq.head(100), use_container_width=True, height=400)
+
+    st.markdown("---")
+    st.subheader("Detalle por Orden")
+    params = {"limit": 200}
+    if len(cup_date) >= 1: params["date_from"] = str(cup_date[0])
+    if len(cup_date) == 2: params["date_to"] = str(cup_date[1])
+    if buyer_filter != "All": params["buyer"] = buyer_filter
+    result = api_get("/analytics/orders", params) or {}
+    orders = result.get("orders", [])
+    if orders:
+        df = pd.DataFrame(orders)
+        detail_cols = ["order_id", "buyer_username", "product_name", "quantity",
+                       "sku_subtotal_after_discount", "order_amount",
+                       "order_date", "status"]
+        available = [c for c in detail_cols if c in df.columns]
+        st.dataframe(df[available], use_container_width=True, height=400)
 
 
 # ================================================================== #
@@ -440,14 +724,24 @@ def page_full_detail():
     c1, c2, c3, c4 = st.columns(4)
     with c1: fd_buyer = st.text_input("Buyer Username", "", key="fd_buyer")
     with c2: fd_order = st.text_input("Order ID", "", key="fd_order")
-    with c3: fd_status = st.text_input("Status", "", key="fd_status")
+    with c3: fd_status = st.text_input("Order Status", "", key="fd_status")
     with c4: fd_product = st.text_input("Product Name", "", key="fd_product")
+
+    c5, c6, c7, c8 = st.columns(4)
+    with c5: fd_cancel = st.text_input("Cancel/Return Type", "", key="fd_cancel")
+    with c6: fd_city = st.text_input("City", "", key="fd_city")
+    with c7: fd_fulfill = st.text_input("Fulfillment Type", "", key="fd_fulfill")
+    with c8: fd_recipient = st.text_input("Recipient", "", key="fd_recipient")
 
     params = {"limit": 500}
     if fd_buyer: params["buyer"] = fd_buyer
     if fd_order: params["order_id"] = fd_order
     if fd_status: params["status"] = fd_status
     if fd_product: params["product_name"] = fd_product
+    if fd_cancel: params["cancel_type"] = fd_cancel
+    if fd_city: params["city"] = fd_city
+    if fd_fulfill: params["fulfillment"] = fd_fulfill
+    if fd_recipient: params["recipient"] = fd_recipient
 
     result = api_get("/analytics/orders", params)
     if not result:
@@ -461,101 +755,247 @@ def page_full_detail():
         df = pd.DataFrame(orders)
         st.dataframe(df.head(500), use_container_width=True, height=600)
         csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV", data=csv, file_name="full_detail.csv", mime="text/csv")
+        st.download_button("Download Filtered Data CSV", data=csv,
+                           file_name="full_detail.csv", mime="text/csv")
 
 
 # ================================================================== #
-#  PAGE 9: GESTION INVENTARIO
+#  PAGE 9: GESTION INVENTARIO PENDIENTE
 # ================================================================== #
 def page_gestion_inventario():
     st.header("Gestion Inventario Pendiente")
+    st.caption("Edita, agrega o elimina pedidos pendientes.")
 
     data = fetch_incoming_stock()
     if data:
         df = pd.DataFrame(data)
     else:
-        df = pd.DataFrame(columns=["id", "product_id", "qty_ordered", "status", "supplier",
-                                    "tracking", "cost", "notes"])
+        df = pd.DataFrame(columns=["id", "product_id", "qty_ordered", "status",
+                                    "supplier", "tracking", "cost", "notes", "order_date"])
 
-    status_options = ["pending", "Recibido", "En transito", "Cancelado"]
+    status_options = ["pending", "Recibido", "En transito", "Cancelado", "Ajuste"]
 
+    if "status" in df.columns:
+        df["status"] = df["status"].astype(str).str.strip()
+        df.loc[df["status"].isin(["nan", "", "None"]), "status"] = "pending"
+
+    # Filters
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        prod_ids = sorted(df["product_id"].dropna().astype(str).unique().tolist()) if "product_id" in df.columns else []
+        filtro_prod = st.selectbox("Filtrar por Producto ID", ["Todos"] + prod_ids, key="filter_prod_inv")
+    with fcol2:
+        filtro_status = st.selectbox("Filtrar por Status", ["Todos"] + status_options, key="filter_status_inv")
+
+    df_view = df.copy()
+    if filtro_prod != "Todos" and "product_id" in df_view.columns:
+        df_view = df_view[df_view["product_id"].astype(str) == filtro_prod]
+    if filtro_status != "Todos" and "status" in df_view.columns:
+        df_view = df_view[df_view["status"] == filtro_status]
+
+    st.subheader("Pedidos actuales")
     edited = st.data_editor(
-        df, num_rows="dynamic",
+        df_view, num_rows="dynamic",
         column_config={
             "status": st.column_config.SelectboxColumn("Status", options=status_options, default="pending"),
             "qty_ordered": st.column_config.NumberColumn("Qty Ordered", min_value=0),
             "cost": st.column_config.NumberColumn("Cost", min_value=0, format="$%.2f"),
+            "order_date": st.column_config.DateColumn("Fecha pedido"),
         },
         use_container_width=True, height=500, key="inv_editor",
         disabled=["id", "store_id", "product_id"],
     )
 
-    if st.button("Save Changes", type="primary"):
-        for _, row in edited.iterrows():
-            record_id = row.get("id")
-            if record_id and pd.notna(record_id):
-                update_data = {
-                    "qty_ordered": int(row.get("qty_ordered", 0)),
-                    "status": row.get("status", "pending"),
-                    "supplier": row.get("supplier"),
-                    "tracking": row.get("tracking"),
-                    "cost": float(row["cost"]) if pd.notna(row.get("cost")) else None,
-                    "notes": row.get("notes"),
-                }
-                api_put(f"/inventory/incoming/{record_id}", update_data)
-        st.success("Changes saved!")
-        st.cache_data.clear()
+    col_save, col_info = st.columns([1, 3])
+    with col_save:
+        if st.button("Guardar cambios", type="primary", key="save_pending"):
+            saved, errors = 0, 0
+            for _, row in edited.iterrows():
+                record_id = row.get("id")
+                if record_id and pd.notna(record_id):
+                    update_data = {
+                        "qty_ordered": int(row.get("qty_ordered", 0) or 0),
+                        "status": row.get("status", "pending"),
+                        "supplier": row.get("supplier") if pd.notna(row.get("supplier", None)) else None,
+                        "tracking": row.get("tracking") if pd.notna(row.get("tracking", None)) else None,
+                        "cost": float(row["cost"]) if pd.notna(row.get("cost")) else None,
+                        "notes": row.get("notes") if pd.notna(row.get("notes", None)) else None,
+                    }
+                    result = api_put(f"/inventory/incoming/{record_id}", update_data)
+                    if result:
+                        saved += 1
+                    else:
+                        errors += 1
+            st.success(f"Guardado: {saved} registros.")
+            if errors:
+                st.warning(f"{errors} errores al guardar.")
+            st.cache_data.clear()
+            st.rerun()
+    with col_info:
+        if not df.empty and "status" in df.columns:
+            n_p = len(df[df["status"] == "pending"])
+            n_r = len(df[df["status"] == "Recibido"])
+            n_t = len(df[df["status"] == "En transito"])
+            total_v = len(df_view)
+            total_a = len(df)
+            label = f"Mostrando {total_v} de {total_a}" if (filtro_prod != "Todos" or filtro_status != "Todos") else f"Total: {total_a}"
+            st.info(f"Pending: {n_p} | Recibido: {n_r} | En transito: {n_t} | {label}")
 
 
 # ================================================================== #
-#  PAGE 10: GESTION COMBOS
+#  PAGE 10: LISTADO PRODUCTOS
+# ================================================================== #
+def page_listado_productos():
+    st.header("Listado de Productos")
+    st.caption("Catálogo de productos. Edita o agrega productos.")
+
+    products = fetch_products()
+    if products:
+        df = pd.DataFrame(products)
+    else:
+        df = pd.DataFrame(columns=["id", "sku", "name", "category", "price_cost",
+                                    "price_sale", "units_per_box", "supplier", "status"])
+
+    edited = st.data_editor(
+        df, num_rows="dynamic",
+        column_config={
+            "price_cost": st.column_config.NumberColumn("Coste", min_value=0, format="$%.2f"),
+            "price_sale": st.column_config.NumberColumn("Precio", min_value=0, format="$%.2f"),
+            "units_per_box": st.column_config.NumberColumn("Unid/Caja", min_value=0),
+            "status": st.column_config.SelectboxColumn("Status", options=["active", "inactive"], default="active"),
+        },
+        disabled=["id", "store_id", "created_at", "updated_at"],
+        use_container_width=True,
+        height=500,
+        key="productos_editor",
+    )
+
+    col_save, col_info = st.columns([1, 3])
+    with col_save:
+        if st.button("Guardar productos", type="primary", key="save_productos"):
+            saved, created, errors = 0, 0, 0
+            for _, row in edited.iterrows():
+                product_id = row.get("id")
+                if product_id and pd.notna(product_id) and str(product_id).strip():
+                    update_data = {}
+                    for field in ["name", "category", "price_cost", "price_sale",
+                                  "units_per_box", "supplier", "status"]:
+                        val = row.get(field)
+                        if val is not None and pd.notna(val):
+                            update_data[field] = val
+                    if update_data:
+                        result = api_put(f"/products/{product_id}", update_data)
+                        if result:
+                            saved += 1
+                        else:
+                            errors += 1
+                else:
+                    sku = row.get("sku")
+                    name = row.get("name")
+                    if sku and name and pd.notna(sku) and pd.notna(name):
+                        new_data = {
+                            "sku": str(sku).strip(),
+                            "name": str(name).strip(),
+                            "category": row.get("category") if pd.notna(row.get("category", None)) else None,
+                            "price_cost": float(row["price_cost"]) if pd.notna(row.get("price_cost")) else None,
+                            "price_sale": float(row["price_sale"]) if pd.notna(row.get("price_sale")) else None,
+                            "units_per_box": int(row["units_per_box"]) if pd.notna(row.get("units_per_box")) else None,
+                            "supplier": row.get("supplier") if pd.notna(row.get("supplier", None)) else None,
+                        }
+                        result = api_post("/products", new_data)
+                        if result:
+                            created += 1
+                        else:
+                            errors += 1
+            st.success(f"Guardado: {saved} actualizados, {created} creados.")
+            if errors:
+                st.warning(f"{errors} errores.")
+            st.cache_data.clear()
+            st.rerun()
+    with col_info:
+        st.info(f"Total productos: {len(edited)}")
+
+
+# ================================================================== #
+#  PAGE 11: GESTION COMBOS
 # ================================================================== #
 def page_gestion_combos():
     st.header("Gestion Combos")
     st.caption("SKUs sin combo asignado y editor de combos.")
 
-    # Alert: unknown combos
     unknown = fetch_unknown_combos()
     if unknown:
         n = len(unknown)
         st.warning(f"{n} SKU(s) pendientes de asignar combo")
         st.subheader("SKUs sin asignar")
         st.dataframe(pd.DataFrame(unknown), use_container_width=True, height=min(300, 50 + 35 * n))
+
+        # Quick-add form
+        st.subheader("Asignar combo nuevo")
+        products_data = fetch_products()
+        product_map = {p["name"]: p["id"] for p in products_data} if products_data else {}
+        sku_options = [r.get("seller_sku", "") for r in unknown if r.get("seller_sku")]
+
+        selected_sku = st.selectbox("SKU a asignar", [""] + sku_options, key="combo_assign_sku")
+        if selected_sku:
+            row_data = next((r for r in unknown if r.get("seller_sku") == selected_sku), {})
+            st.caption(f"Producto: {row_data.get('product_name', 'N/A')} | Órdenes: {row_data.get('order_count', 0)}")
+
+            n_products = st.number_input("¿Cuántos productos tiene este combo?",
+                                          min_value=1, max_value=12, value=1, key="combo_n_prods")
+            selected_products = []
+            prod_cols = st.columns(min(int(n_products), 4))
+            for i in range(int(n_products)):
+                with prod_cols[i % len(prod_cols)]:
+                    p = st.selectbox(f"Producto {i+1}", [""] + sorted(product_map.keys()),
+                                     key=f"combo_prod_{i}")
+                    selected_products.append(p)
+
+            if st.button("Agregar combo y guardar", type="primary", key="btn_add_combo"):
+                valid = [p for p in selected_products if p]
+                if not valid:
+                    st.error("Selecciona al menos un producto.")
+                else:
+                    items = [{"product_id": product_map[p], "quantity": 1} for p in valid if p in product_map]
+                    unknown_row = next((r for r in unknown if r.get("seller_sku") == selected_sku), {})
+                    result = api_post("/combos", {
+                        "combo_sku": selected_sku,
+                        "combo_name": unknown_row.get("product_name", selected_sku),
+                        "items": items,
+                    })
+                    if result:
+                        st.success(f"Combo '{selected_sku}' creado con {len(items)} productos.")
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("Error creando combo.")
     else:
         st.success("Todos los SKUs tienen combo asignado o son productos conocidos.")
 
     st.markdown("---")
-
-    # Editable combo table
     st.subheader("Listado de Combos")
     combos = fetch_combos()
     if combos:
         combo_df = pd.DataFrame(combos)
-    else:
-        combo_df = pd.DataFrame(columns=["id", "combo_sku", "items"])
-
-    if not combo_df.empty:
         st.dataframe(combo_df, use_container_width=True, height=400)
+        st.info(f"Total combos definidos: {len(combo_df)}")
 
     st.markdown("---")
-    st.subheader("Agregar Combo")
-
-    # Fetch products for selection
-    products_data = api_get("/products") or []
+    st.subheader("Agregar Combo Manualmente")
+    products_data = fetch_products()
     product_map = {p["name"]: p["id"] for p in products_data} if products_data else {}
 
     with st.form("add_combo_form"):
         new_sku = st.text_input("Combo SKU (Seller SKU)")
         new_name = st.text_input("Combo Name")
         new_items_text = st.text_area(
-            "Productos (uno por linea, formato: nombre_producto,cantidad)",
+            "Productos (uno por linea: nombre_producto,cantidad)",
             placeholder="Producto A,1\nProducto B,2",
-            help="Usa los nombres exactos de productos registrados."
         )
         if st.form_submit_button("Agregar Combo"):
             if new_sku and new_name and new_items_text:
                 items = []
-                errors = []
+                errors_list = []
                 for line in new_items_text.strip().split("\n"):
                     parts = line.strip().split(",")
                     pname = parts[0].strip()
@@ -564,21 +1004,91 @@ def page_gestion_combos():
                     if pid:
                         items.append({"product_id": pid, "quantity": qty})
                     else:
-                        errors.append(pname)
-                if errors:
-                    st.error(f"Productos no encontrados: {', '.join(errors)}")
+                        errors_list.append(pname)
+                if errors_list:
+                    st.error(f"Productos no encontrados: {', '.join(errors_list)}")
                 elif items:
                     result = api_post("/combos", {"combo_sku": new_sku, "combo_name": new_name, "items": items})
                     if result:
-                        st.success(f"Combo '{new_sku}' creado con {len(items)} productos.")
+                        st.success(f"Combo '{new_sku}' creado.")
                         st.cache_data.clear()
                         st.rerun()
                     else:
                         st.error("Error creando combo.")
-                else:
-                    st.warning("Agrega al menos un producto.")
             else:
                 st.warning("Completa todos los campos.")
+
+
+# ================================================================== #
+#  PAGE 12: INVENTARIO FBT
+# ================================================================== #
+def page_inventario_fbt():
+    st.header("Gestión Inventario FBT")
+    st.caption("Productos enviados al almacén de TikTok (FBT). Edita, agrega o elimina envíos.")
+
+    data = fetch_fbt_inventory()
+    if data:
+        df = pd.DataFrame(data)
+    else:
+        df = pd.DataFrame(columns=["id", "goods_code", "goods_name", "total_units", "fecha_envio"])
+
+    st.subheader("Envíos a FBT")
+    edited = st.data_editor(
+        df, num_rows="dynamic",
+        column_config={
+            "goods_code": st.column_config.TextColumn("SKU"),
+            "goods_name": st.column_config.TextColumn("Producto"),
+            "total_units": st.column_config.NumberColumn("Unidades", min_value=0),
+            "fecha_envio": st.column_config.DateColumn("Fecha Envio"),
+        },
+        disabled=["id", "store_id"],
+        use_container_width=True,
+        height=400,
+        key="fbt_inv_editor",
+    )
+
+    col_save, col_info = st.columns([1, 3])
+    with col_save:
+        if st.button("Guardar cambios", type="primary", key="save_fbt"):
+            saved, created, errors = 0, 0, 0
+            for _, row in edited.iterrows():
+                record_id = row.get("id")
+                if record_id and pd.notna(record_id) and str(record_id).strip():
+                    update_data = {
+                        "goods_code": row.get("goods_code") if pd.notna(row.get("goods_code", None)) else None,
+                        "goods_name": row.get("goods_name") if pd.notna(row.get("goods_name", None)) else None,
+                        "total_units": int(row.get("total_units", 0) or 0),
+                        "fecha_envio": str(row["fecha_envio"]) if pd.notna(row.get("fecha_envio")) else None,
+                    }
+                    result = api_put(f"/inventory/fbt/{record_id}", update_data)
+                    if result:
+                        saved += 1
+                    else:
+                        errors += 1
+                else:
+                    goods_code = row.get("goods_code")
+                    if goods_code and pd.notna(goods_code):
+                        new_data = {
+                            "goods_code": str(goods_code).strip(),
+                            "goods_name": str(row.get("goods_name", "")).strip() or None,
+                            "total_units": int(row.get("total_units", 0) or 0),
+                            "fecha_envio": str(row["fecha_envio"]) if pd.notna(row.get("fecha_envio")) else None,
+                        }
+                        result = api_post("/inventory/fbt", new_data)
+                        if result:
+                            created += 1
+                        else:
+                            errors += 1
+            st.success(f"Guardado: {saved} actualizados, {created} creados.")
+            if errors:
+                st.warning(f"{errors} errores.")
+            st.cache_data.clear()
+            st.rerun()
+    with col_info:
+        if not edited.empty and "total_units" in edited.columns:
+            total = edited["total_units"].sum()
+            n_skus = len(edited)
+            st.info(f"SKUs: {n_skus} | Total unidades enviadas: {total:,.0f}")
 
 
 # ================================================================== #
@@ -596,7 +1106,7 @@ def login_page():
                 if login(email, password):
                     st.rerun()
                 else:
-                    st.error("Invalid email or password")
+                    st.error("Email o contraseña incorrectos")
 
     with tab2:
         with st.form("register_form"):
@@ -608,7 +1118,7 @@ def login_page():
                     if register(email, password, store_name):
                         st.rerun()
                 else:
-                    st.warning("Fill all fields")
+                    st.warning("Completa todos los campos")
 
 
 def main():
@@ -616,7 +1126,6 @@ def main():
         login_page()
         return
 
-    # Verify token
     user = api_get("/auth/me")
     if not user:
         login_page()
@@ -626,29 +1135,29 @@ def main():
 
     with st.sidebar:
         st.write(f"**{user.get('email', '')}**")
-        st.caption(f"Store: {user.get('store_id', '')[:8]}...")
-        if st.button("Refresh Data"):
+        store_name = user.get("store_name", user.get("store_id", "")[:8])
+        st.caption(f"Tienda: {store_name}")
+        if st.button("Actualizar Datos"):
             api_post("/analytics/clear-cache")
             st.cache_data.clear()
             st.rerun()
-        if st.button("Logout"):
+        if st.button("Cerrar Sesión"):
             st.session_state.pop("jwt_token", None)
             st.cache_data.clear()
             st.rerun()
         st.markdown("---")
-        st.caption("v2.0.0 | Rodmat Dashboard")
+        st.caption("v2.1.0 | Rodmat Dashboard")
 
-    section = st.sidebar.radio("Seccion", ["Dashboard", "Gestion"], index=0)
+    section = st.sidebar.radio("Sección", ["Dashboard", "Gestion"], index=0)
 
     if section == "Dashboard":
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-            "Overview", "Inventario Summary", "Stock Detail", "Afiliados",
+            "Resumen General", "Inventario Summary", "Restock Analysis", "Afiliados",
             "Finances", "Ordenes Check", "Cupones", "Full Detail",
         ])
-
         with tab1: page_overview()
         with tab2: page_inventario_summary()
-        with tab3: page_stock_detail()
+        with tab3: page_restock_analysis()
         with tab4: page_afiliados()
         with tab5: page_finances()
         with tab6: page_ordenes_check()
@@ -656,9 +1165,13 @@ def main():
         with tab8: page_full_detail()
 
     elif section == "Gestion":
-        tab_g1, tab_g2 = st.tabs(["Inventario Pendiente", "Gestion Combos"])
+        tab_g1, tab_g2, tab_g3, tab_g4 = st.tabs([
+            "Inventario Pendiente", "Listado Productos", "Gestion Combos", "Inventario FBT",
+        ])
         with tab_g1: page_gestion_inventario()
-        with tab_g2: page_gestion_combos()
+        with tab_g2: page_listado_productos()
+        with tab_g3: page_gestion_combos()
+        with tab_g4: page_inventario_fbt()
 
 
 if __name__ == "__main__":

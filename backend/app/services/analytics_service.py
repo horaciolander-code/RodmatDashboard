@@ -223,7 +223,9 @@ def get_filtered_orders(db: Session, store_id: str,
                         status: Optional[str] = None, sku: Optional[str] = None,
                         buyer: Optional[str] = None, fulfillment: Optional[str] = None,
                         order_id: Optional[str] = None, product_name: Optional[str] = None,
-                        limit: int = 500, offset: int = 0) -> dict:
+                        limit: int = 500, offset: int = 0,
+                        seller_sku: Optional[str] = None, cancel_type: Optional[str] = None,
+                        city: Optional[str] = None, recipient: Optional[str] = None) -> dict:
     q = db.query(SalesOrder).filter(SalesOrder.store_id == store_id)
     if date_from:
         q = q.filter(SalesOrder.order_date >= date_from)
@@ -233,10 +235,18 @@ def get_filtered_orders(db: Session, store_id: str,
         q = q.filter(SalesOrder.status == status)
     if sku:
         q = q.filter(SalesOrder.seller_sku.contains(sku))
+    if seller_sku:
+        q = q.filter(SalesOrder.seller_sku.contains(seller_sku))
     if buyer:
         q = q.filter(SalesOrder.buyer_username.contains(buyer))
     if fulfillment:
         q = q.filter(SalesOrder.fulfillment_type == fulfillment)
+    if cancel_type:
+        q = q.filter(SalesOrder.cancelation_return_type == cancel_type)
+    if city:
+        q = q.filter(SalesOrder.city == city)
+    if recipient:
+        q = q.filter(SalesOrder.recipient.contains(recipient))
     if order_id:
         q = q.filter(SalesOrder.tiktok_order_id.contains(order_id))
     if product_name:
@@ -316,3 +326,180 @@ def get_finances(db: Session, store_id: str) -> list:
 
 def get_unknown_combos(db: Session, store_id: str) -> list:
     return get_unknown_combo_skus(db, store_id)
+
+
+def get_filtered_affiliates(db: Session, store_id: str,
+                             date_from: Optional[str] = None, date_to: Optional[str] = None,
+                             content_type: Optional[str] = None, creator: Optional[str] = None,
+                             product: Optional[str] = None, order_id: Optional[str] = None,
+                             order_status: Optional[str] = None,
+                             limit: int = 1000) -> dict:
+    import pandas as pd
+    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    if not affiliates:
+        return {"total": 0, "orders": []}
+
+    rows = []
+    for a in affiliates:
+        rows.append({
+            "Order ID": a.order_id,
+            "Creator Username": a.creator_username,
+            "Product Name": a.product_name,
+            "Quantity": a.quantity,
+            "Payment Amount": a.payment_amount or 0,
+            "Commission": a.commission or 0,
+            "Content Type": a.content_type,
+            "Order Status": a.order_status,
+            "Time Created": a.time_created,
+            "Commission Rate": a.commission_rate,
+            "SKU": a.sku,
+        })
+    df = pd.DataFrame(rows)
+    df["Time Created"] = pd.to_datetime(df["Time Created"], errors="coerce")
+
+    if date_from:
+        df = df[df["Time Created"] >= pd.to_datetime(date_from)]
+    if date_to:
+        df = df[df["Time Created"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
+    if content_type:
+        df = df[df["Content Type"] == content_type]
+    if creator:
+        df = df[df["Creator Username"].astype(str).str.contains(creator, case=False, na=False)]
+    if product:
+        df = df[df["Product Name"].astype(str).str.contains(product, case=False, na=False)]
+    if order_id:
+        df = df[df["Order ID"].astype(str).str.contains(order_id, case=False, na=False)]
+    if order_status:
+        df = df[df["Order Status"].astype(str).str.upper() == order_status.upper()]
+
+    total = len(df)
+    df["Time Created"] = df["Time Created"].astype(str)
+    return {"total": total, "orders": df.head(limit).to_dict(orient="records")}
+
+
+def get_combo_sales_summary(db: Session, store_id: str,
+                             date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+    import pandas as pd
+    df = _load_orders_df(db, store_id)
+    if df.empty:
+        return []
+    if date_from:
+        df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
+    if date_to:
+        df = df[df["Order_Date"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
+
+    if "Order Status" in df.columns:
+        df = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
+
+    group_cols = ["Seller SKU", "Product Name"]
+    available = [c for c in group_cols if c in df.columns]
+    if not available:
+        return []
+
+    result = df.groupby(available, dropna=False).agg(
+        Units=("Quantity", "sum"),
+        Orders=("Order ID", "nunique"),
+        GMV=("SKU Subtotal After Discount", "sum"),
+    ).reset_index().sort_values("Units", ascending=False)
+    result.columns = ["Seller SKU" if c == "Seller SKU" else c for c in result.columns]
+    return result.rename(columns={"Units": "Unidades Vendidas"}).to_dict(orient="records")
+
+
+def get_monthly_product_sales(db: Session, store_id: str,
+                               product_name: Optional[str] = None) -> list:
+    import pandas as pd
+    from app.services.stock_calculator import decompose_orders
+    combo_dict = _build_combo_dict(db, store_id)
+    orders_df = _load_orders_df(db, store_id)
+    if orders_df.empty:
+        return []
+
+    decomposed = decompose_orders(orders_df, combo_dict)
+    if decomposed.empty:
+        return []
+
+    if "Order Status" in decomposed.columns:
+        mask = decomposed["Order Status"].astype(str).str.contains("Deliver|Ship|Complet", case=False, na=False)
+        decomposed = decomposed[mask]
+
+    if product_name and product_name.lower() != "all":
+        decomposed = decomposed[
+            decomposed["ComponentKey"].astype(str).str.strip().str.lower() == product_name.strip().lower()
+        ]
+
+    if decomposed.empty:
+        return []
+
+    decomposed["Month"] = decomposed["Order_Date"].dt.to_period("M").astype(str)
+    result = decomposed.groupby("Month")["ComponentQty"].sum().reset_index()
+    result.columns = ["Mes", "Unidades Vendidas"]
+    return result.sort_values("Mes").to_dict(orient="records")
+
+
+def get_overview_metrics_filtered(db: Session, store_id: str,
+                                   date_from: Optional[str] = None,
+                                   date_to: Optional[str] = None) -> dict:
+    """Overview metrics with optional date range filter. Used when date filter is active."""
+    import pandas as pd
+    df = _load_orders_df(db, store_id)
+    if df.empty:
+        return {}
+
+    if date_from:
+        df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
+    if date_to:
+        df = df[df["Order_Date"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
+
+    if "Order Substatus" in df.columns:
+        df = df[df["Order Substatus"].str.lower() != "canceled"]
+
+    active_mask = ~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)
+    net_orders = df.loc[active_mask, "Order ID"].nunique()
+    gmv = df["SKU Subtotal After Discount"].sum()
+
+    order_level = df.drop_duplicates(subset="Order ID")
+    net_order_amount = (order_level["Order Amount"] - order_level["Order Refund Amount"]).sum()
+    shipping_fees = order_level["Shipping Fee After Discount"].sum()
+    net_wo_shipping = net_order_amount - shipping_fees
+    seller_discount = df["SKU Seller Discount"].sum()
+    platform_discount = df["SKU Platform Discount"].sum()
+    referral_fees = gmv * 0.06
+
+    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    aff_rows = []
+    for a in affiliates:
+        aff_rows.append({
+            "time_created": a.time_created,
+            "commission": a.commission or 0,
+            "payment_amount": a.payment_amount or 0,
+            "order_status": a.order_status,
+            "order_id": a.order_id,
+        })
+    if aff_rows:
+        adf = pd.DataFrame(aff_rows)
+        adf["time_created"] = pd.to_datetime(adf["time_created"], errors="coerce")
+        if date_from:
+            adf = adf[adf["time_created"] >= pd.to_datetime(date_from)]
+        if date_to:
+            adf = adf[adf["time_created"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
+        completed = adf[adf["order_status"].astype(str).str.upper() == "COMPLETED"] if "order_status" in adf.columns else adf
+        creator_commission = completed["commission"].sum()
+        creator_payment = completed["payment_amount"].sum()
+        creator_order_count = adf["order_id"].nunique()
+    else:
+        creator_commission = creator_payment = creator_order_count = 0
+
+    return {
+        "netOrder": int(net_orders),
+        "TITKOKGMVOrderAmount": round(float(gmv), 2),
+        "NetOrderAmount": round(float(net_order_amount), 2),
+        "ShippingFees": round(float(shipping_fees), 2),
+        "netOrderWOUshipping": round(float(net_wo_shipping), 2),
+        "SellerDiscount": round(float(seller_discount), 2),
+        "PlatformDiscount": round(float(platform_discount), 2),
+        "CreatorCommission": round(float(creator_commission), 2),
+        "CreatorPayment": round(float(creator_payment), 2),
+        "CreatorOrderCount": int(creator_order_count),
+        "RefferarFees": round(float(referral_fees), 2),
+        "PctVsPrevMonth": 0,
+    }

@@ -13,6 +13,16 @@ class ProductCreate(BaseModel):
     status: str = "active"
 
 
+class ProductUpdate(BaseModel):
+    name: str | None = None
+    category: str | None = None
+    price_sale: float | None = None
+    price_cost: float | None = None
+    supplier: str | None = None
+    units_per_box: int | None = None
+    status: str | None = None
+
+
 class ProductResponse(BaseModel):
     id: str
     store_id: str

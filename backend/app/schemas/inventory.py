@@ -2,6 +2,31 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
+class FBTInventoryCreate(BaseModel):
+    goods_code: str | None = None
+    goods_name: str | None = None
+    total_units: int = 0
+    fecha_envio: date | None = None
+
+
+class FBTInventoryUpdate(BaseModel):
+    goods_code: str | None = None
+    goods_name: str | None = None
+    total_units: int | None = None
+    fecha_envio: date | None = None
+
+
+class FBTInventoryResponse(BaseModel):
+    id: str
+    store_id: str
+    goods_code: str | None
+    goods_name: str | None
+    total_units: int
+    fecha_envio: date | None
+
+    model_config = {"from_attributes": True}
+
+
 class InitialInventoryCreate(BaseModel):
     product_id: str
     quantity: int

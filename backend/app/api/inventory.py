@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.inventory import InitialInventory, IncomingStock
+from app.models.inventory import InitialInventory, IncomingStock, FBTInventory
 from app.models.user import User
 from app.schemas.inventory import (
     InitialInventoryCreate, InitialInventoryResponse,
     IncomingStockCreate, IncomingStockResponse,
     IncomingStockUpdate,
+    FBTInventoryCreate, FBTInventoryUpdate, FBTInventoryResponse,
 )
 from app.dependencies import get_current_user
 
@@ -86,5 +87,62 @@ def delete_incoming_stock(
     ).first()
     if not record:
         raise HTTPException(status_code=404, detail="Incoming stock record not found")
+    db.delete(record)
+    db.commit()
+
+
+# ── FBT Inventory ─────────────────────────────────────────────────────────────
+
+@router.post("/fbt", response_model=FBTInventoryResponse, status_code=201)
+def create_fbt(
+    payload: FBTInventoryCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = FBTInventory(store_id=user.store_id, **payload.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.get("/fbt", response_model=list[FBTInventoryResponse])
+def list_fbt(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(FBTInventory).filter(FBTInventory.store_id == user.store_id).all()
+
+
+@router.put("/fbt/{record_id}", response_model=FBTInventoryResponse)
+def update_fbt(
+    record_id: str,
+    payload: FBTInventoryUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = db.query(FBTInventory).filter(
+        FBTInventory.id == record_id, FBTInventory.store_id == user.store_id
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="FBT record not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(record, field, value)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.delete("/fbt/{record_id}", status_code=204)
+def delete_fbt(
+    record_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = db.query(FBTInventory).filter(
+        FBTInventory.id == record_id, FBTInventory.store_id == user.store_id
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="FBT record not found")
     db.delete(record)
     db.commit()
