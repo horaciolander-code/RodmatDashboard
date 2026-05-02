@@ -208,7 +208,8 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
         pending_df = pd.DataFrame(columns=["_pk", "_status", "qty"])
 
     if not pending_df.empty:
-        recibido = pending_df[pending_df["_status"] == "Recibido"]
+        pending_df["_status_lower"] = pending_df["_status"].str.lower().str.strip()
+        recibido = pending_df[pending_df["_status_lower"] == "recibido"]
         if not recibido.empty:
             rec_agg = recibido.groupby("_pk")["qty"].sum().reset_index()
             rec_agg.columns = ["ProductKey", "Recibido_Add"]
@@ -217,7 +218,9 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
             inv_stock["Initial_Stock"] = inv_stock["Initial_Stock"] + inv_stock["Recibido_Add"]
             inv_stock.drop(columns=["Recibido_Add"], inplace=True)
 
-        pendiente_active = pending_df[pending_df["_status"] != "Recibido"]
+        # Exclude received, cancelled, and adjustment entries — only active orders count
+        EXCLUDE = {"recibido", "cancelado", "cancelled", "ajuste"}
+        pendiente_active = pending_df[~pending_df["_status_lower"].isin(EXCLUDE)]
         pend_agg = pendiente_active.groupby("_pk")["qty"].sum().reset_index() if not pendiente_active.empty else pd.DataFrame(columns=["_pk", "qty"])
         pend_agg.columns = ["ProductKey", "PedidosPendiente"] if not pend_agg.empty else ["ProductKey", "PedidosPendiente"]
     else:
