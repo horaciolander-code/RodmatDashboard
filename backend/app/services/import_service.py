@@ -117,25 +117,16 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
         except Exception:
             errors += 1
 
-    # PostgreSQL native upsert — one round-trip per batch, handles insert+update atomically
-    UPDATE_COLS = [
-        'status', 'substatus', 'shipped_time', 'order_date', 'created_time',
-        'price', 'quantity', 'order_amount', 'order_refund_amount',
-        'sku_subtotal_after_discount', 'shipping_fee_after_discount',
-        'sku_seller_discount', 'sku_platform_discount',
-        'fulfillment_type', 'cancelation_return_type',
-        'product_name', 'seller_sku', 'buyer_username', 'variation',
-        'recipient', 'city', 'state',
-    ]
+    # Full replace: delete all existing orders for this store, then bulk-insert fresh.
+    # This prevents ghost rows from accumulating when orders are removed from the CSV.
+    db.query(SalesOrder).filter(SalesOrder.store_id == store_id).delete()
+    db.flush()
+
     BATCH = 3000
     total_processed = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(batch)
-        stmt = stmt.on_conflict_do_update(
-            constraint='uq_store_order_sku',
-            set_={col: stmt.excluded[col] for col in UPDATE_COLS},
-        )
         db.execute(stmt)
         db.flush()
         total_processed += len(batch)
