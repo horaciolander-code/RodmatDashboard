@@ -57,10 +57,10 @@ def _start_scheduler():
     import schedule as sched
 
     from app.models.store import Store
-    from app.services.daily_report_service import run_all_reports
-    from app.services.agents import prism_agent, haiku_agent, faraway_agent, mesmerize_agent
 
     def _run_agents():
+        # Lazy imports: pandas-heavy modules only loaded at run time, not startup
+        from app.services.agents import prism_agent, haiku_agent, faraway_agent, mesmerize_agent
         logger.info("Scheduler: running agents for all stores")
         db = SessionLocal()
         try:
@@ -79,6 +79,8 @@ def _start_scheduler():
             db.close()
 
     def _run_reports():
+        # Lazy import: pandas/numpy only loaded at run time, not startup
+        from app.services.daily_report_service import run_all_reports
         logger.info("Scheduler: running daily reports for all stores")
         db = SessionLocal()
         try:
