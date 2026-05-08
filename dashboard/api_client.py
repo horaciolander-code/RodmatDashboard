@@ -50,6 +50,18 @@ def api_put(endpoint: str, json_data: dict = None) -> dict | None:
         return None
 
 
+def api_patch(endpoint: str, json_data: dict = None) -> dict | None:
+    token = st.session_state.get("jwt_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        r = requests.patch(f"{API_BASE_URL}{endpoint}", headers=headers, json=json_data, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"API error: {e}")
+        return None
+
+
 def api_delete(endpoint: str) -> bool:
     token = st.session_state.get("jwt_token")
     headers = {"Authorization": f"Bearer {token}"} if token else {}

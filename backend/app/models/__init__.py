@@ -5,9 +5,10 @@ from app.models.combo import Combo, ComboItem
 from app.models.inventory import InitialInventory, IncomingStock, FBTInventory
 from app.models.sales import SalesOrder, AffiliateSale
 from app.models.report_log import ReportLog
+from app.models.finance import BankTransaction
 
 __all__ = [
     "Store", "User", "Product", "Combo", "ComboItem",
     "InitialInventory", "IncomingStock", "FBTInventory",
-    "SalesOrder", "AffiliateSale", "ReportLog",
+    "SalesOrder", "AffiliateSale", "ReportLog", "BankTransaction",
 ]

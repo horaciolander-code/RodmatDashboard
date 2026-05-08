@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.config import APP_VERSION, CORS_ORIGINS, ENVIRONMENT
 from app.database import engine, Base, SessionLocal
-from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents
+from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance
 
 import app.models  # noqa: F401
 
@@ -47,6 +47,7 @@ app.include_router(analytics.router)
 app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(agents.router)
+app.include_router(finance.router)
 
 
 @app.on_event("startup")
