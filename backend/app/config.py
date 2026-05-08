@@ -36,4 +36,4 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
 # Upload limits
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.2.0"
