@@ -12,6 +12,7 @@ from app.models.store import Store
 from app.services.stock_calculator import _load_orders_df, _build_combo_dict, decompose_orders, calculate_stock, get_unknown_combo_skus
 
 _cache: dict = {}
+_df_cache: dict = {}  # raw DataFrames; keyed by (store_id, coverage_days)
 _CACHE_TTL = 300
 
 
@@ -26,6 +27,18 @@ def _get_cached(store_id: str, key: str):
 
 def _set_cache(store_id: str, key: str, data):
     _cache[(store_id, key)] = (datetime.now(), data)
+
+
+def _get_stock_df(db: Session, store_id: str, coverage_days: int = 30):
+    """Return calculate_stock() DataFrame, cached for _CACHE_TTL seconds."""
+    cache_key = (store_id, coverage_days)
+    if cache_key in _df_cache:
+        ts, df = _df_cache[cache_key]
+        if (datetime.now() - ts).total_seconds() < _CACHE_TTL:
+            return df
+    df = calculate_stock(db, store_id, coverage_days)
+    _df_cache[cache_key] = (datetime.now(), df)
+    return df
 
 
 def get_overview_metrics(db: Session, store_id: str) -> dict:
@@ -127,7 +140,7 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30) -> li
     cached = _get_cached(store_id, f"stock_{coverage_days}")
     if cached:
         return cached
-    stock = calculate_stock(db, store_id, coverage_days)
+    stock = _get_stock_df(db, store_id, coverage_days)
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
@@ -141,7 +154,7 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30) -> li
 
 
 def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30) -> list:
-    stock = calculate_stock(db, store_id, coverage_days)
+    stock = _get_stock_df(db, store_id, coverage_days)
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
@@ -155,7 +168,7 @@ def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30) -> lis
 
 
 def get_reorder_list(db: Session, store_id: str, coverage_days: int = 30) -> list:
-    stock = calculate_stock(db, store_id, coverage_days)
+    stock = _get_stock_df(db, store_id, coverage_days)
     if stock.empty:
         return []
     reorder = stock[stock["Unid_a_comprar"] > 0].copy()
@@ -314,7 +327,7 @@ def get_top_combos(db: Session, store_id: str, n: int = 15) -> list:
 
 
 def get_finances(db: Session, store_id: str) -> list:
-    stock = calculate_stock(db, store_id)
+    stock = _get_stock_df(db, store_id)
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "StockActualizado", "Coste", "PRECIO", "ValorInventario"]

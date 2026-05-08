@@ -197,4 +197,7 @@ def clear_cache(user: User = Depends(get_current_user)):
     keys_removed = [k for k in list(svc._cache.keys()) if k[0] == user.store_id]
     for k in keys_removed:
         del svc._cache[k]
-    return {"cleared": len(keys_removed)}
+    df_keys = [k for k in list(svc._df_cache.keys()) if k[0] == user.store_id]
+    for k in df_keys:
+        del svc._df_cache[k]
+    return {"cleared": len(keys_removed) + len(df_keys)}
