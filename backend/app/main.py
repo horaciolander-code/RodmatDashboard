@@ -50,11 +50,66 @@ app.include_router(agents.router)
 app.include_router(finance.router)
 
 
+def _start_scheduler():
+    """Background thread: runs agents at 11:00 UTC (7AM EDT) and reports at 12:00 UTC (8AM EDT)."""
+    import threading
+    import time
+    import schedule as sched
+
+    from app.models.store import Store
+    from app.services.daily_report_service import run_all_reports
+    from app.services.agents import prism_agent, haiku_agent, faraway_agent, mesmerize_agent
+
+    def _run_agents():
+        logger.info("Scheduler: running agents for all stores")
+        db = SessionLocal()
+        try:
+            store_ids = [s.id for s in db.query(Store).filter(Store.is_active == True).all()]
+            for store_id in store_ids:
+                for name, agent in [
+                    ("prism", prism_agent), ("haiku", haiku_agent),
+                    ("faraway", faraway_agent), ("mesmerize", mesmerize_agent),
+                ]:
+                    try:
+                        ran = agent.run(db, store_id)
+                        logger.info("Agent %s store %s: %s", name, store_id[:8], "sent" if ran else "skipped")
+                    except Exception as exc:
+                        logger.exception("Agent %s failed for store %s: %s", name, store_id[:8], exc)
+        finally:
+            db.close()
+
+    def _run_reports():
+        logger.info("Scheduler: running daily reports for all stores")
+        db = SessionLocal()
+        try:
+            results = run_all_reports(db)
+            logger.info("Daily reports done: %s", results)
+        except Exception as exc:
+            logger.exception("Daily reports failed: %s", exc)
+        finally:
+            db.close()
+
+    # 11:00 UTC = 7AM EDT (UTC-4, May-Nov) | 12:00 UTC = 7AM EST (UTC-5, Nov-Mar)
+    sched.every().day.at("11:00").do(_run_agents)
+    sched.every().day.at("12:00").do(_run_reports)
+    logger.info("Scheduler configured: agents at 11:00 UTC, reports at 12:00 UTC")
+
+    def _loop():
+        while True:
+            sched.run_pending()
+            time.sleep(30)
+
+    t = threading.Thread(target=_loop, daemon=True, name="rodmat-scheduler")
+    t.start()
+
+
 @app.on_event("startup")
 def on_startup():
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables verified/created on startup")
+    if ENVIRONMENT != "dev":
+        _start_scheduler()
 
 
 @app.exception_handler(Exception)
