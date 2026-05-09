@@ -8,7 +8,16 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+from datetime import datetime, timedelta
+import extra_streamlit_components as stx
 from api_client import api_get, api_post, api_put, api_patch, api_delete, login, register
+
+_COOKIE_NAME = "rodmat_jwt"
+_COOKIE_DAYS = 7
+
+@st.cache_resource
+def _cookie_manager():
+    return stx.CookieManager()
 
 st.set_page_config(
     page_title="Rodmat Dashboard V2",
@@ -1111,6 +1120,7 @@ def page_inventario_fbt():
 #  LOGIN + MAIN
 # ================================================================== #
 def login_page():
+    cm = _cookie_manager()
     st.title("Rodmat Dashboard V2")
     tab1, tab2 = st.tabs(["Login", "Register"])
 
@@ -1120,6 +1130,10 @@ def login_page():
             password = st.text_input("Password", type="password")
             if st.form_submit_button("Login"):
                 if login(email, password):
+                    token = st.session_state.get("jwt_token", "")
+                    if token:
+                        cm.set(_COOKIE_NAME, token,
+                               expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS))
                     st.rerun()
                 else:
                     st.error("Email o contraseña incorrectos")
@@ -1132,6 +1146,10 @@ def login_page():
             if st.form_submit_button("Register"):
                 if store_name and email and password:
                     if register(email, password, store_name):
+                        token = st.session_state.get("jwt_token", "")
+                        if token:
+                            cm.set(_COOKIE_NAME, token,
+                                   expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS))
                         st.rerun()
                 else:
                     st.warning("Completa todos los campos")
@@ -1522,12 +1540,22 @@ def page_finance_management():
 #  MAIN
 # ================================================================== #
 def main():
+    cm = _cookie_manager()
+
+    # Restore session from cookie if token not in session_state
+    if "jwt_token" not in st.session_state:
+        cookie_token = cm.get(_COOKIE_NAME)
+        if cookie_token:
+            st.session_state["jwt_token"] = cookie_token
+
     if "jwt_token" not in st.session_state:
         login_page()
         return
 
     user = api_get("/auth/me")
     if not user:
+        cm.delete(_COOKIE_NAME)
+        st.session_state.pop("jwt_token", None)
         login_page()
         return
 
@@ -1542,6 +1570,7 @@ def main():
             st.cache_data.clear()
             st.rerun()
         if st.button("Cerrar Sesión"):
+            cm.delete(_COOKIE_NAME)
             st.session_state.pop("jwt_token", None)
             st.cache_data.clear()
             st.rerun()
