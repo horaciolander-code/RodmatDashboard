@@ -1,25 +1,16 @@
 """
-Shared utilities for all V2 agents: Groq API call, SMTP email, config, data loaders.
+Shared utilities for all V2 agents: Groq API call, Resend email, config, data loaders.
 """
 from __future__ import annotations
 import json
 import os
-import smtplib
-import urllib.request
-import urllib.error
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 from sqlalchemy.orm import Session
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
-GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
-
-SMTP_HOST     = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER     = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+GROQ_MODEL    = "llama-3.3-70b-versatile"
 GROQ_API_KEY  = os.getenv("GROQ_API_KEY", "")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+SMTP_USER     = os.getenv("SMTP_USER", "")  # kept for reply-to / fallback recipient
 
 
 def get_recipients(store) -> list[str]:
@@ -46,19 +37,27 @@ def call_groq(prompt: str, max_tokens: int = 2048) -> str:
 
 
 def send_email(html: str, subject: str, recipients: list[str]) -> bool:
-    if not SMTP_USER or not SMTP_PASSWORD or not recipients:
+    if not RESEND_API_KEY or not recipients:
+        print("[email] RESEND_API_KEY not set or no recipients")
         return False
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = SMTP_USER
-    msg["To"]      = ", ".join(recipients)
-    msg.attach(MIMEText(html, "html", "utf-8"))
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.ehlo(); s.starttls(); s.ehlo()
-            s.login(SMTP_USER, SMTP_PASSWORD)
-            s.sendmail(SMTP_USER, recipients, msg.as_string())
-        return True
+        import httpx
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            json={
+                "from":     "Rodmat Agents <onboarding@resend.dev>",
+                "reply_to": SMTP_USER or recipients[0],
+                "to":       recipients,
+                "subject":  subject,
+                "html":     html,
+            },
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            return True
+        print(f"[email] Resend error {r.status_code}: {r.text}")
+        return False
     except Exception as e:
         print(f"[email] send failed: {e}")
         return False

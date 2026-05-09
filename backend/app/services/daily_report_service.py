@@ -1,11 +1,8 @@
 """
 Daily Report Service - Ported from V1 daily_report.py
-Builds HTML email report per store and sends via SMTP.
+Builds HTML email report per store and sends via Resend API.
 """
-import smtplib
 import os
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -16,10 +13,8 @@ from app.models.sales import SalesOrder
 from app.services.stock_calculator import calculate_stock, _load_orders_df
 
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+SMTP_USER      = os.getenv("SMTP_USER", "")
 
 
 def build_report(db: Session, store_id: str) -> str:
@@ -159,24 +154,29 @@ def build_report(db: Session, store_id: str) -> str:
 
 
 def send_report(html: str, recipients: list[str], store_name: str) -> bool:
-    """Send HTML report via SMTP."""
-    if not SMTP_USER or not SMTP_PASSWORD:
-        print("SMTP not configured, skipping send")
+    """Send HTML report via Resend API."""
+    if not RESEND_API_KEY or not recipients:
+        print("RESEND_API_KEY not set or no recipients, skipping send")
         return False
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"{store_name} - Reporte Diario {datetime.now().strftime('%d/%m/%Y')}"
-    msg["From"] = SMTP_USER
-    msg["To"] = ", ".join(recipients)
-    msg.attach(MIMEText(html, "html"))
-
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, recipients, msg.as_string())
-        print(f"Report sent to {recipients}")
-        return True
+        import httpx
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            json={
+                "from":     "Rodmat Dashboard <onboarding@resend.dev>",
+                "reply_to": SMTP_USER or recipients[0],
+                "to":       recipients,
+                "subject":  f"{store_name} - Reporte Diario {datetime.now().strftime('%d/%m/%Y')}",
+                "html":     html,
+            },
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            print(f"Report sent to {recipients}")
+            return True
+        print(f"Resend error {r.status_code}: {r.text}")
+        return False
     except Exception as e:
         print(f"Failed to send report: {e}")
         return False
