@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -105,6 +106,32 @@ def _start_scheduler():
     t.start()
 
 
+def _prewarm_cache():
+    """Pre-warm stock DataFrame cache for all active stores. Runs in background thread."""
+    import threading, time
+
+    def _do():
+        time.sleep(15)  # wait for DB pool to settle after startup
+        from app.models.store import Store
+        from app.services.analytics_service import _get_stock_df, _df_cache
+        db = SessionLocal()
+        try:
+            stores = db.query(Store).filter(Store.is_active == True).all()
+            for store in stores:
+                key = (store.id, 30)
+                ts, _ = _df_cache.get(key, (datetime.min, None))
+                if (datetime.now() - ts).total_seconds() > 290:
+                    logger.info("Pre-warming stock cache for store %s", store.id[:8])
+                    _get_stock_df(db, store.id, 30)
+                    logger.info("Cache warm for store %s", store.id[:8])
+        except Exception as exc:
+            logger.exception("Cache pre-warm failed: %s", exc)
+        finally:
+            db.close()
+
+    threading.Thread(target=_do, daemon=True, name="cache-prewarm").start()
+
+
 @app.on_event("startup")
 def on_startup():
     import app.models  # noqa: F401
@@ -112,6 +139,7 @@ def on_startup():
     logger.info("Database tables verified/created on startup")
     if ENVIRONMENT != "dev":
         _start_scheduler()
+        _prewarm_cache()
 
 
 @app.exception_handler(Exception)
@@ -133,6 +161,9 @@ def health_check():
         db_ok = True
     except Exception:
         pass
+    # Trigger background cache refresh if near expiry (keeps cache warm between cron pings)
+    if ENVIRONMENT != "dev":
+        _prewarm_cache()
     return {
         "status": "ok" if db_ok else "degraded",
         "version": APP_VERSION,
