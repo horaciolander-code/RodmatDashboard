@@ -62,6 +62,11 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
     net_wo_shipping = net_order_amount - shipping_fees
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
+    # Shipping discount: sum of co-funded + seller + platform shipping discounts (V1 parity)
+    shipping_discount = 0.0
+    for col in ["Shipping Fee Seller Discount", "Shipping Fee Platform Discount", "Co-Funded Shipping Fee Discount"]:
+        if col in df.columns:
+            shipping_discount += float(df[col].sum())
 
     affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     creator_commission = sum(a.commission or 0 for a in affiliates)
@@ -88,6 +93,7 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
         "netOrderWOUshipping": round(float(net_wo_shipping), 2),
         "SellerDiscount": round(float(seller_discount), 2),
         "PlatformDiscount": round(float(platform_discount), 2),
+        "ShippingDiscount": round(float(shipping_discount), 2),
         "CreatorCommission": round(float(creator_commission), 2),
         "CreatorPayment": round(float(creator_payment), 2),
         "CreatorOrderCount": int(creator_order_count),
@@ -144,8 +150,9 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30) -> li
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
-            "PedidosPendiente", "StockConPedidos", "Sales_7d", "Sales_30d", "Sales_60d",
-            "AvgVentas30d", "WeeklyAvg_30d", "Days_Coverage", "SellThroughRate",
+            "PedidosPendiente", "StockConPedidos", "FBT_Sent", "Stock_Warehouse", "Stock_FBT",
+            "Sales_7d", "Sales_30d", "Sales_60d", "AvgVentas30d", "WeeklyAvg_30d",
+            "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "SellThroughRate",
             "Coste", "PRECIO", "ValorInventario"]
     available = [c for c in cols if c in stock.columns]
     result = stock[available].fillna(0).to_dict(orient="records")
@@ -158,8 +165,9 @@ def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30) -> lis
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
-            "PedidosPendiente", "StockConPedidos", "Sales_7d", "Sales_30d", "Sales_60d",
-            "AvgVentas30d", "AvgVentas60d", "WeeklyAvg_30d", "Days_Coverage",
+            "PedidosPendiente", "StockConPedidos", "FBT_Sent", "Stock_Warehouse", "Stock_FBT",
+            "Sales_7d", "Sales_30d", "Sales_60d", "AvgVentas30d", "AvgVentas60d",
+            "WeeklyAvg_30d", "WeeklyAvg_60d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT",
             "Inv_deseado", "Unid_a_comprar", "Cajas_a_comprar", "Importe_a_comprar",
             "SellThroughRate", "Coste", "PRECIO", "UNIDADES POR CAJA", "ValorInventario",
             "Ruptura_7d_Pct_Global"]
@@ -450,6 +458,70 @@ def get_monthly_product_sales(db: Session, store_id: str,
     result = decomposed.groupby("Month")["ComponentQty"].sum().reset_index()
     result.columns = ["Mes", "Unidades Vendidas"]
     return result.sort_values("Mes").to_dict(orient="records")
+
+
+def get_viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5) -> list:
+    import pandas as pd
+    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    if not affiliates:
+        return []
+    rows = [{"Creator Username": a.creator_username, "Product Name": a.product_name,
+             "Quantity": a.quantity or 0, "Order ID": a.order_id,
+             "Payment Amount": a.payment_amount or 0, "Time Created": a.time_created} for a in affiliates]
+    cr = pd.DataFrame(rows)
+    cr["Time Created"] = pd.to_datetime(cr["Time Created"], errors="coerce")
+    cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+    recent = cr[cr["Time Created"] >= cutoff]
+    if recent.empty:
+        return []
+    grp = recent.groupby(["Creator Username", "Product Name"]).agg(
+        Unidades=("Quantity", "sum"),
+        Ordenes=("Order ID", "nunique"),
+        GMV=("Payment Amount", "sum"),
+    ).reset_index()
+    return grp[grp["Unidades"] >= threshold].sort_values("Unidades", ascending=False).to_dict(orient="records")
+
+
+def get_creator_own_orders(db: Session, store_id: str) -> list:
+    import pandas as pd
+    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    if not affiliates:
+        return []
+    creators_lower = {a.creator_username.strip().lower() for a in affiliates if a.creator_username}
+    if not creators_lower:
+        return []
+    df = _load_orders_df(db, store_id)
+    if df.empty or "Buyer Username" not in df.columns:
+        return []
+    mask = df["Buyer Username"].astype(str).str.strip().str.lower().isin(creators_lower)
+    matches = df[mask].copy()
+    if matches.empty:
+        return []
+    cols = ["Order ID", "Buyer Username", "Created Time", "Product Name",
+            "SKU Subtotal After Discount", "Order Amount", "Order Status"]
+    available = [c for c in cols if c in matches.columns]
+    result = matches[available].sort_values("Created Time", ascending=False)
+    for col in ["Created Time"]:
+        if col in result.columns:
+            result[col] = result[col].astype(str)
+    return result.head(200).to_dict(orient="records")
+
+
+def get_pallet_orders(db: Session, store_id: str) -> list:
+    import pandas as pd
+    df = _load_orders_df(db, store_id)
+    if df.empty or "Fulfillment Type" not in df.columns:
+        return []
+    pallet = df[df["Fulfillment Type"].astype(str).str.contains("TikTok", case=False, na=False)].copy()
+    if pallet.empty:
+        return []
+    cols = ["Order ID", "Product Name", "Quantity", "Order Status",
+            "Created Time", "Shipped Time", "Fulfillment Type"]
+    available = [c for c in cols if c in pallet.columns]
+    for col in ["Created Time", "Shipped Time"]:
+        if col in pallet.columns:
+            pallet[col] = pallet[col].astype(str)
+    return pallet[available].head(200).to_dict(orient="records")
 
 
 def get_overview_metrics_filtered(db: Session, store_id: str,

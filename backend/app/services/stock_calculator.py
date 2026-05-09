@@ -173,9 +173,19 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     if store and store.settings and "initial_inventory_date" in store.settings:
         initial_date_str = store.settings["initial_inventory_date"]
     initial_date = pd.to_datetime(initial_date_str)
+    today = pd.Timestamp.now()
+    days_since_start = max(1, (today - initial_date).days)
+    actual_30d = min(30, days_since_start)
+    actual_60d = min(60, days_since_start)
+    weeks_30d = max(1, actual_30d / 7)
+    weeks_60d = max(1, actual_60d / 7)
 
     if not orders_df.empty:
         decomposed = decompose_orders(orders_df, combo_dict)
+        if "Fulfillment Type" in decomposed.columns:
+            decomposed["Is_FBT"] = decomposed["Fulfillment Type"].astype(str).str.lower().str.contains("tiktok", na=False)
+        else:
+            decomposed["Is_FBT"] = False
         shipped = build_shipped_components(decomposed, initial_date)
     else:
         decomposed = pd.DataFrame()
@@ -241,6 +251,48 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     stock["QtyShipped"] = stock["QtyShipped"].fillna(0)
     stock["StockActualizado"] = stock["Initial_Stock"] - stock["QtyShipped"]
 
+    # FBT inventory split: Stock_Warehouse and Stock_FBT
+    _fbt_rows = db.execute(_text("""
+        SELECT goods_name, SUM(total_units) AS total_units
+        FROM fbt_inventory
+        WHERE store_id = :sid AND goods_name IS NOT NULL
+        GROUP BY goods_name
+    """), {"sid": store_id}).fetchall()
+    fbt_inv_map = {r.goods_name.strip().lower(): r.total_units for r in _fbt_rows} if _fbt_rows else {}
+    stock["FBT_Sent"] = stock["ProductKey"].map(fbt_inv_map).fillna(0)
+
+    if not decomposed.empty:
+        _sd = decomposed[decomposed["Order_Date"] >= initial_date].copy()
+        _s_statuses = {"Delivered", "Shipped", "Completed"}
+        if "Order Status" in _sd.columns:
+            _mask_s = _sd["Order Status"].astype(str).str.strip().isin(_s_statuses)
+            if "Shipped Time" in _sd.columns:
+                _sd = _sd[_sd["Shipped Time"].notna() | _mask_s]
+            else:
+                _sd = _sd[_mask_s]
+        if "Cancelation/Return Type" in _sd.columns:
+            _sd = _sd[_sd["Cancelation/Return Type"].isin(["nan", "", "None", None]) | _sd["Cancelation/Return Type"].isna()]
+        _is_fbt_mask = _sd["Is_FBT"] if "Is_FBT" in _sd.columns else pd.Series(False, index=_sd.index)
+        _wh_agg = _sd[~_is_fbt_mask].groupby("ComponentKey").agg(QtyShipped_WH=("ComponentQty", "sum")).reset_index()
+        _wh_agg["ProductKey"] = _wh_agg["ComponentKey"].str.strip().str.lower()
+        _fbt_agg = _sd[_is_fbt_mask].groupby("ComponentKey").agg(QtyShipped_FBT=("ComponentQty", "sum")).reset_index()
+        _fbt_agg["ProductKey"] = _fbt_agg["ComponentKey"].str.strip().str.lower()
+        stock = stock.merge(_wh_agg[["ProductKey", "QtyShipped_WH"]], on="ProductKey", how="left")
+        stock["QtyShipped_WH"] = stock["QtyShipped_WH"].fillna(0)
+        stock = stock.merge(_fbt_agg[["ProductKey", "QtyShipped_FBT"]], on="ProductKey", how="left")
+        stock["QtyShipped_FBT"] = stock["QtyShipped_FBT"].fillna(0)
+    else:
+        stock["QtyShipped_WH"] = 0
+        stock["QtyShipped_FBT"] = 0
+
+    has_fbt = stock["FBT_Sent"] > 0
+    stock["Stock_Warehouse"] = np.where(
+        has_fbt,
+        stock["Initial_Stock"] - stock["FBT_Sent"] - stock["QtyShipped_WH"],
+        stock["Initial_Stock"] - stock["QtyShipped"],
+    )
+    stock["Stock_FBT"] = np.where(has_fbt, stock["FBT_Sent"] - stock["QtyShipped_FBT"], 0)
+
     if not pend_agg.empty:
         stock = stock.merge(pend_agg, on="ProductKey", how="left")
     else:
@@ -264,7 +316,6 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     stock["ValorInventario"] = stock["StockActualizado"] * stock["Coste"]
 
     if not decomposed.empty:
-        today = pd.Timestamp.now()
         active = decomposed[decomposed["Order_Date"] >= initial_date].copy()
         if "Order Status" in active.columns:
             active = active[~active["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
@@ -283,8 +334,17 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
         stock["Sales_30d"] = stock["ProductKey"].map(s30).fillna(0)
         stock["Sales_60d"] = stock["ProductKey"].map(s60).fillna(0)
         stock["DaysSelectedTotal"] = stock["ProductKey"].map(total_sales).fillna(0)
+
+        # WH/FBT 30d sales split for Days_Cov_WH / Days_Cov_FBT
+        if "Is_FBT" in active.columns:
+            _a30 = active[active["Order_Date"] >= today - timedelta(days=30)]
+            stock["Sales_30d_WH"]  = stock["ProductKey"].map(_a30[~_a30["Is_FBT"]].groupby("_pk")["ComponentQty"].sum()).fillna(0)
+            stock["Sales_30d_FBT"] = stock["ProductKey"].map(_a30[_a30["Is_FBT"]].groupby("_pk")["ComponentQty"].sum()).fillna(0)
+        else:
+            stock["Sales_30d_WH"]  = stock["Sales_30d"]
+            stock["Sales_30d_FBT"] = 0
     else:
-        for col in ["Sales_7d", "Sales_30d", "Sales_60d", "DaysSelectedTotal"]:
+        for col in ["Sales_7d", "Sales_30d", "Sales_60d", "DaysSelectedTotal", "Sales_30d_WH", "Sales_30d_FBT"]:
             stock[col] = 0
 
     for col in ["Sales_7d", "Sales_30d", "Sales_60d", "DaysSelectedTotal",
@@ -293,15 +353,24 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
         if col in stock.columns:
             stock[col] = pd.to_numeric(stock[col], errors="coerce").fillna(0)
 
-    stock["AvgVentas30d"]   = (stock["Sales_30d"] / 30).round(2)
-    stock["AvgVentas60d"]   = (stock["Sales_60d"] / 60).round(2)
-    stock["WeeklyAvg_30d"]  = (stock["Sales_30d"] / 4.28).round(2)
+    stock["AvgVentas30d"]   = (stock["Sales_30d"] / actual_30d).round(2)
+    stock["AvgVentas60d"]   = (stock["Sales_60d"] / actual_60d).round(2)
+    stock["WeeklyAvg_30d"]  = (stock["Sales_30d"] / weeks_30d).round(2)
+    stock["WeeklyAvg_60d"]  = (stock["Sales_60d"] / weeks_60d).round(2)
 
     stock["Days_Coverage"] = np.where(
         stock["AvgVentas30d"] > 0,
         (stock["StockActualizado"] / stock["AvgVentas30d"]).round(1),
         999,
     )
+
+    # WH/FBT coverage days
+    avg_wh  = (stock["Sales_30d_WH"]  / actual_30d).clip(lower=0)
+    avg_fbt = (stock["Sales_30d_FBT"] / actual_30d).clip(lower=0)
+    stock["Days_Cov_WH"]  = np.where(avg_wh  > 0, np.minimum(stock["Stock_Warehouse"] / avg_wh,  365), -999)
+    stock["Days_Cov_FBT"] = np.where(avg_fbt > 0, np.minimum(stock["Stock_FBT"]       / avg_fbt, 365), -999)
+    stock["Days_Cov_WH"]  = stock["Days_Cov_WH"].round(0).astype(int)
+    stock["Days_Cov_FBT"] = stock["Days_Cov_FBT"].round(0).astype(int)
 
     stock["Inv_deseado"]      = (stock["AvgVentas30d"] * coverage_days).round(0)
     stock["Unid_a_comprar"]   = np.maximum(0, stock["Inv_deseado"] - stock["StockActualizado"]).round(0)

@@ -140,6 +140,18 @@ def fetch_product_monthly_sales(product_name=None):
     if product_name: params["product_name"] = product_name
     return api_get("/analytics/product-monthly-sales", params) or []
 
+@st.cache_data(ttl=300)
+def fetch_viral_alerts(threshold=20, days=5):
+    return api_get("/analytics/viral-alerts", {"threshold": threshold, "days": days}) or []
+
+@st.cache_data(ttl=300)
+def fetch_creator_own_orders():
+    return api_get("/analytics/creator-own-orders") or []
+
+@st.cache_data(ttl=300)
+def fetch_pallet_orders():
+    return api_get("/analytics/pallet-orders") or []
+
 
 # ================================================================== #
 #  PAGE 1: OVERVIEW
@@ -185,6 +197,12 @@ def page_overview():
     c10.metric("Comis.+Ref.+DescPlat", f"${m.get('CreatorCommission', 0) + m.get('RefferarFees', 0) + m.get('PlatformDiscount', 0):,.2f}")
     c11.metric("Comis. Referidos (est.)", f"${m.get('RefferarFees', 0):,.2f}")
     c12.metric("Órdenes Afiliados", f"{m.get('CreatorOrderCount', 0):,}")
+
+    c13, c14, c15, c16 = st.columns(4)
+    c13.metric("Descuento Envío", f"${m.get('ShippingDiscount', 0):,.2f}")
+    c14.metric("Dto. Plataforma", f"${m.get('PlatformDiscount', 0):,.2f}")
+    c15.metric("Dto. Vendedor", f"${m.get('SellerDiscount', 0):,.2f}")
+    c16.metric("Total Órdenes", f"{m.get('totalOrders', 0):,}")
 
     st.markdown("---")
 
@@ -314,15 +332,17 @@ def page_inventario_summary():
             st.plotly_chart(fig, use_container_width=True, key="inv_valor_tipo")
 
     st.subheader("Stock Actual por Producto")
-    display_cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped",
+    display_cols = ["ProductoNombre", "Tipo", "Initial_Stock", "FBT_Sent",
+                    "Stock_Warehouse", "Stock_FBT", "QtyShipped",
                     "StockActualizado", "PedidosPendiente", "StockConPedidos",
-                    "Sales_30d", "Days_Coverage", "ValorInventario"]
+                    "Sales_30d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "ValorInventario"]
     available = [c for c in display_cols if c in df.columns]
     display_df = df[available].sort_values("StockActualizado", ascending=True).copy()
-    if "Days_Coverage" in display_df.columns:
-        display_df["Days_Coverage"] = display_df["Days_Coverage"].apply(
-            lambda v: "—" if isinstance(v, (int, float)) and v <= -999 else v
-        )
+    for cov_col in ["Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"]:
+        if cov_col in display_df.columns:
+            display_df[cov_col] = display_df[cov_col].apply(
+                lambda v: "—" if isinstance(v, (int, float)) and v <= -999 else v
+            )
     st.dataframe(display_df, use_container_width=True, height=400)
 
 
@@ -367,9 +387,10 @@ def page_restock_analysis():
 
     st.markdown("---")
     st.subheader("Análisis Total Stock")
-    table_cols = ["ProductoNombre", "Tipo", "QtyShipped", "StockActualizado", "StockConPedidos",
-                  "WeeklyAvg_30d", "Inv_deseado_custom", "Unid_a_comprar_custom",
-                  "Days_Coverage", "SellThroughRate"]
+    table_cols = ["ProductoNombre", "Tipo", "Stock_Warehouse", "Stock_FBT",
+                  "QtyShipped", "StockActualizado", "StockConPedidos",
+                  "WeeklyAvg_30d", "WeeklyAvg_60d", "Inv_deseado_custom", "Unid_a_comprar_custom",
+                  "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "SellThroughRate"]
     available = [c for c in table_cols if c in df.columns]
 
     def color_coverage(val):
@@ -388,9 +409,8 @@ def page_restock_analysis():
         else:
             return "background-color: #ccffcc; color: #006400"
 
-    styled = df[available].style.map(
-        color_coverage, subset=["Days_Coverage"] if "Days_Coverage" in available else []
-    )
+    cov_cols = [c for c in ["Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"] if c in available]
+    styled = df[available].style.map(color_coverage, subset=cov_cols) if cov_cols else df[available].style
     st.dataframe(styled, use_container_width=True, height=500,
                  column_config={"ProductoNombre": st.column_config.TextColumn("ProductoNombre", pinned=True)})
 
@@ -583,6 +603,30 @@ def page_afiliados():
             fig = px.line(cr_top5, x="Month", y="GMV", color="Creator Username", markers=True)
             fig.update_layout(height=350, margin=dict(t=10))
             st.plotly_chart(fig, use_container_width=True, key="af_line_monthly")
+
+    st.markdown("---")
+    st.subheader("Alertas Virales (últimos 5 días)")
+    st.caption("Creadores con ≥20 unidades vendidas en los últimos 5 días — posible video viral.")
+    col_va1, col_va2 = st.columns(2)
+    with col_va1:
+        va_threshold = st.number_input("Umbral mínimo de unidades", min_value=1, value=20, key="af_va_threshold")
+    with col_va2:
+        va_days = st.number_input("Últimos N días", min_value=1, max_value=30, value=5, key="af_va_days")
+    viral = fetch_viral_alerts(va_threshold, va_days)
+    if viral:
+        st.dataframe(pd.DataFrame(viral), use_container_width=True, height=300)
+    else:
+        st.info("Sin alertas virales en el período seleccionado.")
+
+    st.markdown("---")
+    st.subheader("Órdenes de Creadores (como compradores)")
+    st.caption("Órdenes en AllBBDD donde el Buyer Username coincide con un Creator Username del panel de afiliados.")
+    own_orders = fetch_creator_own_orders()
+    if own_orders:
+        st.metric("Total órdenes encontradas", len(own_orders))
+        st.dataframe(pd.DataFrame(own_orders).head(200), use_container_width=True, height=350)
+    else:
+        st.info("No se encontraron órdenes de compradores que coincidan con creadores.")
 
 
 # ================================================================== #
@@ -1105,6 +1149,15 @@ def page_inventario_fbt():
             total = edited["total_units"].sum()
             n_skus = len(edited)
             st.info(f"SKUs: {n_skus} | Total unidades enviadas: {total:,.0f}")
+
+    st.markdown("---")
+    st.subheader("Detalle Órdenes Pallet FBT")
+    st.caption("Órdenes TikTok con Fulfillment Type FBT (enviadas desde almacén TikTok).")
+    pallet = fetch_pallet_orders()
+    if pallet:
+        st.dataframe(pd.DataFrame(pallet), use_container_width=True, height=400)
+    else:
+        st.info("Sin órdenes FBT pallet activas.")
 
 
 # ================================================================== #

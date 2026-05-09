@@ -192,6 +192,32 @@ def product_monthly_sales(
     return svc.get_monthly_product_sales(db, user.store_id, product_name)
 
 
+@router.get("/viral-alerts")
+def viral_alerts(
+    threshold: int = 20,
+    days: int = 5,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_viral_alerts(db, user.store_id, threshold, days)
+
+
+@router.get("/creator-own-orders")
+def creator_own_orders(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_creator_own_orders(db, user.store_id)
+
+
+@router.get("/pallet-orders")
+def pallet_orders(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_pallet_orders(db, user.store_id)
+
+
 @router.post("/clear-cache")
 def clear_cache(user: User = Depends(get_current_user)):
     """Force-clear the backend analytics cache for this store."""
