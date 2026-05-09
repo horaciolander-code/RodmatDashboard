@@ -88,19 +88,26 @@ def diag_groq(user: User = Depends(get_current_user)):
     except Exception as exc:
         result["groq"] = f"FAIL: {exc}"
 
-    # SMTP test
+    # SMTP test — try port 587 (STARTTLS) and 465 (SSL)
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASSWORD", "")
     result["smtp_user"] = smtp_user
     result["smtp_pass_set"] = bool(smtp_pass)
     result["smtp_pass_len"] = len(smtp_pass)
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as s:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as s:
             s.ehlo(); s.starttls(); s.ehlo()
             s.login(smtp_user, smtp_pass)
-        result["smtp"] = "OK: login successful"
+        result["smtp_587"] = "OK"
     except Exception as exc:
-        result["smtp"] = f"FAIL: {exc}"
+        result["smtp_587"] = f"FAIL: {exc}"
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as s:
+            s.ehlo()
+            s.login(smtp_user, smtp_pass)
+        result["smtp_465"] = "OK"
+    except Exception as exc:
+        result["smtp_465"] = f"FAIL: {exc}"
 
     return result
 
