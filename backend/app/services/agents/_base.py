@@ -40,14 +40,15 @@ def send_email(html: str, subject: str, recipients: list[str]) -> bool:
     if not RESEND_API_KEY or not recipients:
         print("[email] RESEND_API_KEY not set or no recipients")
         return False
+    to = [r.lower() for r in recipients]
     try:
         import httpx
         r = httpx.post(
             "https://api.resend.com/emails",
             json={
-                "from":     "Rodmat Agents <onboarding@resend.dev>",
-                "reply_to": SMTP_USER or recipients[0],
-                "to":       recipients,
+                "from":     "onboarding@resend.dev",
+                "reply_to": SMTP_USER or to[0],
+                "to":       to,
                 "subject":  subject,
                 "html":     html,
             },

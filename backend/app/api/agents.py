@@ -101,7 +101,7 @@ def diag_groq(user: User = Depends(get_current_user)):
                 "https://api.resend.com/emails",
                 json={
                     "from":  "Rodmat Diag <onboarding@resend.dev>",
-                    "to":    [smtp_user or "Rodmatwh@gmail.com"],
+                    "to":    [(smtp_user or "Rodmatwh@gmail.com").lower()],
                     "subject": "[DIAG] Resend test desde Railway",
                     "html":  "<h2>Resend OK desde Railway</h2>",
                 },

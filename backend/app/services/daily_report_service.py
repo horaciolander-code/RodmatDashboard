@@ -160,12 +160,13 @@ def send_report(html: str, recipients: list[str], store_name: str) -> bool:
         return False
     try:
         import httpx
+        to = [addr.lower() for addr in recipients]
         r = httpx.post(
             "https://api.resend.com/emails",
             json={
-                "from":     "Rodmat Dashboard <onboarding@resend.dev>",
-                "reply_to": SMTP_USER or recipients[0],
-                "to":       recipients,
+                "from":     "onboarding@resend.dev",
+                "reply_to": SMTP_USER or to[0],
+                "to":       to,
                 "subject":  f"{store_name} - Reporte Diario {datetime.now().strftime('%d/%m/%Y')}",
                 "html":     html,
             },
