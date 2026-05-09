@@ -12,6 +12,8 @@ def api_get(endpoint: str, params: dict = None) -> dict | list | None:
         r = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params, timeout=60)
         if r.status_code == 401:
             st.session_state.pop("jwt_token", None)
+            st.session_state.pop("cached_user", None)
+            st.query_params.clear()
             st.error("Session expired. Please log in again.")
             st.rerun()
         r.raise_for_status()
@@ -29,6 +31,8 @@ def api_post(endpoint: str, json_data: dict = None, files: dict = None) -> dict 
                           files=files, timeout=300)
         if r.status_code == 401:
             st.session_state.pop("jwt_token", None)
+            st.session_state.pop("cached_user", None)
+            st.query_params.clear()
             st.error("Session expired. Please log in again.")
             st.rerun()
         r.raise_for_status()
