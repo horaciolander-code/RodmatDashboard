@@ -1535,12 +1535,17 @@ def main():
         login_page()
         return
 
-    user = api_get("/auth/me")
-    if not user:
-        st.session_state.pop("jwt_token", None)
-        st.query_params.clear()
-        login_page()
-        return
+    # Cache user info in session_state so /auth/me isn't called on every widget interaction
+    if "cached_user" not in st.session_state:
+        user = api_get("/auth/me")
+        if not user:
+            st.session_state.pop("jwt_token", None)
+            st.query_params.clear()
+            login_page()
+            return
+        st.session_state["cached_user"] = user
+    else:
+        user = st.session_state["cached_user"]
 
     st.title("Rodmat Dashboard V2")
 
@@ -1554,6 +1559,7 @@ def main():
             st.rerun()
         if st.button("Cerrar Sesión"):
             st.session_state.pop("jwt_token", None)
+            st.session_state.pop("cached_user", None)
             st.query_params.clear()
             st.cache_data.clear()
             st.rerun()
