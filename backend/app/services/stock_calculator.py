@@ -14,60 +14,62 @@ from app.models.inventory import InitialInventory, IncomingStock
 
 
 def _build_combo_dict(db: Session, store_id: str) -> dict:
-    combos = db.query(Combo).filter(Combo.store_id == store_id).all()
-    combo_dict = {}
-    for combo in combos:
-        items = []
-        for item in combo.items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-            if product:
-                items.append({
-                    "product": product.name,
-                    "product_id": product.id,
-                    "units": item.quantity,
-                })
-        if items:
-            combo_dict[combo.combo_sku] = items
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT c.combo_sku, p.name AS product_name, p.id AS product_id, ci.quantity
+        FROM combos c
+        JOIN combo_items ci ON ci.combo_id = c.id
+        JOIN products p ON p.id = ci.product_id
+        WHERE c.store_id = :sid
+    """), {"sid": store_id}).fetchall()
+    combo_dict: dict = {}
+    for r in rows:
+        combo_dict.setdefault(r.combo_sku, []).append({
+            "product": r.product_name,
+            "product_id": r.product_id,
+            "units": r.quantity,
+        })
     return combo_dict
 
 
 def _load_orders_df(db: Session, store_id: str):
     import pandas as pd
-    orders = db.query(SalesOrder).filter(SalesOrder.store_id == store_id).all()
-    if not orders:
+    from sqlalchemy import text
+    result = db.execute(text("""
+        SELECT
+            tiktok_order_id          AS "Order ID",
+            sku                      AS "SKU ID",
+            seller_sku               AS "Seller SKU",
+            product_name             AS "Product Name",
+            COALESCE(quantity, 1)    AS "Quantity",
+            status                   AS "Order Status",
+            substatus                AS "Order Substatus",
+            order_date               AS "Order_Date",
+            created_time             AS "Created Time",
+            shipped_time             AS "Shipped Time",
+            COALESCE(sku_subtotal_after_discount, 0) AS "SKU Subtotal After Discount",
+            COALESCE(order_amount, 0)                AS "Order Amount",
+            COALESCE(order_refund_amount, 0)         AS "Order Refund Amount",
+            COALESCE(shipping_fee_after_discount, 0) AS "Shipping Fee After Discount",
+            COALESCE(sku_seller_discount, 0)         AS "SKU Seller Discount",
+            COALESCE(sku_platform_discount, 0)       AS "SKU Platform Discount",
+            cancelation_return_type  AS "Cancelation/Return Type",
+            fulfillment_type         AS "Fulfillment Type",
+            buyer_username           AS "Buyer Username",
+            variation                AS "Variation",
+            state                    AS "State",
+            city                     AS "City"
+        FROM sales_orders
+        WHERE store_id = :sid
+    """), {"sid": store_id})
+    rows = result.fetchall()
+    if not rows:
         return pd.DataFrame()
-
-    rows = []
-    for o in orders:
-        rows.append({
-            "Order ID": o.tiktok_order_id,
-            "SKU ID": o.sku,
-            "Seller SKU": o.seller_sku,
-            "Product Name": o.product_name,
-            "Quantity": o.quantity or 1,
-            "Order Status": o.status,
-            "Order Substatus": o.substatus,
-            "Order_Date": o.order_date,
-            "Created Time": o.created_time,
-            "Shipped Time": o.shipped_time,
-            "SKU Subtotal After Discount": o.sku_subtotal_after_discount or 0,
-            "Order Amount": o.order_amount or 0,
-            "Order Refund Amount": o.order_refund_amount or 0,
-            "Shipping Fee After Discount": o.shipping_fee_after_discount or 0,
-            "SKU Seller Discount": o.sku_seller_discount or 0,
-            "SKU Platform Discount": o.sku_platform_discount or 0,
-            "Cancelation/Return Type": o.cancelation_return_type,
-            "Fulfillment Type": o.fulfillment_type,
-            "Buyer Username": o.buyer_username,
-            "Variation": o.variation,
-            "State": o.state,
-            "City": o.city,
-        })
-    df = pd.DataFrame(rows)
-    df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors="coerce")
-    df["Created Time"] = pd.to_datetime(df["Created Time"], errors="coerce")
-    df["Shipped Time"] = pd.to_datetime(df["Shipped Time"], errors="coerce")
-    df["SKU_ID_Clean"] = df["Seller SKU"].fillna(df["SKU ID"]).astype(str).str.strip()
+    df = pd.DataFrame(rows, columns=result.keys())
+    df["Order_Date"]    = pd.to_datetime(df["Order_Date"],    errors="coerce")
+    df["Created Time"]  = pd.to_datetime(df["Created Time"],  errors="coerce")
+    df["Shipped Time"]  = pd.to_datetime(df["Shipped Time"],  errors="coerce")
+    df["SKU_ID_Clean"]  = df["Seller SKU"].fillna(df["SKU ID"]).astype(str).str.strip()
     return df
 
 
