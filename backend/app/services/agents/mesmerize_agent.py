@@ -232,8 +232,8 @@ def _parse_sections(text: str) -> dict:
 
 def _card(title, content, border="#3498db", bg="#fff"):
     content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:{bg};border-left:4px solid {border};border-radius:8px;'
-            f'padding:20px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">'
+    return (f'<div style="background:{bg};border:1px solid #e0e0e0;border-left:4px solid {border};'
+            f'border-radius:8px;padding:20px;margin-bottom:16px;">'
             f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:14px;text-transform:uppercase;">{title}</h3>'
             f'<div style="color:#444;font-size:13px;line-height:1.8;">{content}</div></div>')
 

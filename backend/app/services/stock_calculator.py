@@ -75,32 +75,35 @@ def _load_orders_df(db: Session, store_id: str):
 
 def decompose_orders(df, combo_dict: dict):
     import pandas as pd
-    if not combo_dict or df.empty:
+    if df.empty:
         df = df.copy()
-        df["ComponentKey"] = df.get("Product Name", df.get("SKU_ID_Clean", ""))
+        df["ComponentKey"] = df["SKU_ID_Clean"]
         df["ComponentQty"] = df["Quantity"]
         df["Is_Combo"] = False
         return df
 
-    rows = []
-    for _, order in df.iterrows():
-        sku = order["SKU_ID_Clean"]
-        qty = order["Quantity"]
-        if sku in combo_dict:
-            for comp in combo_dict[sku]:
-                row = order.copy()
-                row["ComponentKey"] = comp["product"]
-                row["ComponentQty"] = qty * comp["units"]
-                row["Is_Combo"] = True
-                rows.append(row)
-        else:
+    is_combo = df["SKU_ID_Clean"].isin(combo_dict)
+
+    # Non-combo rows — vectorized, no iteration
+    non_combo = df[~is_combo].copy()
+    pname = non_combo["Product Name"].astype(str).str.strip()
+    non_combo["ComponentKey"] = pname.where(pname.ne("") & pname.ne("nan"), non_combo["SKU_ID_Clean"])
+    non_combo["ComponentQty"] = non_combo["Quantity"]
+    non_combo["Is_Combo"] = False
+
+    # Combo rows — iterate only this small subset
+    combo_rows = []
+    for _, order in df[is_combo].iterrows():
+        for comp in combo_dict[order["SKU_ID_Clean"]]:
             row = order.copy()
-            pname = order.get("Product Name", sku)
-            row["ComponentKey"] = pname if pd.notna(pname) and str(pname).strip() else sku
-            row["ComponentQty"] = qty
-            row["Is_Combo"] = False
-            rows.append(row)
-    return pd.DataFrame(rows)
+            row["ComponentKey"] = comp["product"]
+            row["ComponentQty"] = order["Quantity"] * comp["units"]
+            row["Is_Combo"] = True
+            combo_rows.append(row)
+
+    if combo_rows:
+        return pd.concat([non_combo, pd.DataFrame(combo_rows)], ignore_index=True)
+    return non_combo
 
 
 def build_shipped_components(decomposed, initial_date):

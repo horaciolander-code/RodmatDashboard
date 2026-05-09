@@ -56,23 +56,31 @@ def build_report(db: Session, store_id: str) -> str:
     sections.append(f"""
     <div style="background:#f8f9fa;border-radius:8px;padding:20px;margin-bottom:20px;">
       <h2 style="color:#2c3e50;margin-top:0;">Resumen - {yesterday.strftime('%d/%m/%Y')}</h2>
-      <table style="width:100%;border-collapse:collapse;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
         <tr>
-          <td style="padding:12px;text-align:center;background:#fff;border:1px solid #eee;border-radius:8px;">
-            <div style="font-size:13px;color:#7f8c8d;">Facturado Ayer</div>
-            <div style="font-size:28px;font-weight:bold;color:#2c3e50;">${rev_y:,.2f}</div>
+          <td width="25%" style="padding:4px;">
+            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:13px;color:#7f8c8d;">Facturado Ayer</div>
+              <div style="font-size:26px;font-weight:bold;color:#2c3e50;">${rev_y:,.2f}</div>
+            </div>
           </td>
-          <td style="padding:12px;text-align:center;background:#fff;border:1px solid #eee;border-radius:8px;">
-            <div style="font-size:13px;color:#7f8c8d;">Ordenes</div>
-            <div style="font-size:28px;font-weight:bold;">{orders_y}</div>
+          <td width="25%" style="padding:4px;">
+            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:13px;color:#7f8c8d;">Ordenes</div>
+              <div style="font-size:26px;font-weight:bold;">{orders_y}</div>
+            </div>
           </td>
-          <td style="padding:12px;text-align:center;background:#fff;border:1px solid #eee;border-radius:8px;">
-            <div style="font-size:13px;color:#7f8c8d;">Unidades</div>
-            <div style="font-size:28px;font-weight:bold;">{units_y:.0f}</div>
+          <td width="25%" style="padding:4px;">
+            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:13px;color:#7f8c8d;">Unidades</div>
+              <div style="font-size:26px;font-weight:bold;">{units_y:.0f}</div>
+            </div>
           </td>
-          <td style="padding:12px;text-align:center;background:#fff;border:1px solid #eee;border-radius:8px;">
-            <div style="font-size:13px;color:#7f8c8d;">vs Dia Anterior</div>
-            <div style="font-size:28px;font-weight:bold;color:{color};">{arrow} {pct:+.1f}%</div>
+          <td width="25%" style="padding:4px;">
+            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:13px;color:#7f8c8d;">vs Dia Anterior</div>
+              <div style="font-size:26px;font-weight:bold;color:{color};">{arrow} {pct:+.1f}%</div>
+            </div>
           </td>
         </tr>
       </table>

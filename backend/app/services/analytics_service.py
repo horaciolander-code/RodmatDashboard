@@ -295,7 +295,7 @@ def get_filtered_orders(db: Session, store_id: str,
     return {"total": total, "orders": rows}
 
 
-def get_frequent_buyers(db: Session, store_id: str) -> list:
+def get_frequent_buyers(db: Session, store_id: str, n: int = 50) -> list:
     df = _load_orders_df(db, store_id)
     if df.empty or "Buyer Username" not in df.columns:
         return []
@@ -303,7 +303,7 @@ def get_frequent_buyers(db: Session, store_id: str) -> list:
         GMV=("SKU Subtotal After Discount", "sum"),
         OrderCount=("Order ID", "nunique"),
         OrderAmount=("Order Amount", "sum"),
-    ).reset_index().sort_values("OrderCount", ascending=False)
+    ).reset_index().sort_values("OrderCount", ascending=False).head(n)
     return buyers.to_dict(orient="records")
 
 

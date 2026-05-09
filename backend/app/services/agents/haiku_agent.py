@@ -241,8 +241,8 @@ def _parse_sections(text: str) -> dict:
 
 def _section(title, content, border="#3498db"):
     content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:#fff;border-left:4px solid {border};border-radius:8px;'
-            f'padding:20px;margin-bottom:18px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">'
+    return (f'<div style="background:#fff;border:1px solid #e0e0e0;border-left:4px solid {border};'
+            f'border-radius:8px;padding:20px;margin-bottom:18px;">'
             f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:15px;text-transform:uppercase;">{title}</h3>'
             f'<div style="color:#444;font-size:14px;line-height:1.7;">{content}</div></div>')
 
@@ -315,7 +315,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
   </div>
   {_section("Resumen Ejecutivo", sections.get("resumen","—"), "#2ecc71")}
   {_section("Tendencia de Ventas", sections.get("ventas","—"), "#3498db")}
-  <div style="background:#fff;border-radius:8px;padding:20px;margin-bottom:18px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:18px;">
     <h3 style="color:#2c3e50;margin:0 0 12px;font-size:15px;text-transform:uppercase;">Datos de Ventas</h3>
     <table width="100%" style="border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#2c3e50;color:#fff;">
@@ -329,7 +329,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
     </div>
   </div>
   {_section("Estado de Inventario", sections.get("inventario","—"), "#e67e22")}
-  <div style="background:#fff;border-radius:8px;padding:20px;margin-bottom:18px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:18px;">
     <h3 style="color:#2c3e50;margin:0 0 6px;font-size:15px;text-transform:uppercase;">Stock — Productos Activos</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#34495e;color:#fff;">

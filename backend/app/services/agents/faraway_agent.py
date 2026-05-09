@@ -204,8 +204,8 @@ def _parse_sections(text: str) -> dict:
 
 def _card(title, content, border="#3498db", bg="#fff"):
     content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:{bg};border-left:4px solid {border};border-radius:8px;'
-            f'padding:20px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">'
+    return (f'<div style="background:{bg};border:1px solid #e0e0e0;border-left:4px solid {border};'
+            f'border-radius:8px;padding:20px;margin-bottom:16px;">'
             f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:14px;text-transform:uppercase;">{title}</h3>'
             f'<div style="color:#444;font-size:13px;line-height:1.8;">{content}</div></div>')
 
@@ -237,25 +237,31 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
       </td>
     </tr></table>
   </div>
-  <table width="100%" cellpadding="0" cellspacing="8" style="margin-bottom:20px;"><tr>
-    <td width="33%" style="background:#fff;border-radius:8px;padding:14px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">GMV Semana</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['gmv_cur']:,.0f}</div>
-      <div style="font-size:12px;color:{pct_color};">{pct_str} vs anterior</div></td>
-    <td width="33%" style="background:#fff;border-radius:8px;padding:14px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">GMV MTD</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['gmv_mtd']:,.0f}</div>
-      <div style="font-size:12px;color:#aaa;">Proy: ${snapshot['gmv_projected']:,.0f}</div></td>
-    <td width="33%" style="background:#fff;border-radius:8px;padding:14px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">Afiliados GMV</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['aff_gmv_cur']:,.0f}</div>
-      <div style="font-size:12px;color:#aaa;">{snapshot['aff_orders_cur']} órdenes</div></td>
+  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;border-collapse:collapse;"><tr>
+    <td width="33%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">GMV Semana</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['gmv_cur']:,.0f}</div>
+        <div style="font-size:12px;color:{pct_color};">{pct_str} vs anterior</div>
+      </div></td>
+    <td width="33%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">GMV MTD</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['gmv_mtd']:,.0f}</div>
+        <div style="font-size:12px;color:#aaa;">Proy: ${snapshot['gmv_projected']:,.0f}</div>
+      </div></td>
+    <td width="33%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">Afiliados GMV</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['aff_gmv_cur']:,.0f}</div>
+        <div style="font-size:12px;color:#aaa;">{snapshot['aff_orders_cur']} órdenes</div>
+      </div></td>
   </tr></table>
   {_card("Performance de la Semana", sections.get("performance","—"), "#3498db")}
   {_card("Canal de Afiliados", sections.get("afiliados","—"), "#9b59b6")}
   {_card("Alertas de Inventario", sections.get("inventario","—"), "#e74c3c", "#fffafa")}
   {_card("Prioridades Semana que Viene", sections.get("prioridades","—"), "#27ae60")}
-  <div style="background:#fff;border-radius:8px;padding:18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;margin-bottom:16px;">
     <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top Productos Semana</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#2c3e50;color:#fff;">

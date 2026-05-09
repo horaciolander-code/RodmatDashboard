@@ -122,10 +122,11 @@ def filtered_orders(
 
 @router.get("/frequent-buyers")
 def frequent_buyers(
+    n: int = 50,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_frequent_buyers(db, user.store_id)
+    return svc.get_frequent_buyers(db, user.store_id, n)
 
 
 @router.get("/top-combos")

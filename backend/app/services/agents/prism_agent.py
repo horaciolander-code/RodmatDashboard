@@ -392,8 +392,8 @@ def _parse_sections(text: str) -> dict:
 
 def _card(title, content, border="#3498db", bg="#fff"):
     content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:{bg};border-left:4px solid {border};border-radius:8px;'
-            f'padding:20px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">'
+    return (f'<div style="background:{bg};border-left:4px solid {border};border:1px solid #e0e0e0;'
+            f'border-left:4px solid {border};border-radius:8px;padding:20px;margin-bottom:16px;">'
             f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:14px;text-transform:uppercase;'
             f'letter-spacing:1.5px;">{title}</h3>'
             f'<div style="color:#444;font-size:13px;line-height:1.8;">{content}</div></div>')
@@ -463,29 +463,37 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
       </td>
     </tr></table>
   </div>
-  <table width="100%" cellpadding="0" cellspacing="8" style="margin-bottom:20px;"><tr>
-    <td width="25%" style="background:#fff;border-radius:8px;padding:14px 16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">MTD Revenue</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['mtd_revenue']:,.0f}</div>
-      <div style="font-size:10px;color:#aaa;">Proy: ${snapshot['mtd_projected']:,.0f}</div></td>
-    <td width="25%" style="background:#fff;border-radius:8px;padding:14px 16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">SKUs Activos</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">{snapshot['total_active_skus']}</div>
-      <div style="font-size:10px;color:#aaa;">{len(vel.get('accelerating',[]))} acelerando</div></td>
-    <td width="25%" style="background:#fff;border-radius:8px;padding:14px 16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">Creator GMV</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">{cre['creator_gmv_pct']}%</div>
-      <div style="font-size:10px;color:#aaa;">${cre['creator_gmv_usd']:,.0f}</div></td>
-    <td width="25%" style="background:#fff;border-radius:8px;padding:14px 16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.05);">
-      <div style="font-size:11px;color:#999;text-transform:uppercase;">Geo Spread</div>
-      <div style="font-size:22px;font-weight:800;color:#2c3e50;">{geo['total_states_active']}</div>
-      <div style="font-size:10px;color:#aaa;">estados activos</div></td>
+  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;border-collapse:collapse;"><tr>
+    <td width="25%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">MTD Revenue</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['mtd_revenue']:,.0f}</div>
+        <div style="font-size:10px;color:#aaa;">Proy: ${snapshot['mtd_projected']:,.0f}</div>
+      </div></td>
+    <td width="25%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">SKUs Activos</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">{snapshot['total_active_skus']}</div>
+        <div style="font-size:10px;color:#aaa;">{len(vel.get('accelerating',[]))} acelerando</div>
+      </div></td>
+    <td width="25%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">Creator GMV</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">{cre['creator_gmv_pct']}%</div>
+        <div style="font-size:10px;color:#aaa;">${cre['creator_gmv_usd']:,.0f}</div>
+      </div></td>
+    <td width="25%" style="padding:4px;">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;">Geo Spread</div>
+        <div style="font-size:22px;font-weight:800;color:#2c3e50;">{geo['total_states_active']}</div>
+        <div style="font-size:10px;color:#aaa;">estados activos</div>
+      </div></td>
   </tr></table>
   {_card("Tendencias de Mercado", sections.get("tendencias","—"), "#3498db")}
   {_card("Oportunidades de Producto", sections.get("oportunidades","—"), "#27ae60")}
   {_card("Senales de Riesgo", sections.get("riesgos","—"), "#e74c3c", "#fffafa")}
   {_card("Recomendaciones Estrategicas", sections.get("acciones","—"), "#9b59b6")}
-  <div style="background:#fff;border-radius:8px;padding:20px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:16px;">
     <h3 style="color:#2c3e50;margin:0 0 14px;font-size:14px;text-transform:uppercase;">Opportunity Signals ({len(opp)})</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#2c3e50;color:#fff;">
@@ -495,7 +503,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
       <tbody>{opp_rows}</tbody>
     </table>
   </div>
-  <div style="background:#fff;border-radius:8px;padding:20px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:16px;">
     <h3 style="color:#2c3e50;margin:0 0 14px;font-size:14px;text-transform:uppercase;">Velocidad de Productos — Top 15</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#34495e;color:#fff;">
@@ -507,7 +515,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
   </div>
   <table width="100%" cellpadding="0" cellspacing="10" style="margin-bottom:16px;"><tr>
     <td width="50%" valign="top">
-      <div style="background:#fff;border-radius:8px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;">
         <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Portfolio Matrix</h3>
         <table width="100%"><tr>
           <td style="padding:8px;background:#eafaf1;border-radius:6px;vertical-align:top;width:50%;">
@@ -525,7 +533,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
       </div>
     </td>
     <td width="50%" valign="top">
-      <div style="background:#fff;border-radius:8px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;">
         <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top 8 Estados — GMV</h3>
         <table width="100%" style="border-collapse:collapse;">
           <thead><tr style="background:#ecf0f1;">
@@ -541,7 +549,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
       </div>
     </td>
   </tr></table>
-  <div style="background:#fff;border-radius:8px;padding:18px;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;margin-bottom:16px;">
     <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Ventas Mensuales</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#2c3e50;color:#fff;">
