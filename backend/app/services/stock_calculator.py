@@ -60,6 +60,8 @@ def _load_orders_df(db: Session, store_id: str):
             "Fulfillment Type": o.fulfillment_type,
             "Buyer Username": o.buyer_username,
             "Variation": o.variation,
+            "State": o.state,
+            "City": o.city,
         })
     df = pd.DataFrame(rows)
     df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors="coerce")

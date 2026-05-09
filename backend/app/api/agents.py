@@ -1,10 +1,10 @@
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.config import INTERNAL_API_KEY
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.user import User
 from app.models.store import Store
 from app.dependencies import get_current_user
@@ -21,6 +21,20 @@ def _require_internal_key(x_api_key: str = Header(...)):
 
 def _all_store_ids(db: Session) -> list[str]:
     return [s.id for s in db.query(Store).filter(Store.is_active == True).all()]
+
+
+def _run_agent_bg(agent_module_name: str, store_id: str, force: bool):
+    """Run a single agent in a background task with its own DB session."""
+    db = SessionLocal()
+    try:
+        import importlib
+        agent = importlib.import_module(f"app.services.agents.{agent_module_name}_agent")
+        ran = agent.run(db, store_id, force=force)
+        logger.info("Agent %s store %s bg: %s", agent_module_name, store_id[:8], "sent" if ran else "skipped")
+    except Exception as exc:
+        logger.exception("Agent %s bg failed for store %s: %s", agent_module_name, store_id[:8], exc)
+    finally:
+        db.close()
 
 
 @router.post("/run-all")
@@ -54,63 +68,43 @@ def run_all_agents(
 
 @router.post("/prism")
 def run_prism(
+    background_tasks: BackgroundTasks,
     force: bool = False,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    """Run PRISM agent for the authenticated user's store (manual trigger)."""
-    try:
-        from app.services.agents import prism_agent
-        ran = prism_agent.run(db, user.store_id, force=force)
-        return {"status": "sent" if ran else "skipped"}
-    except Exception as exc:
-        logger.exception("PRISM failed for store %s", user.store_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+    """Queues PRISM in background — returns immediately to avoid Railway 60s timeout."""
+    background_tasks.add_task(_run_agent_bg, "prism", user.store_id, force)
+    return {"status": "queued", "agent": "PRISM", "store": user.store_id[:8]}
 
 
 @router.post("/haiku")
 def run_haiku(
+    background_tasks: BackgroundTasks,
     force: bool = False,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    """Run HAIKU agent for the authenticated user's store (manual trigger)."""
-    try:
-        from app.services.agents import haiku_agent
-        ran = haiku_agent.run(db, user.store_id, force=force)
-        return {"status": "sent" if ran else "skipped"}
-    except Exception as exc:
-        logger.exception("HAIKU failed for store %s", user.store_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+    """Queues HAIKU in background — returns immediately to avoid Railway 60s timeout."""
+    background_tasks.add_task(_run_agent_bg, "haiku", user.store_id, force)
+    return {"status": "queued", "agent": "HAIKU", "store": user.store_id[:8]}
 
 
 @router.post("/faraway")
 def run_faraway(
+    background_tasks: BackgroundTasks,
     force: bool = False,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    """Run FARAWAY agent for the authenticated user's store (manual trigger)."""
-    try:
-        from app.services.agents import faraway_agent
-        ran = faraway_agent.run(db, user.store_id, force=force)
-        return {"status": "sent" if ran else "skipped"}
-    except Exception as exc:
-        logger.exception("FARAWAY failed for store %s", user.store_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+    """Queues FARAWAY in background — returns immediately to avoid Railway 60s timeout."""
+    background_tasks.add_task(_run_agent_bg, "faraway", user.store_id, force)
+    return {"status": "queued", "agent": "FARAWAY", "store": user.store_id[:8]}
 
 
 @router.post("/mesmerize")
 def run_mesmerize(
+    background_tasks: BackgroundTasks,
     force: bool = False,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    """Run MESMERIZE agent for the authenticated user's store (manual trigger)."""
-    try:
-        from app.services.agents import mesmerize_agent
-        ran = mesmerize_agent.run(db, user.store_id, force=force)
-        return {"status": "sent" if ran else "skipped"}
-    except Exception as exc:
-        logger.exception("MESMERIZE failed for store %s", user.store_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+    """Queues MESMERIZE in background — returns immediately to avoid Railway 60s timeout."""
+    background_tasks.add_task(_run_agent_bg, "mesmerize", user.store_id, force)
+    return {"status": "queued", "agent": "MESMERIZE", "store": user.store_id[:8]}

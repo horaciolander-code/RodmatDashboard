@@ -70,8 +70,8 @@ def load_orders_df(db: Session, store_id: str) -> pd.DataFrame:
 
 
 def load_kpis(db: Session, store_id: str) -> pd.DataFrame:
-    from app.services.stock_calculator import calculate_stock
-    return calculate_stock(db, store_id)
+    from app.services.analytics_service import _get_stock_df
+    return _get_stock_df(db, store_id)
 
 
 def load_creator_df(db: Session, store_id: str):
