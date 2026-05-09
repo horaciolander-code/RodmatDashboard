@@ -1,6 +1,7 @@
 """
 Shared utilities for all V2 agents: Groq API call, SMTP email, config, data loaders.
 """
+from __future__ import annotations
 import json
 import os
 import smtplib
@@ -94,7 +95,7 @@ def load_creator_df(db: Session, store_id: str):
         "Creator Username": a.creator_username,
         "Payment Amount":   a.payment_amount or 0,
         "Product Name":     a.product_name,
-        "Order Status":     a.status or "COMPLETED",
+        "Order Status":     a.order_status or "COMPLETED",
         "Time Created":     pd.to_datetime(a.time_created) if a.time_created else pd.NaT,
         "Content Type":     a.content_type,
         "Commission":       a.commission or 0,

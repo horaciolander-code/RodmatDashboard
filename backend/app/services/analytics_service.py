@@ -409,12 +409,15 @@ def get_combo_sales_summary(db: Session, store_id: str,
     if not available:
         return []
 
-    result = df.groupby(available, dropna=False).agg(
+    # fillna before groupby so NaN keys don't appear in JSON (not serializable)
+    for col in available:
+        df[col] = df[col].fillna("")
+
+    result = df.groupby(available).agg(
         Units=("Quantity", "sum"),
         Orders=("Order ID", "nunique"),
         GMV=("SKU Subtotal After Discount", "sum"),
     ).reset_index().sort_values("Units", ascending=False)
-    result.columns = ["Seller SKU" if c == "Seller SKU" else c for c in result.columns]
     return result.rename(columns={"Units": "Unidades Vendidas"}).to_dict(orient="records")
 
 

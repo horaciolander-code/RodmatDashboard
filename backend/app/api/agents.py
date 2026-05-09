@@ -59,8 +59,8 @@ def run_prism(
     db: Session = Depends(get_db),
 ):
     """Run PRISM agent for the authenticated user's store (manual trigger)."""
-    from app.services.agents import prism_agent
     try:
+        from app.services.agents import prism_agent
         ran = prism_agent.run(db, user.store_id, force=force)
         return {"status": "sent" if ran else "skipped"}
     except Exception as exc:
@@ -75,8 +75,8 @@ def run_haiku(
     db: Session = Depends(get_db),
 ):
     """Run HAIKU agent for the authenticated user's store (manual trigger)."""
-    from app.services.agents import haiku_agent
     try:
+        from app.services.agents import haiku_agent
         ran = haiku_agent.run(db, user.store_id, force=force)
         return {"status": "sent" if ran else "skipped"}
     except Exception as exc:
@@ -91,8 +91,8 @@ def run_faraway(
     db: Session = Depends(get_db),
 ):
     """Run FARAWAY agent for the authenticated user's store (manual trigger)."""
-    from app.services.agents import faraway_agent
     try:
+        from app.services.agents import faraway_agent
         ran = faraway_agent.run(db, user.store_id, force=force)
         return {"status": "sent" if ran else "skipped"}
     except Exception as exc:
@@ -107,8 +107,8 @@ def run_mesmerize(
     db: Session = Depends(get_db),
 ):
     """Run MESMERIZE agent for the authenticated user's store (manual trigger)."""
-    from app.services.agents import mesmerize_agent
     try:
+        from app.services.agents import mesmerize_agent
         ran = mesmerize_agent.run(db, user.store_id, force=force)
         return {"status": "sent" if ran else "skipped"}
     except Exception as exc:
