@@ -34,25 +34,15 @@ def get_recipients(store) -> list[str]:
 def call_groq(prompt: str, max_tokens: int = 2048) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
-    payload = json.dumps({
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": max_tokens,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        GROQ_URL, data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-        },
-        method="POST",
+    from groq import Groq
+    client = Groq(api_key=GROQ_API_KEY)
+    completion = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        max_tokens=max_tokens,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return json.loads(resp.read().decode())["choices"][0]["message"]["content"]
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Groq {e.code}: {e.read().decode('utf-8', errors='replace')}")
+    return completion.choices[0].message.content
 
 
 def send_email(html: str, subject: str, recipients: list[str]) -> bool:

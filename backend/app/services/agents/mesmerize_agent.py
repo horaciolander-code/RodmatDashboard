@@ -79,11 +79,11 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
     shipped = orders_df[orders_df["Order Status"].isin(["Shipped","Completed","Delivered"])].copy()
     shipped["Month"] = shipped["Order_Date"].dt.to_period("M")
     cutoff = today - pd.DateOffset(months=4)
+    recent_shipped = shipped[shipped["Order_Date"] >= cutoff]
     cat_monthly = (
-        shipped[shipped["Order_Date"] >= cutoff]
-        .groupby(["Month", "Product Category"])["SKU Subtotal After Discount"]
+        recent_shipped.groupby(["Month", "Product Category"])["SKU Subtotal After Discount"]
         .sum().unstack(fill_value=0)
-    )
+    ) if "Product Category" in recent_shipped.columns and not recent_shipped.empty else pd.DataFrame()
     cat_trends = []
     if not cat_monthly.empty and len(cat_monthly) >= 2:
         latest = cat_monthly.iloc[-1]; prev = cat_monthly.iloc[-2]

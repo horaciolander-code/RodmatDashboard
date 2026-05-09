@@ -35,13 +35,26 @@ def send_report_now(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    success = run_store_report(db, user.store_id)
+    """Manual trigger — bypasses report_enabled flag, falls back to SMTP_USER as recipient."""
+    from app.models.store import Store
+    from app.services.daily_report_service import build_report, send_report
+    import os
+
+    store = db.query(Store).filter(Store.id == user.store_id).first()
+    settings = store.settings or {} if store else {}
+    recipients = settings.get("report_recipients") or ([os.getenv("SMTP_USER")] if os.getenv("SMTP_USER") else [])
+    if not recipients:
+        return {"status": "failed", "detail": "No recipients configured"}
+
+    html = build_report(db, user.store_id)
+    store_name = store.name if store else "Store"
+    success = send_report(html, recipients, store_name)
     if success:
-        log = ReportLog(store_id=user.store_id, recipients="manual", status="sent")
+        log = ReportLog(store_id=user.store_id, recipients=", ".join(recipients), status="sent")
         db.add(log)
         db.commit()
-        return {"status": "sent"}
-    return {"status": "failed", "detail": "Check SMTP config or store settings"}
+        return {"status": "sent", "recipients": recipients}
+    return {"status": "failed", "detail": "SMTP error — check Railway SMTP_USER/SMTP_PASSWORD"}
 
 
 @router.post("/run-all")

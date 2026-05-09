@@ -64,6 +64,8 @@ def module_category_mix(shipped: pd.DataFrame) -> dict:
     shipped["Month"] = shipped["Order_Date"].dt.to_period("M")
     cutoff = pd.Timestamp.now() - pd.DateOffset(months=5)
     recent = shipped[shipped["Order_Date"] >= cutoff]
+    if "Product Category" not in recent.columns or recent.empty:
+        return {"months": [], "growing": [], "declining": [], "top_category": "—"}
     cat_monthly = (
         recent.groupby(["Month", "Product Category"])["SKU Subtotal After Discount"]
         .sum().unstack(fill_value=0)
