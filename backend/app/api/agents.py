@@ -68,11 +68,14 @@ def run_all_agents(
 
 @router.get("/diag-groq")
 def diag_groq(user: User = Depends(get_current_user)):
-    """Synchronous Groq diagnostic — returns result or error directly."""
-    import os
+    """Synchronous Groq + SMTP diagnostic — returns result or error directly."""
+    import os, smtplib
+    result = {}
+
+    # Groq test
     key = os.getenv("GROQ_API_KEY", "")
-    if not key:
-        return {"groq_key_set": False, "error": "GROQ_API_KEY env var is empty"}
+    result["groq_key_set"] = bool(key)
+    result["groq_key_prefix"] = key[:12] + "..." if key else ""
     try:
         from groq import Groq
         client = Groq(api_key=key)
@@ -81,9 +84,25 @@ def diag_groq(user: User = Depends(get_current_user)):
             messages=[{"role": "user", "content": "Reply with just: OK"}],
             max_tokens=5,
         )
-        return {"groq_key_set": True, "key_prefix": key[:12] + "...", "result": r.choices[0].message.content}
+        result["groq"] = "OK: " + r.choices[0].message.content
     except Exception as exc:
-        return {"groq_key_set": True, "key_prefix": key[:12] + "...", "error": str(exc)}
+        result["groq"] = f"FAIL: {exc}"
+
+    # SMTP test
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASSWORD", "")
+    result["smtp_user"] = smtp_user
+    result["smtp_pass_set"] = bool(smtp_pass)
+    result["smtp_pass_len"] = len(smtp_pass)
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as s:
+            s.ehlo(); s.starttls(); s.ehlo()
+            s.login(smtp_user, smtp_pass)
+        result["smtp"] = "OK: login successful"
+    except Exception as exc:
+        result["smtp"] = f"FAIL: {exc}"
+
+    return result
 
 
 @router.post("/prism")
