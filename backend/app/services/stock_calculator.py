@@ -181,20 +181,19 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
         decomposed = pd.DataFrame()
         shipped = pd.DataFrame(columns=["ComponentKey", "QtyShipped"])
 
-    inv_records = db.query(InitialInventory).filter(InitialInventory.store_id == store_id).all()
-    inv_rows = []
-    for r in inv_records:
-        product = db.query(Product).filter(Product.id == r.product_id).first()
-        if product:
-            inv_rows.append({
-                "ProductKey": product.name.strip().lower(),
-                "ProductoNombre": product.name,
-                "Initial_Stock": r.quantity,
-                "Tipo": product.category,
-                "product_id": product.id,
-            })
-
-    if inv_rows:
+    from sqlalchemy import text as _text
+    _inv = db.execute(_text("""
+        SELECT p.name AS product_name, p.id AS product_id, p.category, ii.quantity
+        FROM initial_inventory ii
+        JOIN products p ON p.id = ii.product_id
+        WHERE ii.store_id = :sid
+    """), {"sid": store_id}).fetchall()
+    if _inv:
+        inv_rows = [{"ProductKey": r.product_name.strip().lower(),
+                     "ProductoNombre": r.product_name,
+                     "Initial_Stock": r.quantity,
+                     "Tipo": r.category,
+                     "product_id": r.product_id} for r in _inv]
         inv_stock = pd.DataFrame(inv_rows).groupby("ProductKey").agg(
             Initial_Stock=("Initial_Stock", "sum"),
             Tipo=("Tipo", "first"),
@@ -203,14 +202,16 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
         ).reset_index()
     else:
         inv_stock = pd.DataFrame(columns=["ProductKey", "Initial_Stock", "Tipo", "ProductoNombre", "product_id"])
-
-    incoming = db.query(IncomingStock).filter(IncomingStock.store_id == store_id).all()
-    if incoming:
-        inc_rows = [{"_pk": db.query(Product).filter(Product.id == r.product_id).first().name.strip().lower(),
-                     "_status": (r.status or "pending").strip(), "qty": r.qty_ordered}
-                    for r in incoming
-                    if db.query(Product).filter(Product.id == r.product_id).first()]
-        pending_df = pd.DataFrame(inc_rows) if inc_rows else pd.DataFrame(columns=["_pk", "_status", "qty"])
+    _inc = db.execute(_text("""
+        SELECT p.name AS product_name, COALESCE(i.status, 'pending') AS status, i.qty_ordered
+        FROM incoming_stock i
+        JOIN products p ON p.id = i.product_id
+        WHERE i.store_id = :sid
+    """), {"sid": store_id}).fetchall()
+    if _inc:
+        inc_rows = [{"_pk": r.product_name.strip().lower(), "_status": r.status.strip(), "qty": r.qty_ordered}
+                    for r in _inc]
+        pending_df = pd.DataFrame(inc_rows)
     else:
         pending_df = pd.DataFrame(columns=["_pk", "_status", "qty"])
 
