@@ -14,10 +14,7 @@ from api_client import api_get, api_post, api_put, api_patch, api_delete, login,
 
 _COOKIE_NAME = "rodmat_jwt"
 _COOKIE_DAYS = 7
-
-@st.cache_resource
-def _cookie_manager():
-    return stx.CookieManager()
+_cm = stx.CookieManager()
 
 st.set_page_config(
     page_title="Rodmat Dashboard V2",
@@ -1120,7 +1117,7 @@ def page_inventario_fbt():
 #  LOGIN + MAIN
 # ================================================================== #
 def login_page():
-    cm = _cookie_manager()
+    cm = _cm
     st.title("Rodmat Dashboard V2")
     tab1, tab2 = st.tabs(["Login", "Register"])
 
@@ -1540,7 +1537,7 @@ def page_finance_management():
 #  MAIN
 # ================================================================== #
 def main():
-    cm = _cookie_manager()
+    cm = _cm
 
     # Restore session from cookie if token not in session_state
     if "jwt_token" not in st.session_state:
