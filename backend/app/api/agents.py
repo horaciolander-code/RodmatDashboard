@@ -66,6 +66,26 @@ def run_all_agents(
     return {"status": "done", "results": results}
 
 
+@router.get("/diag-groq")
+def diag_groq(user: User = Depends(get_current_user)):
+    """Synchronous Groq diagnostic — returns result or error directly."""
+    import os
+    key = os.getenv("GROQ_API_KEY", "")
+    if not key:
+        return {"groq_key_set": False, "error": "GROQ_API_KEY env var is empty"}
+    try:
+        from groq import Groq
+        client = Groq(api_key=key)
+        r = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": "Reply with just: OK"}],
+            max_tokens=5,
+        )
+        return {"groq_key_set": True, "key_prefix": key[:12] + "...", "result": r.choices[0].message.content}
+    except Exception as exc:
+        return {"groq_key_set": True, "key_prefix": key[:12] + "...", "error": str(exc)}
+
+
 @router.post("/prism")
 def run_prism(
     background_tasks: BackgroundTasks,
