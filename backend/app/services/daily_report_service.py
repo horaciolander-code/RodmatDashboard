@@ -88,7 +88,8 @@ def build_report(db: Session, store_id: str) -> str:
     """)
 
     # -- Section 2: Stock alerts --
-    stock = calculate_stock(db, store_id)
+    from app.services.analytics_service import _get_stock_df
+    stock = _get_stock_df(db, store_id)
     if not stock.empty:
         low = stock[
             (stock["Initial_Stock"] > 0) &

@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -30,31 +30,45 @@ def preview_report(
     return HTMLResponse(content=html)
 
 
-@router.post("/send-now")
-def send_report_now(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Manual trigger — bypasses report_enabled flag, falls back to SMTP_USER as recipient."""
+def _send_report_bg(store_id: str):
+    """Build and send daily report in background (own DB session)."""
+    import os
+    from app.database import SessionLocal
     from app.models.store import Store
     from app.services.daily_report_service import build_report, send_report
-    import os
 
-    store = db.query(Store).filter(Store.id == user.store_id).first()
-    settings = store.settings or {} if store else {}
-    recipients = settings.get("report_recipients") or ([os.getenv("SMTP_USER")] if os.getenv("SMTP_USER") else [])
-    if not recipients:
-        return {"status": "failed", "detail": "No recipients configured"}
+    db = SessionLocal()
+    try:
+        store = db.query(Store).filter(Store.id == store_id).first()
+        settings = store.settings or {} if store else {}
+        recipients = settings.get("report_recipients") or ([os.getenv("SMTP_USER")] if os.getenv("SMTP_USER") else [])
+        if not recipients:
+            logger.warning("No recipients for store %s", store_id[:8])
+            return
+        html = build_report(db, store_id)
+        store_name = store.name if store else "Store"
+        ok = send_report(html, recipients, store_name)
+        if ok:
+            log = ReportLog(store_id=store_id, recipients=", ".join(recipients), status="sent")
+            db.add(log)
+            db.commit()
+            logger.info("Daily report sent for store %s -> %s", store_id[:8], recipients)
+        else:
+            logger.error("Daily report SMTP failed for store %s", store_id[:8])
+    except Exception as exc:
+        logger.exception("Daily report bg failed for store %s: %s", store_id[:8], exc)
+    finally:
+        db.close()
 
-    html = build_report(db, user.store_id)
-    store_name = store.name if store else "Store"
-    success = send_report(html, recipients, store_name)
-    if success:
-        log = ReportLog(store_id=user.store_id, recipients=", ".join(recipients), status="sent")
-        db.add(log)
-        db.commit()
-        return {"status": "sent", "recipients": recipients}
-    return {"status": "failed", "detail": "SMTP error — check Railway SMTP_USER/SMTP_PASSWORD"}
+
+@router.post("/send-now")
+def send_report_now(
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+):
+    """Queue daily report in background — returns immediately to avoid Railway 60s timeout."""
+    background_tasks.add_task(_send_report_bg, user.store_id)
+    return {"status": "queued", "store": user.store_id[:8]}
 
 
 @router.post("/run-all")
