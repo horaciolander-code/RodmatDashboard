@@ -88,26 +88,31 @@ def diag_groq(user: User = Depends(get_current_user)):
     except Exception as exc:
         result["groq"] = f"FAIL: {exc}"
 
-    # SMTP test — try port 587 (STARTTLS) and 465 (SSL)
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_pass = os.getenv("SMTP_PASSWORD", "")
+    # Resend test — actually send a test email
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    smtp_user  = os.getenv("SMTP_USER", "")
+    result["resend_key_set"] = bool(resend_key)
+    result["resend_key_prefix"] = resend_key[:12] + "..." if resend_key else ""
     result["smtp_user"] = smtp_user
-    result["smtp_pass_set"] = bool(smtp_pass)
-    result["smtp_pass_len"] = len(smtp_pass)
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as s:
-            s.ehlo(); s.starttls(); s.ehlo()
-            s.login(smtp_user, smtp_pass)
-        result["smtp_587"] = "OK"
-    except Exception as exc:
-        result["smtp_587"] = f"FAIL: {exc}"
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as s:
-            s.ehlo()
-            s.login(smtp_user, smtp_pass)
-        result["smtp_465"] = "OK"
-    except Exception as exc:
-        result["smtp_465"] = f"FAIL: {exc}"
+    if resend_key:
+        try:
+            import httpx
+            r2 = httpx.post(
+                "https://api.resend.com/emails",
+                json={
+                    "from":  "Rodmat Diag <onboarding@resend.dev>",
+                    "to":    [smtp_user or "Rodmatwh@gmail.com"],
+                    "subject": "[DIAG] Resend test desde Railway",
+                    "html":  "<h2>Resend OK desde Railway</h2>",
+                },
+                headers={"Authorization": f"Bearer {resend_key}"},
+                timeout=20,
+            )
+            result["resend"] = f"HTTP {r2.status_code}: {r2.text}"
+        except Exception as exc:
+            result["resend"] = f"FAIL: {exc}"
+    else:
+        result["resend"] = "FAIL: RESEND_API_KEY not set"
 
     return result
 
