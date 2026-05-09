@@ -66,57 +66,6 @@ def run_all_agents(
     return {"status": "done", "results": results}
 
 
-@router.get("/diag-groq")
-def diag_groq(user: User = Depends(get_current_user)):
-    """Synchronous Groq + SMTP diagnostic — returns result or error directly."""
-    import os, smtplib
-    result = {}
-
-    # Groq test
-    key = os.getenv("GROQ_API_KEY", "")
-    result["groq_key_set"] = bool(key)
-    result["groq_key_prefix"] = key[:12] + "..." if key else ""
-    try:
-        from groq import Groq
-        client = Groq(api_key=key)
-        r = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": "Reply with just: OK"}],
-            max_tokens=5,
-        )
-        result["groq"] = "OK: " + r.choices[0].message.content
-    except Exception as exc:
-        result["groq"] = f"FAIL: {exc}"
-
-    # Resend test — actually send a test email
-    resend_key = os.getenv("RESEND_API_KEY", "")
-    smtp_user  = os.getenv("SMTP_USER", "")
-    result["resend_key_set"] = bool(resend_key)
-    result["resend_key_prefix"] = resend_key[:12] + "..." if resend_key else ""
-    result["smtp_user"] = smtp_user
-    if resend_key:
-        try:
-            import httpx
-            r2 = httpx.post(
-                "https://api.resend.com/emails",
-                json={
-                    "from":  "Rodmat Diag <onboarding@resend.dev>",
-                    "to":    [(smtp_user or "Rodmatwh@gmail.com").lower()],
-                    "subject": "[DIAG] Resend test desde Railway",
-                    "html":  "<h2>Resend OK desde Railway</h2>",
-                },
-                headers={"Authorization": f"Bearer {resend_key}"},
-                timeout=20,
-            )
-            result["resend"] = f"HTTP {r2.status_code}: {r2.text}"
-        except Exception as exc:
-            result["resend"] = f"FAIL: {exc}"
-    else:
-        result["resend"] = "FAIL: RESEND_API_KEY not set"
-
-    return result
-
-
 @router.post("/prism")
 def run_prism(
     background_tasks: BackgroundTasks,

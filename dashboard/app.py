@@ -1120,6 +1120,9 @@ def login_page():
             password = st.text_input("Password", type="password")
             if st.form_submit_button("Login"):
                 if login(email, password):
+                    token = st.session_state.get("jwt_token", "")
+                    if token:
+                        st.query_params["t"] = token
                     st.rerun()
                 else:
                     st.error("Email o contraseña incorrectos")
@@ -1522,6 +1525,12 @@ def page_finance_management():
 #  MAIN
 # ================================================================== #
 def main():
+    # Restore session from URL query param (survives page refresh)
+    if "jwt_token" not in st.session_state:
+        t = st.query_params.get("t")
+        if t:
+            st.session_state["jwt_token"] = t
+
     if "jwt_token" not in st.session_state:
         login_page()
         return
@@ -1529,6 +1538,7 @@ def main():
     user = api_get("/auth/me")
     if not user:
         st.session_state.pop("jwt_token", None)
+        st.query_params.clear()
         login_page()
         return
 
@@ -1544,6 +1554,7 @@ def main():
             st.rerun()
         if st.button("Cerrar Sesión"):
             st.session_state.pop("jwt_token", None)
+            st.query_params.clear()
             st.cache_data.clear()
             st.rerun()
         st.markdown("---")
