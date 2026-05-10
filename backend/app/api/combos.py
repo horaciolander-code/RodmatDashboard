@@ -44,4 +44,21 @@ def list_combos(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(Combo).filter(Combo.store_id == user.store_id).all()
+    combos = db.query(Combo).filter(Combo.store_id == user.store_id).all()
+    product_ids = {item.product_id for combo in combos for item in combo.items}
+    pmap = {p.id: p.name for p in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    result = []
+    for c in combos:
+        result.append({
+            "id": c.id,
+            "store_id": c.store_id,
+            "combo_sku": c.combo_sku,
+            "combo_name": c.combo_name,
+            "created_at": c.created_at,
+            "items": [
+                {"id": i.id, "product_id": i.product_id,
+                 "product_name": pmap.get(i.product_id), "quantity": i.quantity}
+                for i in c.items
+            ],
+        })
+    return result

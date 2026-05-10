@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.inventory import InitialInventory, IncomingStock, FBTInventory
+from app.models.product import Product
 from app.models.user import User
 from app.schemas.inventory import (
     InitialInventoryCreate, InitialInventoryResponse,
@@ -54,7 +55,15 @@ def list_incoming_stock(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(IncomingStock).filter(IncomingStock.store_id == user.store_id).all()
+    records = db.query(IncomingStock).filter(IncomingStock.store_id == user.store_id).all()
+    product_ids = {r.product_id for r in records}
+    pmap = {p.id: p.name for p in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    result = []
+    for r in records:
+        d = IncomingStockResponse.model_validate(r)
+        d.product_name = pmap.get(r.product_id)
+        result.append(d)
+    return result
 
 
 @router.put("/incoming/{record_id}", response_model=IncomingStockResponse)

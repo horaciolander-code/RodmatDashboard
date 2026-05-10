@@ -62,8 +62,11 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     sections = []
 
     # ── 1. OVERVIEW ──────────────────────────────────────────────────────────
-    yest_df  = df[df["Order_Date"].dt.date == yesterday.date()]
-    prev_df  = df[df["Order_Date"].dt.date == day_before.date()]
+    # Exclude cancelled orders from revenue/unit counts
+    active = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)] if "Order Status" in df.columns else df
+
+    yest_df  = active[active["Order_Date"].dt.date == yesterday.date()]
+    prev_df  = active[active["Order_Date"].dt.date == day_before.date()]
     rev_y    = yest_df["SKU Subtotal After Discount"].sum()
     rev_prev = prev_df["SKU Subtotal After Discount"].sum()
     orders_y = yest_df["Order ID"].nunique()
@@ -72,7 +75,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     arrow    = "&#9650;" if pct >= 0 else "&#9660;"
     color    = "#27ae60" if pct >= 0 else "#e74c3c"
 
-    mtd_df    = df[df["Order_Date"] >= today.replace(day=1)]
+    mtd_df    = active[active["Order_Date"] >= today.replace(day=1)]
     rev_mtd   = mtd_df["SKU Subtotal After Discount"].sum()
     orders_mtd = mtd_df["Order ID"].nunique()
 

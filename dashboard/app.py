@@ -826,31 +826,42 @@ def page_gestion_inventario():
     if "order_date" in df.columns:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce").dt.date
 
-    # Filters
+    # Filters — use product_name if available, fallback to product_id
+    name_col = "product_name" if "product_name" in df.columns else "product_id"
     fcol1, fcol2 = st.columns(2)
     with fcol1:
-        prod_ids = sorted(df["product_id"].dropna().astype(str).unique().tolist()) if "product_id" in df.columns else []
-        filtro_prod = st.selectbox("Filtrar por Producto ID", ["Todos"] + prod_ids, key="filter_prod_inv")
+        prod_names = sorted(df[name_col].dropna().astype(str).unique().tolist()) if name_col in df.columns else []
+        filtro_prod = st.selectbox("Filtrar por Producto", ["Todos"] + prod_names, key="filter_prod_inv")
     with fcol2:
         filtro_status = st.selectbox("Filtrar por Status", ["Todos"] + status_options, key="filter_status_inv")
 
     df_view = df.copy()
-    if filtro_prod != "Todos" and "product_id" in df_view.columns:
-        df_view = df_view[df_view["product_id"].astype(str) == filtro_prod]
+    if filtro_prod != "Todos" and name_col in df_view.columns:
+        df_view = df_view[df_view[name_col].astype(str) == filtro_prod]
     if filtro_status != "Todos" and "status" in df_view.columns:
         df_view = df_view[df_view["status"] == filtro_status]
+
+    # Column order: product_name first, hide raw product_id
+    col_order = ["product_name", "qty_ordered", "status", "cost", "order_date",
+                 "expected_arrival", "supplier", "tracking", "notes", "id", "store_id", "product_id", "actual_arrival"]
+    col_order = [c for c in col_order if c in df_view.columns]
+    df_view = df_view[col_order]
 
     st.subheader("Pedidos actuales")
     edited = st.data_editor(
         df_view, num_rows="dynamic",
         column_config={
+            "product_name": st.column_config.TextColumn("Producto"),
             "status": st.column_config.SelectboxColumn("Status", options=status_options, default="pending"),
-            "qty_ordered": st.column_config.NumberColumn("Qty Ordered", min_value=0),
-            "cost": st.column_config.NumberColumn("Cost", min_value=0, format="$%.2f"),
+            "qty_ordered": st.column_config.NumberColumn("Unidades", min_value=0),
+            "cost": st.column_config.NumberColumn("Coste", min_value=0, format="$%.2f"),
             "order_date": st.column_config.DateColumn("Fecha pedido"),
+            "expected_arrival": st.column_config.DateColumn("Entrega estimada"),
         },
         use_container_width=True, height=500, key="inv_editor",
-        disabled=["id", "store_id", "product_id"],
+        disabled=["id", "store_id", "product_id", "product_name", "actual_arrival"],
+        column_order=["product_name", "qty_ordered", "status", "cost", "order_date",
+                      "expected_arrival", "supplier", "tracking", "notes"],
     )
 
     col_save, col_info = st.columns([1, 3])
@@ -1033,7 +1044,20 @@ def page_gestion_combos():
     st.subheader("Listado de Combos")
     combos = fetch_combos()
     if combos:
-        combo_df = pd.DataFrame(combos)
+        rows = []
+        for c in combos:
+            items = c.get("items", [])
+            items_str = " + ".join(
+                f"{it.get('product_name') or it.get('product_id','?')} (x{it.get('quantity',1)})"
+                for it in items
+            )
+            rows.append({
+                "SKU Combo": c.get("combo_sku", ""),
+                "Nombre Combo": c.get("combo_name", ""),
+                "Componentes": items_str,
+                "Num. Productos": len(items),
+            })
+        combo_df = pd.DataFrame(rows)
         st.dataframe(combo_df, use_container_width=True, height=400)
         st.info(f"Total combos definidos: {len(combo_df)}")
 

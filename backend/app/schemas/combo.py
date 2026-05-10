@@ -16,6 +16,7 @@ class ComboCreate(BaseModel):
 class ComboItemResponse(BaseModel):
     id: str
     product_id: str
+    product_name: str | None = None
     quantity: int
 
     model_config = {"from_attributes": True}

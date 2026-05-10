@@ -63,6 +63,7 @@ class IncomingStockResponse(BaseModel):
     id: str
     store_id: str
     product_id: str
+    product_name: str | None = None
     qty_ordered: int
     order_date: date | None
     expected_arrival: date | None
