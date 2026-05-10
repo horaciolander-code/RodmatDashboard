@@ -1610,7 +1610,29 @@ def main():
             api_post("/analytics/clear-cache")
             st.cache_data.clear()
             st.rerun()
-        if st.button("Cerrar Sesión"):
+        _user_role = user.get("role", "viewer")
+        if _user_role in ("admin", "superadmin"):
+            if st.button("Enviar Reporte Diario"):
+                result = api_post("/reports/send-now")
+                if result:
+                    st.success("Reporte en cola — llega en 1-2 min")
+            with st.expander("Agentes IA"):
+                from datetime import date as _date
+                _today_wd = _date.today().weekday()  # 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri
+                _agents = [
+                    ("PRISM", "/agents/prism", "Lunes", 0),
+                    ("HAIKU", "/agents/haiku", "Miercoles", 2),
+                    ("FARAWAY", "/agents/faraway", "Viernes", 4),
+                    ("MESMERIZE", "/agents/mesmerize", "1er Lunes", 0),
+                ]
+                for _aname, _apath, _aday, _awd in _agents:
+                    _is_day = _today_wd == _awd
+                    _label = f"{_aname} ({_aday})" + (" [HOY]" if _is_day else "")
+                    if st.button(_label, key=f"ag_{_aname}"):
+                        _r = api_post(f"{_apath}?force=true")
+                        if _r:
+                            st.success(f"{_aname} en cola — email en ~2 min")
+        if st.button("Cerrar Sesion"):
             st.session_state.pop("jwt_token", None)
             st.session_state.pop("cached_user", None)
             st.query_params.clear()
