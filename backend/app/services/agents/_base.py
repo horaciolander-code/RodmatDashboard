@@ -46,7 +46,7 @@ def send_email(html: str, subject: str, recipients: list[str]) -> bool:
         r = httpx.post(
             "https://api.resend.com/emails",
             json={
-                "from":     "onboarding@resend.dev",
+                "from":     "reportes@rodmatcenter.com",
                 "reply_to": SMTP_USER or to[0],
                 "to":       to,
                 "subject":  subject,

@@ -172,7 +172,7 @@ def send_report(html: str, recipients: list[str], store_name: str) -> bool:
         r = httpx.post(
             "https://api.resend.com/emails",
             json={
-                "from":     "onboarding@resend.dev",
+                "from":     "reportes@rodmatcenter.com",
                 "reply_to": SMTP_USER or to[0],
                 "to":       to,
                 "subject":  f"{store_name} - Reporte Diario {datetime.now().strftime('%d/%m/%Y')}",
