@@ -26,7 +26,7 @@ def preview_report(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    html = build_report(db, user.store_id)
+    html, _ = build_report(db, user.store_id)
     return HTMLResponse(content=html)
 
 
@@ -45,9 +45,9 @@ def _send_report_bg(store_id: str):
         if not recipients:
             logger.warning("No recipients for store %s", store_id[:8])
             return
-        html = build_report(db, store_id)
+        html, subject = build_report(db, store_id)
         store_name = store.name if store else "Store"
-        ok = send_report(html, recipients, store_name)
+        ok = send_report(html, recipients, store_name, subject)
         if ok:
             log = ReportLog(store_id=store_id, recipients=", ".join(recipients), status="sent")
             db.add(log)
