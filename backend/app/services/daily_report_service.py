@@ -21,11 +21,12 @@ STALE_ORDER_DAYS    = 3
 def _viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5) -> pd.DataFrame:
     """Creators with threshold+ units sold in last N days (affiliate sales)."""
     from app.models.sales import AffiliateSale
+    from sqlalchemy import not_, func
     cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
     rows = db.query(AffiliateSale).filter(
         AffiliateSale.store_id == store_id,
         AffiliateSale.time_created >= cutoff.to_pydatetime(),
-        AffiliateSale.order_status.in_(["Completed", "Delivered", "Shipped"]),
+        not_(func.lower(AffiliateSale.order_status).contains("cancel")),
     ).all()
     if not rows:
         return pd.DataFrame()
@@ -148,8 +149,11 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
         stock = pd.DataFrame()
 
     if not stock.empty:
-        has_wh  = "Stock_Warehouse" in stock.columns
-        has_fbt = "Stock_FBT"       in stock.columns
+        has_wh      = "Stock_Warehouse" in stock.columns
+        has_fbt     = "Stock_FBT"       in stock.columns
+        has_fbt_sent = "FBT_Sent"       in stock.columns
+        has_cov_wh  = "Days_Cov_WH"    in stock.columns
+        has_cov_fbt = "Days_Cov_FBT"   in stock.columns
 
         alert_mask = (stock["Initial_Stock"] > 0) & (
             (stock["StockActualizado"] < 0) |
@@ -160,8 +164,8 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
                 (stock["Stock_Warehouse"] < 0) |
                 ((stock["Stock_Warehouse"] > 0) & (stock["Stock_Warehouse"] < low_threshold))
             )
-        if has_fbt:
-            alert_mask |= (stock["Initial_Stock"] > 0) & (stock.get("FBT_Sent", pd.Series(0, index=stock.index)) > 0) & (
+        if has_fbt and has_fbt_sent:
+            alert_mask |= (stock["Initial_Stock"] > 0) & (stock["FBT_Sent"] > 0) & (
                 (stock["Stock_FBT"] < 0) |
                 ((stock["Stock_FBT"] > 0) & (stock["Stock_FBT"] < low_threshold))
             )
@@ -177,29 +181,34 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
         if not low.empty:
             rows_html = ""
             for _, r in low.iterrows():
-                sv  = r["StockActualizado"]
-                swh = r.get("Stock_Warehouse", sv)
-                sfbt = r.get("Stock_FBT", 0)
-                bg  = "#f5b7b1" if sv < 0 else ("#fdedec" if sv <= 5 else ("#fef9e7" if sv <= 15 else "#fff"))
-                cov = r.get("Days_Coverage", 999)
-                cov_str = f"{cov:.0f}d" if cov < 999 else "N/A"
+                sv   = r["StockActualizado"]
+                swh  = r.get("Stock_Warehouse", sv) if has_wh else sv
+                sfbt = r.get("Stock_FBT", 0) if has_fbt else 0
+                bg   = "#f5b7b1" if sv < 0 else ("#fdedec" if sv <= 5 else ("#fef9e7" if sv <= 15 else "#fff"))
+                cov  = r.get("Days_Coverage", 999)
+                cov_wh  = r.get("Days_Cov_WH",  999) if has_cov_wh  else 999
+                cov_fbt = r.get("Days_Cov_FBT", 999) if has_cov_fbt else 999
+                def _cov(v): return f"{v:.0f}d" if v < 999 else "N/A"
                 sv_html = f"<span style='color:#e74c3c;font-weight:bold;'>{sv:.0f}</span>" if sv < 0 else f"{sv:.0f}"
-                tipo    = r.get("Tipo", r.get("category", "-")) or "-"
+                tipo    = r.get("Tipo", "-") or "-"
+                fbt_cov_cell = f"<td style='padding:8px;border:1px solid #eee;text-align:center;'>{_cov(cov_fbt)}</td>" if has_cov_fbt else ""
                 rows_html += f"""
                 <tr style="background:{bg};">
                   <td style="padding:8px;border:1px solid #eee;">{r['ProductoNombre']}</td>
                   <td style="padding:8px;border:1px solid #eee;text-align:center;">{tipo}</td>
                   <td style="padding:8px;border:1px solid #eee;text-align:center;">{swh:.0f}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{"" if not has_fbt else f"{sfbt:.0f}"}</td>
+                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{"—" if not has_fbt else f"{sfbt:.0f}"}</td>
                   <td style="padding:8px;border:1px solid #eee;text-align:center;">{sv_html}</td>
                   <td style="padding:8px;border:1px solid #eee;text-align:center;">{r.get('AvgVentas30d', 0):.1f}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{cov_str}</td>
+                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{_cov(cov_wh) if has_cov_wh else _cov(cov)}</td>
+                  {fbt_cov_cell}
                 </tr>"""
 
             alert_title = f"&#9888; Alerta de Stock - {n_stock_alerts} productos"
             if n_negatives > 0:
                 alert_title += f" ({n_negatives} en NEGATIVO)"
 
+            fbt_cov_header = "<th style='padding:10px;text-align:center;'>Cob. FBT</th>" if has_cov_fbt else ""
             sections.append(f"""
             <div style="background:#fff;border:2px solid #e74c3c;border-radius:8px;padding:20px;margin-bottom:20px;">
               <h2 style="color:#e74c3c;margin-top:0;">{alert_title}</h2>
@@ -212,7 +221,8 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
                   <th style="padding:10px;text-align:center;">FBT</th>
                   <th style="padding:10px;text-align:center;">Total</th>
                   <th style="padding:10px;text-align:center;">Vta/Dia (30d)</th>
-                  <th style="padding:10px;text-align:center;">Cobertura</th>
+                  <th style="padding:10px;text-align:center;">Cob. WH</th>
+                  {fbt_cov_header}
                 </tr></thead>
                 <tbody>{rows_html}</tbody>
               </table>
