@@ -297,28 +297,27 @@ def parse_combos_excel(content: bytes, store_id: str, db: Session) -> dict:
 
             combo_name = _safe_str(row.get('Nombre combo', row.get('NOMBRE', ''))) or combo_sku
 
-            # Deduplicate product_ids to avoid UNIQUE constraint on (combo_id, product_id)
-            seen_product_ids: set[str] = set()
+            # Count repeated products correctly: Product1=A, Product2=A → quantity=2 for A
+            # This matches V1 data_model.py behavior where each ProductN column = 1 unit
+            component_qty: dict[str, int] = {}
+            for comp in components:
+                pid = product_map.get(comp.lower())
+                if pid:
+                    component_qty[pid] = component_qty.get(pid, 0) + 1
 
             if existing:
                 existing.combo_name = combo_name
                 db.query(ComboItem).filter(ComboItem.combo_id == existing.id).delete()
                 db.flush()
-                for comp in components:
-                    product_id = product_map.get(comp.lower())
-                    if product_id and product_id not in seen_product_ids:
-                        seen_product_ids.add(product_id)
-                        db.add(ComboItem(combo_id=existing.id, product_id=product_id, quantity=1))
+                for pid, qty in component_qty.items():
+                    db.add(ComboItem(combo_id=existing.id, product_id=pid, quantity=qty))
                 updated += 1
             else:
                 combo = Combo(store_id=store_id, combo_sku=combo_sku, combo_name=combo_name)
                 db.add(combo)
                 db.flush()
-                for comp in components:
-                    product_id = product_map.get(comp.lower())
-                    if product_id and product_id not in seen_product_ids:
-                        seen_product_ids.add(product_id)
-                        db.add(ComboItem(combo_id=combo.id, product_id=product_id, quantity=1))
+                for pid, qty in component_qty.items():
+                    db.add(ComboItem(combo_id=combo.id, product_id=pid, quantity=qty))
                 inserted += 1
         except Exception:
             errors += 1

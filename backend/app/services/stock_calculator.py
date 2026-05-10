@@ -227,7 +227,8 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
 
     if not pending_df.empty:
         pending_df["_status_lower"] = pending_df["_status"].str.lower().str.strip()
-        recibido = pending_df[pending_df["_status_lower"] == "recibido"]
+        # V1 adds both Recibido and Ajuste (Ajuste can be negative) to Initial_Stock
+        recibido = pending_df[pending_df["_status_lower"].isin(["recibido", "ajuste"])]
         if not recibido.empty:
             rec_agg = recibido.groupby("_pk")["qty"].sum().reset_index()
             rec_agg.columns = ["ProductKey", "Recibido_Add"]
