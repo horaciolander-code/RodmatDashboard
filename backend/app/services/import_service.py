@@ -49,10 +49,10 @@ def _safe_str(val) -> str | None:
     return s if s and s != 'nan' else None
 
 
-def _safe_datetime(val) -> datetime | None:
+def _safe_datetime(val, dayfirst: bool = False) -> datetime | None:
     try:
         import pandas as pd
-        dt = pd.to_datetime(val, errors='coerce', format='mixed')
+        dt = pd.to_datetime(val, errors='coerce', dayfirst=dayfirst)
         return dt.to_pydatetime() if pd.notna(dt) else None
     except Exception:
         return None
@@ -137,68 +137,75 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
 
 
 def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
-    """Parse affiliate/creator CSV. Upserts by (store_id, order_id, sku)."""
+    """Parse affiliate/creator CSV. Upserts by (store_id, order_id, sku) using bulk INSERT ON CONFLICT."""
+    import uuid
     import pandas as pd
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig')
     df.columns = df.columns.str.strip()
 
-    inserted, updated, errors = 0, 0, 0
-    batch = []
+    rows = []
+    errors = 0
 
     for _, row in df.iterrows():
         try:
             order_id = _safe_str(row.get('Order ID'))
-            sku = _safe_str(row.get('SKU ID', row.get('Product SKU ID')))
-
             if not order_id:
                 errors += 1
                 continue
 
-            existing = db.query(AffiliateSale).filter(and_(
-                AffiliateSale.store_id == store_id,
-                AffiliateSale.order_id == order_id,
-                AffiliateSale.sku == sku,
-            )).first()
+            sku = _safe_str(row.get('SKU ID', row.get('Product SKU ID')))
+            # Commission rate is exported as "15%" — strip the percent sign
+            comm_rate_raw = str(row.get('Standard commission rate', '') or '').replace('%', '').strip()
 
-            data = dict(
+            rows.append(dict(
+                id=str(uuid.uuid4()),
                 store_id=store_id,
                 order_id=order_id,
                 creator_username=_safe_str(row.get('Creator Username')),
                 product_name=_safe_str(row.get('Product Name')),
                 sku=sku,
                 quantity=_safe_int(row.get('Quantity', 1)),
-                commission=_safe_float(row.get('Est. standard commission payment',
-                                               row.get('Actual Commission Payment'))),
+                commission=_safe_float(
+                    row.get('Est. standard commission payment',
+                            row.get('Actual Commission Payment'))
+                ),
                 content_type=_safe_str(row.get('Content Type')),
                 payment_amount=_safe_float(row.get('Payment Amount')),
                 order_status=_safe_str(row.get('Order Status')),
-                time_created=_safe_datetime(row.get('Time Created')),
-                commission_rate=_safe_float(row.get('Standard commission rate')),
+                # TikTok affiliate CSVs use DD/MM/YYYY format
+                time_created=_safe_datetime(row.get('Time Created'), dayfirst=True),
+                commission_rate=_safe_float(comm_rate_raw),
                 est_commission_base=_safe_float(row.get('Est. Commission Base')),
                 raw_data=None,
-            )
-
-            if existing:
-                for k, v in data.items():
-                    if k != 'store_id':
-                        setattr(existing, k, v)
-                updated += 1
-            else:
-                batch.append(AffiliateSale(**data))
-                inserted += 1
-
-            if len(batch) >= 1000:
-                db.bulk_save_objects(batch)
-                db.flush()
-                batch = []
+            ))
         except Exception:
             errors += 1
 
-    if batch:
-        db.bulk_save_objects(batch)
-    db.commit()
+    if not rows:
+        return {"total_rows": len(df), "inserted": 0, "updated": 0, "errors": errors}
 
-    return {"total_rows": len(df), "inserted": inserted, "updated": updated, "errors": errors}
+    # Bulk upsert: INSERT ... ON CONFLICT (store_id, order_id, sku) DO UPDATE
+    # No N+1 SELECT queries — one batch per 1000 rows
+    update_cols = ['creator_username', 'product_name', 'quantity', 'commission',
+                   'content_type', 'payment_amount', 'order_status', 'time_created',
+                   'commission_rate', 'est_commission_base']
+    BATCH = 1000
+    total = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i:i + BATCH]
+        stmt = pg_insert(AffiliateSale).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint='uq_store_affiliate_order_sku',
+            set_={col: getattr(stmt.excluded, col) for col in update_cols},
+        )
+        db.execute(stmt)
+        db.flush()
+        total += len(batch)
+
+    db.commit()
+    return {"total_rows": len(df), "inserted": total, "updated": 0, "errors": errors}
 
 
 def parse_products_excel(content: bytes, store_id: str, db: Session) -> dict:
