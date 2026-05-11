@@ -210,9 +210,10 @@ def page_overview():
     st.header("Resumen General")
     _platform = render_platform_selector("ov")
 
-    unknown = fetch_unknown_combos()
-    if unknown:
-        st.warning(f"{len(unknown)} SKU(s) en pedidos sin combo asignado. Ve a Gestion > Gestion Combos para revisarlos.")
+    if _platform != "amazon":
+        unknown = fetch_unknown_combos()
+        if unknown:
+            st.warning(f"{len(unknown)} SKU(s) en pedidos sin combo asignado. Ve a Gestion > Gestion Combos para revisarlos.")
 
     # Platform breakdown (always shown when no platform filter)
     if _platform is None:

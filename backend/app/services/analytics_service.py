@@ -635,8 +635,10 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
     # Referral fees apply to TikTok only (6% est.); Amazon has different fee structure
     referral_fees = gmv * 0.06 if platform != 'amazon' else 0.0
 
+    total_orders = df["Order ID"].nunique()
     return {
         "netOrder": int(net_orders),
+        "totalOrders": int(total_orders),
         "TITKOKGMVOrderAmount": round(float(gmv), 2),
         "NetOrderAmount": round(float(net_order_amount), 2),
         "ShippingFees": round(float(shipping_fees), 2),
