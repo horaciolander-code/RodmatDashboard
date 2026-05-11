@@ -51,6 +51,7 @@ def _load_orders_df(db: Session, store_id: str):
             COALESCE(order_amount, 0)                AS "Order Amount",
             COALESCE(order_refund_amount, 0)         AS "Order Refund Amount",
             COALESCE(shipping_fee_after_discount, 0) AS "Shipping Fee After Discount",
+            COALESCE(original_shipping_fee, 0)       AS "Original Shipping Fee",
             COALESCE(sku_seller_discount, 0)         AS "SKU Seller Discount",
             COALESCE(sku_platform_discount, 0)       AS "SKU Platform Discount",
             cancelation_return_type  AS "Cancelation/Return Type",

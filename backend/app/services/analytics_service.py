@@ -58,15 +58,15 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
 
     order_level = df.drop_duplicates(subset="Order ID")
     net_order_amount = (order_level["Order Amount"] - order_level["Order Refund Amount"]).sum()
-    shipping_fees = order_level["Shipping Fee After Discount"].sum()
-    net_wo_shipping = net_order_amount - shipping_fees
+    # Original Shipping Fee = coste real del envío (tarifa del transportista antes de descuentos)
+    # Shipping Fee After Discount = lo que paga el comprador (casi siempre $0 con envío gratis)
+    original_shipping = order_level["Original Shipping Fee"].sum() if "Original Shipping Fee" in order_level.columns else 0.0
+    buyer_shipping = order_level["Shipping Fee After Discount"].sum()
+    shipping_fees = original_shipping  # Gastos de Envío = coste real
+    net_wo_shipping = net_order_amount - buyer_shipping
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
-    # Shipping discount: sum of co-funded + seller + platform shipping discounts (V1 parity)
     shipping_discount = 0.0
-    for col in ["Shipping Fee Seller Discount", "Shipping Fee Platform Discount", "Co-Funded Shipping Fee Discount"]:
-        if col in df.columns:
-            shipping_discount += float(df[col].sum())
 
     affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
     creator_commission = sum(a.commission or 0 for a in affiliates)
@@ -547,8 +547,10 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
 
     order_level = df.drop_duplicates(subset="Order ID")
     net_order_amount = (order_level["Order Amount"] - order_level["Order Refund Amount"]).sum()
-    shipping_fees = order_level["Shipping Fee After Discount"].sum()
-    net_wo_shipping = net_order_amount - shipping_fees
+    original_shipping = order_level["Original Shipping Fee"].sum() if "Original Shipping Fee" in order_level.columns else 0.0
+    buyer_shipping = order_level["Shipping Fee After Discount"].sum()
+    shipping_fees = original_shipping
+    net_wo_shipping = net_order_amount - buyer_shipping
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
     referral_fees = gmv * 0.06

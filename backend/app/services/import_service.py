@@ -103,6 +103,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 order_amount=_safe_float(row.get('Order Amount')),
                 order_refund_amount=_safe_float(row.get('Order Refund Amount')),
                 shipping_fee_after_discount=_safe_float(row.get('Shipping Fee After Discount')),
+                original_shipping_fee=_safe_float(row.get('Original Shipping Fee')),
                 sku_seller_discount=_safe_float(row.get('SKU Seller Discount')),
                 sku_platform_discount=_safe_float(row.get('SKU Platform Discount')),
                 cancelation_return_type=_safe_str(row.get('Cancelation/Return Type')),

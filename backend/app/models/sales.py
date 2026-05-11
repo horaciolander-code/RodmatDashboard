@@ -34,6 +34,7 @@ class SalesOrder(Base):
     order_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     order_refund_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     shipping_fee_after_discount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    original_shipping_fee: Mapped[float | None] = mapped_column(Float, nullable=True)
     sku_seller_discount: Mapped[float | None] = mapped_column(Float, nullable=True)
     sku_platform_discount: Mapped[float | None] = mapped_column(Float, nullable=True)
     cancelation_return_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
