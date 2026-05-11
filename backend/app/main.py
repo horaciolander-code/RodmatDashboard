@@ -92,11 +92,10 @@ def _start_scheduler():
         finally:
             db.close()
 
-    # 13:00 UTC = 9AM EDT / 15:00 España (CEST) — gives time to upload CSV before report runs
-    # 16:00 UTC = 12PM EDT / 18:00 España — daily report after CSV is uploaded
-    sched.every().day.at("13:00").do(_run_agents)
-    sched.every().day.at("16:00").do(_run_reports)
-    logger.info("Scheduler configured: agents at 13:00 UTC, reports at 16:00 UTC")
+    # 11:00 UTC = 7AM EDT (UTC-4) | 12:00 UTC = 8AM EDT — report at 8AM Miami time
+    sched.every().day.at("11:00").do(_run_agents)
+    sched.every().day.at("12:00").do(_run_reports)
+    logger.info("Scheduler configured: agents at 11:00 UTC, reports at 12:00 UTC (8AM EDT)")
 
     def _loop():
         while True:
