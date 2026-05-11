@@ -246,8 +246,11 @@ def page_overview():
     date_to = str(date_range[1]) if len(date_range) == 2 else (str(date_range[0]) if len(date_range) == 1 else None)
 
     m = fetch_overview(date_from, date_to, platform=_platform)
-    if not m:
-        st.warning("No hay datos disponibles.")
+    if not m or m.get("totalOrders", 0) == 0:
+        if _platform == "amazon":
+            st.info("No hay pedidos Amazon en la base de datos aún. Importa el archivo .txt desde el panel de administración → Data Import → paso 7.")
+        else:
+            st.warning("No hay datos disponibles.")
         return
 
     c1, c2, c3, c4 = st.columns(4)
@@ -343,9 +346,6 @@ def page_overview():
 # ================================================================== #
 def page_inventario_summary():
     st.header("Resumen de Inventario")
-    _platform = render_platform_selector("inv")
-    if _platform:
-        st.info(f"El inventario es de un único warehouse compartido entre TikTok y Amazon. Mostrando stock total real.")
 
     data = fetch_stock_summary()
     if not data:
@@ -424,9 +424,6 @@ def page_inventario_summary():
 # ================================================================== #
 def page_restock_analysis():
     st.header("Análisis de Reabastecimiento")
-    _platform = render_platform_selector("rst")
-    if _platform:
-        st.info("El stock y las métricas de restock son globales (warehouse único). La velocidad de ventas incluye ambos canales.")
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
