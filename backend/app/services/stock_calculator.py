@@ -59,7 +59,8 @@ def _load_orders_df(db: Session, store_id: str):
             buyer_username           AS "Buyer Username",
             variation                AS "Variation",
             state                    AS "State",
-            city                     AS "City"
+            city                     AS "City",
+            COALESCE(platform, 'tiktok') AS "Platform"
         FROM sales_orders
         WHERE store_id = :sid
     """), {"sid": store_id})

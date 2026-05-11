@@ -14,11 +14,12 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 def overview(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    platform: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if date_from or date_to:
-        return svc.get_overview_metrics_filtered(db, user.store_id, date_from, date_to)
+    if date_from or date_to or platform:
+        return svc.get_overview_metrics_filtered(db, user.store_id, date_from, date_to, platform)
     return svc.get_overview_metrics(db, user.store_id)
 
 
@@ -26,20 +27,32 @@ def overview(
 def sales_by_month(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    platform: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_sales_by_month(db, user.store_id, date_from, date_to)
+    return svc.get_sales_by_month(db, user.store_id, date_from, date_to, platform)
 
 
 @router.get("/sales-by-day")
 def sales_by_day(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    platform: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_sales_by_day(db, user.store_id, date_from, date_to)
+    return svc.get_sales_by_day(db, user.store_id, date_from, date_to, platform)
+
+
+@router.get("/platform-summary")
+def platform_summary(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_platform_summary(db, user.store_id, date_from, date_to)
 
 
 @router.get("/stock-summary")
@@ -108,6 +121,7 @@ def filtered_orders(
     recipient: Optional[str] = None,
     order_id: Optional[str] = None,
     product_name: Optional[str] = None,
+    platform: Optional[str] = None,
     limit: int = Query(500, le=5000),
     offset: int = 0,
     user: User = Depends(get_current_user),
@@ -117,6 +131,7 @@ def filtered_orders(
         db, user.store_id, date_from, date_to, status, sku,
         buyer, fulfillment, order_id, product_name, limit, offset,
         seller_sku=seller_sku, cancel_type=cancel_type, city=city, recipient=recipient,
+        platform=platform,
     )
 
 

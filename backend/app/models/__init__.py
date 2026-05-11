@@ -6,9 +6,11 @@ from app.models.inventory import InitialInventory, IncomingStock, FBTInventory
 from app.models.sales import SalesOrder, AffiliateSale
 from app.models.report_log import ReportLog
 from app.models.finance import BankTransaction
+from app.models.amazon_sku_map import AmazonSkuMap
 
 __all__ = [
     "Store", "User", "Product", "Combo", "ComboItem",
     "InitialInventory", "IncomingStock", "FBTInventory",
     "SalesOrder", "AffiliateSale", "ReportLog", "BankTransaction",
+    "AmazonSkuMap",
 ]

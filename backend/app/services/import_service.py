@@ -59,7 +59,7 @@ def _safe_datetime(val, dayfirst: bool = False) -> datetime | None:
 
 
 def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
-    """Parse TikTok orders CSV (AllBBDD format). Upserts by (store_id, order_id, sku)."""
+    """Parse TikTok orders CSV (AllBBDD format). Replaces TikTok orders only (keeps Amazon)."""
     import uuid as _uuid
     import pandas as pd
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -113,14 +113,15 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session) -> dict:
                 recipient=_safe_str(row.get('Recipient')),
                 city=_safe_str(row.get('City')),
                 state=_safe_str(row.get('State')),
+                platform='tiktok',
                 raw_data=None,
             ))
         except Exception:
             errors += 1
 
-    # Full replace: delete all existing orders for this store, then bulk-insert fresh.
-    # This prevents ghost rows from accumulating when orders are removed from the CSV.
-    db.query(SalesOrder).filter(SalesOrder.store_id == store_id).delete()
+    # Replace TikTok orders only — Amazon orders (platform='amazon') are preserved.
+    from sqlalchemy import text as _text
+    db.execute(_text("DELETE FROM sales_orders WHERE store_id = :sid AND COALESCE(platform, 'tiktok') = 'tiktok'"), {"sid": store_id})
     db.flush()
 
     BATCH = 3000
@@ -384,6 +385,121 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
 
     db.commit()
     return {"total_rows": len(df), "inserted": inserted, "updated": 0, "errors": errors}
+
+
+def parse_amazon_txt(content: bytes, store_id: str, db: Session) -> dict:
+    """Parse Amazon order report TXT (tab-separated). Replaces Amazon orders for this store.
+
+    Quantity is expanded by units_per_sale from amazon_sku_map (AV-ID/5 with qty=1 → quantity=5).
+    product_name is set to the DB product name so stock_calculator deducts from unified inventory.
+    """
+    import uuid as _uuid
+    import pandas as pd
+    from sqlalchemy import text as _text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    # Load SKU map for this store
+    sku_rows = db.execute(_text("""
+        SELECT m.amazon_sku, p.name AS product_name, m.units_per_sale
+        FROM amazon_sku_map m
+        LEFT JOIN products p ON p.id = m.product_id
+        WHERE m.store_id = :sid
+    """), {"sid": store_id}).fetchall()
+    sku_map = {
+        r.amazon_sku: {"product_name": r.product_name, "units_per_sale": r.units_per_sale or 1}
+        for r in sku_rows
+    }
+
+    df = pd.read_csv(
+        io.BytesIO(content), sep='\t', encoding='utf-8-sig',
+        on_bad_lines='skip', engine='python'
+    )
+    df.columns = df.columns.str.strip()
+
+    rows = []
+    errors = 0
+
+    for _, row in df.iterrows():
+        try:
+            order_id = _safe_str(row.get('amazon-order-id'))
+            if not order_id:
+                errors += 1
+                continue
+
+            item_status = _safe_str(row.get('item-status')) or ''
+            order_status_raw = _safe_str(row.get('order-status')) or ''
+
+            if 'Cancel' in item_status or 'Cancel' in order_status_raw:
+                status = 'Cancelled'
+            elif item_status == 'Shipped':
+                status = 'Shipped'
+            elif item_status == 'Unshipped':
+                status = 'Awaiting Shipment'
+            else:
+                status = item_status or order_status_raw or 'Pending'
+
+            amazon_sku = _safe_str(row.get('sku')) or ''
+            qty_ordered = _safe_int(row.get('quantity', 1))
+
+            mapping = sku_map.get(amazon_sku, {})
+            mapped_product_name = mapping.get('product_name')
+            units_per_sale = mapping.get('units_per_sale', 1)
+            expanded_qty = qty_ordered * units_per_sale
+
+            item_price = _safe_float(row.get('item-price')) or 0.0
+            shipping_price = _safe_float(row.get('shipping-price')) or 0.0
+            promo_discount = _safe_float(row.get('item-promotion-discount')) or 0.0
+            purchase_date = _safe_datetime(row.get('purchase-date'))
+
+            rows.append(dict(
+                id=str(_uuid.uuid4()),
+                store_id=store_id,
+                tiktok_order_id=order_id,
+                order_date=purchase_date,
+                sku=_safe_str(row.get('asin')),
+                seller_sku=amazon_sku,
+                product_name=mapped_product_name or _safe_str(row.get('product-name')),
+                quantity=expanded_qty,
+                status=status,
+                substatus=item_status,
+                price=item_price / max(qty_ordered, 1),
+                shipped_time=None,
+                created_time=purchase_date,
+                sku_subtotal_after_discount=item_price,
+                order_amount=item_price + shipping_price,
+                order_refund_amount=0.0,
+                shipping_fee_after_discount=shipping_price,
+                original_shipping_fee=shipping_price,
+                sku_seller_discount=0.0,
+                sku_platform_discount=promo_discount,
+                cancelation_return_type=None,
+                fulfillment_type='Merchant',
+                buyer_username=None,
+                variation=None,
+                recipient=None,
+                city=_safe_str(row.get('ship-city')),
+                state=_safe_str(row.get('ship-state')),
+                platform='amazon',
+                raw_data=None,
+            ))
+        except Exception:
+            errors += 1
+
+    # Replace Amazon orders only — keep TikTok orders intact
+    db.execute(_text("DELETE FROM sales_orders WHERE store_id = :sid AND platform = 'amazon'"), {"sid": store_id})
+    db.flush()
+
+    BATCH = 3000
+    total_processed = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i:i + BATCH]
+        stmt = pg_insert(SalesOrder).values(batch)
+        db.execute(stmt)
+        db.flush()
+        total_processed += len(batch)
+
+    db.commit()
+    return {"total_rows": len(df), "inserted": total_processed, "updated": 0, "errors": errors}
 
 
 def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:

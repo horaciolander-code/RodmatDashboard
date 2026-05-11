@@ -45,6 +45,8 @@ class SalesOrder(Base):
     city: Mapped[str | None] = mapped_column(String(255), nullable=True)
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    platform: Mapped[str] = mapped_column(String(20), nullable=False, default="tiktok", server_default="tiktok")
+
     raw_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 

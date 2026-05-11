@@ -55,25 +55,35 @@ st.markdown("""
 #  CACHED API CALLS
 # ================================================================== #
 @st.cache_data(ttl=300)
-def fetch_overview(date_from=None, date_to=None):
+def fetch_overview(date_from=None, date_to=None, platform=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
+    if platform: params["platform"] = platform
     return api_get("/analytics/overview", params) or {}
 
 @st.cache_data(ttl=300)
-def fetch_sales_by_month(date_from=None, date_to=None):
+def fetch_sales_by_month(date_from=None, date_to=None, platform=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
+    if platform: params["platform"] = platform
     return api_get("/analytics/sales-by-month", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_sales_by_day(date_from=None, date_to=None):
+def fetch_sales_by_day(date_from=None, date_to=None, platform=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
+    if platform: params["platform"] = platform
     return api_get("/analytics/sales-by-day", params) or []
+
+@st.cache_data(ttl=300)
+def fetch_platform_summary(date_from=None, date_to=None):
+    params = {}
+    if date_from: params["date_from"] = str(date_from)
+    if date_to: params["date_to"] = str(date_to)
+    return api_get("/analytics/platform-summary", params) or {}
 
 @st.cache_data(ttl=300)
 def fetch_stock_summary(coverage_days=30):
@@ -154,14 +164,74 @@ def fetch_pallet_orders():
 
 
 # ================================================================== #
+#  PLATFORM SELECTOR — shown at top of every Dashboard page
+# ================================================================== #
+_PS = {
+    None:     {"bg": "#4f46e5", "text": "white",   "emoji": "🌐", "label": "Todas las plataformas"},
+    "tiktok": {"bg": "#010101", "text": "white",   "emoji": "🎵", "label": "TikTok Shop"},
+    "amazon": {"bg": "#FF9900", "text": "#232F3E", "emoji": "🛒", "label": "Amazon"},
+}
+
+def render_platform_selector(page_key: str) -> str | None:
+    p = st.session_state.get("platform_filter")
+    s = _PS.get(p, _PS[None])
+    st.markdown(f"""
+    <div style="background:{s['bg']};color:{s['text']};padding:8px 16px;border-radius:8px;
+         margin-bottom:8px;font-weight:700;font-size:14px;letter-spacing:0.4px;
+         box-shadow:0 2px 6px rgba(0,0,0,.25);">
+      {s['emoji']} &nbsp; CANAL ACTIVO: {s['label']}
+    </div>""", unsafe_allow_html=True)
+    _, c1, c2, c3, _ = st.columns([3.5, 1, 1, 1, 0.5])
+    with c1:
+        if st.button("🌐 Todos", key=f"pf_all_{page_key}",
+                     type="primary" if p is None else "secondary",
+                     use_container_width=True):
+            st.session_state["platform_filter"] = None
+            st.rerun()
+    with c2:
+        if st.button("🎵 TikTok", key=f"pf_tk_{page_key}",
+                     type="primary" if p == "tiktok" else "secondary",
+                     use_container_width=True):
+            st.session_state["platform_filter"] = "tiktok"
+            st.rerun()
+    with c3:
+        if st.button("🛒 Amazon", key=f"pf_amz_{page_key}",
+                     type="primary" if p == "amazon" else "secondary",
+                     use_container_width=True):
+            st.session_state["platform_filter"] = "amazon"
+            st.rerun()
+    return p
+
+
+# ================================================================== #
 #  PAGE 1: OVERVIEW
 # ================================================================== #
 def page_overview():
     st.header("Resumen General")
+    _platform = render_platform_selector("ov")
 
     unknown = fetch_unknown_combos()
     if unknown:
         st.warning(f"{len(unknown)} SKU(s) en pedidos sin combo asignado. Ve a Gestion > Gestion Combos para revisarlos.")
+
+    # Platform breakdown (always shown when no platform filter)
+    if _platform is None:
+        ps = fetch_platform_summary()
+        if ps and (ps.get("amazon", {}).get("orders", 0) > 0):
+            with st.expander("Resumen por Plataforma", expanded=True):
+                pc1, pc2, pc3 = st.columns(3)
+                with pc1:
+                    tk = ps.get("tiktok", {})
+                    st.metric("TikTok Órdenes", f"{tk.get('orders', 0):,}")
+                    st.metric("TikTok GMV", f"${tk.get('gmv', 0):,.2f}")
+                with pc2:
+                    az = ps.get("amazon", {})
+                    st.metric("Amazon Órdenes", f"{az.get('orders', 0):,}")
+                    st.metric("Amazon GMV", f"${az.get('gmv', 0):,.2f}")
+                with pc3:
+                    cb = ps.get("combined", {})
+                    st.metric("Total Órdenes", f"{cb.get('orders', 0):,}")
+                    st.metric("Total GMV", f"${cb.get('gmv', 0):,.2f}")
 
     # Slicers
     col_s1, col_s2, col_s3 = st.columns(3)
@@ -175,7 +245,7 @@ def page_overview():
     date_from = str(date_range[0]) if len(date_range) >= 1 else None
     date_to = str(date_range[1]) if len(date_range) == 2 else (str(date_range[0]) if len(date_range) == 1 else None)
 
-    m = fetch_overview(date_from, date_to)
+    m = fetch_overview(date_from, date_to, platform=_platform)
     if not m:
         st.warning("No hay datos disponibles.")
         return
@@ -206,7 +276,7 @@ def page_overview():
 
     st.markdown("---")
 
-    monthly = fetch_sales_by_month(date_from, date_to)
+    monthly = fetch_sales_by_month(date_from, date_to, platform=_platform)
     st.subheader("GMV por Mes")
     if monthly:
         df_m = pd.DataFrame(monthly)
@@ -232,7 +302,7 @@ def page_overview():
     else:
         selected_month = "All"
 
-    daily_raw = fetch_sales_by_day(date_from, date_to)
+    daily_raw = fetch_sales_by_day(date_from, date_to, platform=_platform)
     if daily_raw:
         df_d = pd.DataFrame(daily_raw)
         if selected_month != "All" and not df_d.empty:
@@ -273,6 +343,9 @@ def page_overview():
 # ================================================================== #
 def page_inventario_summary():
     st.header("Resumen de Inventario")
+    _platform = render_platform_selector("inv")
+    if _platform:
+        st.info(f"El inventario es de un único warehouse compartido entre TikTok y Amazon. Mostrando stock total real.")
 
     data = fetch_stock_summary()
     if not data:
@@ -351,6 +424,9 @@ def page_inventario_summary():
 # ================================================================== #
 def page_restock_analysis():
     st.header("Análisis de Reabastecimiento")
+    _platform = render_platform_selector("rst")
+    if _platform:
+        st.info("El stock y las métricas de restock son globales (warehouse único). La velocidad de ventas incluye ambos canales.")
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -471,6 +547,10 @@ def page_restock_analysis():
 # ================================================================== #
 def page_afiliados():
     st.header("Detalle de Afiliados")
+    _platform = render_platform_selector("afl")
+    if _platform == "amazon":
+        st.warning("Los afiliados y creadores son exclusivos de TikTok Shop. No hay datos de creadores en Amazon. Selecciona **Todos** o **TikTok** para ver esta sección.")
+        return
 
     cr_monthly = fetch_creator_by_month()
     ct_data = fetch_creator_by_type()
@@ -634,6 +714,7 @@ def page_afiliados():
 # ================================================================== #
 def page_finances():
     st.header("Finances")
+    render_platform_selector("fin")
     data = fetch_finances()
     if not data:
         st.warning("Sin datos.")
@@ -660,6 +741,7 @@ def page_finances():
 # ================================================================== #
 def page_ordenes_check():
     st.header("Ordenes Check")
+    _platform = render_platform_selector("ord")
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -680,6 +762,7 @@ def page_ordenes_check():
     if oc_sku: params["sku"] = oc_sku
     if oc_seller_sku: params["seller_sku"] = oc_seller_sku
     if oc_product: params["product_name"] = oc_product
+    if _platform: params["platform"] = _platform
 
     result = api_get("/analytics/orders", params)
     if not result:
@@ -720,6 +803,10 @@ def page_ordenes_check():
 # ================================================================== #
 def page_cupones():
     st.header("Analisis Cupones")
+    _platform = render_platform_selector("cup")
+    if _platform == "amazon":
+        st.warning("Los compradores frecuentes y cupones son exclusivos de TikTok Shop. Selecciona **Todos** o **TikTok** para ver esta sección.")
+        return
 
     buyers_data = fetch_frequent_buyers()
     if not buyers_data:
@@ -748,6 +835,7 @@ def page_cupones():
     if len(cup_date) >= 1: params["date_from"] = str(cup_date[0])
     if len(cup_date) == 2: params["date_to"] = str(cup_date[1])
     if buyer_filter != "All": params["buyer"] = buyer_filter
+    if _platform: params["platform"] = _platform
     result = api_get("/analytics/orders", params) or {}
     orders = result.get("orders", [])
     if orders:
@@ -764,6 +852,7 @@ def page_cupones():
 # ================================================================== #
 def page_full_detail():
     st.header("Full Detail")
+    _platform = render_platform_selector("fdt")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1: fd_buyer = st.text_input("Buyer Username", "", key="fd_buyer")
@@ -786,6 +875,7 @@ def page_full_detail():
     if fd_city: params["city"] = fd_city
     if fd_fulfill: params["fulfillment"] = fd_fulfill
     if fd_recipient: params["recipient"] = fd_recipient
+    if _platform: params["platform"] = _platform
 
     result = api_get("/analytics/orders", params)
     if not result:
@@ -1668,6 +1758,13 @@ def main():
             st.query_params.clear()
             st.cache_data.clear()
             st.rerun()
+        st.markdown("---")
+        _sb_p = st.session_state.get("platform_filter")
+        _sb_s = _PS.get(_sb_p, _PS[None])
+        st.markdown(f"""<div style="background:{_sb_s['bg']};color:{_sb_s['text']};
+            padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;">
+            {_sb_s['emoji']} {_sb_s['label']}</div>""", unsafe_allow_html=True)
+        st.caption("Cambia el canal en cada página")
         st.markdown("---")
         st.caption("v2.2.0 | Rodmat Dashboard")
 

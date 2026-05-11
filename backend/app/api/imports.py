@@ -14,6 +14,7 @@ from app.services.import_service import (
     parse_combos_excel,
     parse_initial_inventory_excel,
     parse_pending_inventory_excel,
+    parse_amazon_txt,
 )
 
 logger = logging.getLogger("rodmat.imports")
@@ -108,3 +109,23 @@ async def import_incoming_stock(
     content = await file.read()
     _validate_upload(file, content, ".xlsx")
     return parse_pending_inventory_excel(content, _target_store(user, store_id), db)
+
+
+@router.post("/amazon", response_model=ImportResult)
+async def import_amazon_orders(
+    file: UploadFile = File(...),
+    store_id: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.analytics_service import _cache, _df_cache
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large.")
+    filename = (file.filename or "").lower()
+    if not (filename.endswith(".txt") or filename.endswith(".tsv") or filename.endswith(".csv")):
+        raise HTTPException(status_code=415, detail="Expected .txt or .tsv file from Amazon Seller Central.")
+    result = parse_amazon_txt(content, _target_store(user, store_id), db)
+    _cache.clear()
+    _df_cache.clear()
+    return result

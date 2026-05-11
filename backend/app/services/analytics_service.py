@@ -105,11 +105,14 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
 
 
 def get_sales_by_month(db: Session, store_id: str,
-                       date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+                       date_from: Optional[str] = None, date_to: Optional[str] = None,
+                       platform: Optional[str] = None) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
     if df.empty:
         return []
+    if platform and "Platform" in df.columns:
+        df = df[df["Platform"] == platform]
     if date_from:
         df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
     if date_to:
@@ -124,11 +127,14 @@ def get_sales_by_month(db: Session, store_id: str,
 
 
 def get_sales_by_day(db: Session, store_id: str,
-                     date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+                     date_from: Optional[str] = None, date_to: Optional[str] = None,
+                     platform: Optional[str] = None) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
     if df.empty:
         return []
+    if platform and "Platform" in df.columns:
+        df = df[df["Platform"] == platform]
     if date_from:
         df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
     if date_to:
@@ -246,8 +252,11 @@ def get_filtered_orders(db: Session, store_id: str,
                         order_id: Optional[str] = None, product_name: Optional[str] = None,
                         limit: int = 500, offset: int = 0,
                         seller_sku: Optional[str] = None, cancel_type: Optional[str] = None,
-                        city: Optional[str] = None, recipient: Optional[str] = None) -> dict:
+                        city: Optional[str] = None, recipient: Optional[str] = None,
+                        platform: Optional[str] = None) -> dict:
     q = db.query(SalesOrder).filter(SalesOrder.store_id == store_id)
+    if platform:
+        q = q.filter(SalesOrder.platform == platform)
     if date_from:
         q = q.filter(SalesOrder.order_date >= date_from)
     if date_to:
@@ -299,6 +308,7 @@ def get_filtered_orders(db: Session, store_id: str,
             "cancelation_return_type": o.cancelation_return_type,
             "city": o.city,
             "state": o.state,
+            "platform": o.platform,
         })
     return {"total": total, "orders": rows}
 
@@ -507,6 +517,42 @@ def get_creator_own_orders(db: Session, store_id: str) -> list:
     return result.head(200).to_dict(orient="records")
 
 
+def get_platform_summary(db: Session, store_id: str,
+                          date_from: Optional[str] = None,
+                          date_to: Optional[str] = None) -> dict:
+    """Side-by-side TikTok vs Amazon revenue and order counts."""
+    import pandas as pd
+    df = _load_orders_df(db, store_id)
+    if df.empty:
+        return {"tiktok": {}, "amazon": {}, "combined": {}}
+    if date_from:
+        df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
+    if date_to:
+        df = df[df["Order_Date"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
+
+    def _metrics(sub: "pd.DataFrame") -> dict:
+        if sub.empty:
+            return {"orders": 0, "gmv": 0.0, "net_amount": 0.0, "units": 0}
+        active = ~sub["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)
+        return {
+            "orders": int(sub.loc[active, "Order ID"].nunique()),
+            "gmv": round(float(sub["SKU Subtotal After Discount"].sum()), 2),
+            "net_amount": round(float((sub.drop_duplicates("Order ID")["Order Amount"] -
+                                       sub.drop_duplicates("Order ID")["Order Refund Amount"]).sum()), 2),
+            "units": int(sub["Quantity"].sum()),
+        }
+
+    has_platform = "Platform" in df.columns
+    tiktok_df = df[df["Platform"] == "tiktok"] if has_platform else df
+    amazon_df = df[df["Platform"] == "amazon"] if has_platform else pd.DataFrame()
+
+    return {
+        "tiktok": _metrics(tiktok_df),
+        "amazon": _metrics(amazon_df),
+        "combined": _metrics(df),
+    }
+
+
 def get_pallet_orders(db: Session, store_id: str) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
@@ -526,13 +572,16 @@ def get_pallet_orders(db: Session, store_id: str) -> list:
 
 def get_overview_metrics_filtered(db: Session, store_id: str,
                                    date_from: Optional[str] = None,
-                                   date_to: Optional[str] = None) -> dict:
-    """Overview metrics with optional date range filter. Used when date filter is active."""
+                                   date_to: Optional[str] = None,
+                                   platform: Optional[str] = None) -> dict:
+    """Overview metrics with optional date range and platform filter."""
     import pandas as pd
     df = _load_orders_df(db, store_id)
     if df.empty:
         return {}
 
+    if platform and "Platform" in df.columns:
+        df = df[df["Platform"] == platform]
     if date_from:
         df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
     if date_to:
@@ -555,29 +604,36 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
     platform_discount = df["SKU Platform Discount"].sum()
     referral_fees = gmv * 0.06
 
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
-    aff_rows = []
-    for a in affiliates:
-        aff_rows.append({
-            "time_created": a.time_created,
-            "commission": a.commission or 0,
-            "payment_amount": a.payment_amount or 0,
-            "order_status": a.order_status,
-            "order_id": a.order_id,
-        })
-    if aff_rows:
-        adf = pd.DataFrame(aff_rows)
-        adf["time_created"] = pd.to_datetime(adf["time_created"], errors="coerce")
-        if date_from:
-            adf = adf[adf["time_created"] >= pd.to_datetime(date_from)]
-        if date_to:
-            adf = adf[adf["time_created"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
-        completed = adf[adf["order_status"].astype(str).str.upper() == "COMPLETED"] if "order_status" in adf.columns else adf
-        creator_commission = completed["commission"].sum()
-        creator_payment = completed["payment_amount"].sum()
-        creator_order_count = adf["order_id"].nunique()
+    # Affiliate data is TikTok-specific — skip when filtering to Amazon only
+    if platform != 'amazon':
+        affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+        aff_rows = []
+        for a in affiliates:
+            aff_rows.append({
+                "time_created": a.time_created,
+                "commission": a.commission or 0,
+                "payment_amount": a.payment_amount or 0,
+                "order_status": a.order_status,
+                "order_id": a.order_id,
+            })
+        if aff_rows:
+            adf = pd.DataFrame(aff_rows)
+            adf["time_created"] = pd.to_datetime(adf["time_created"], errors="coerce")
+            if date_from:
+                adf = adf[adf["time_created"] >= pd.to_datetime(date_from)]
+            if date_to:
+                adf = adf[adf["time_created"] <= pd.to_datetime(date_to) + pd.Timedelta(days=1)]
+            completed = adf[adf["order_status"].astype(str).str.upper() == "COMPLETED"] if "order_status" in adf.columns else adf
+            creator_commission = completed["commission"].sum()
+            creator_payment = completed["payment_amount"].sum()
+            creator_order_count = adf["order_id"].nunique()
+        else:
+            creator_commission = creator_payment = creator_order_count = 0
     else:
         creator_commission = creator_payment = creator_order_count = 0
+
+    # Referral fees apply to TikTok only (6% est.); Amazon has different fee structure
+    referral_fees = gmv * 0.06 if platform != 'amazon' else 0.0
 
     return {
         "netOrder": int(net_orders),

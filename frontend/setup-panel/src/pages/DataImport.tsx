@@ -16,6 +16,7 @@ const STEPS = [
   { key: 'incoming', label: '4. Incoming Stock', endpoint: '/import/incoming-stock', accept: '.xlsx,.xls', desc: 'Upload Inventario pendiente de recibir.xlsx' },
   { key: 'orders', label: '5. Orders', endpoint: '/import/orders', accept: '.csv', desc: 'Upload AllBBDD.csv (main orders)' },
   { key: 'affiliates', label: '6. Affiliates', endpoint: '/import/affiliates', accept: '.csv', desc: 'Upload Afiliadas CSV files' },
+  { key: 'amazon', label: '7. Amazon Orders', endpoint: '/import/amazon', accept: '.txt,.tsv,.csv', desc: 'Upload Amazon order report .txt (Seller Central → Reports → Order Reports → All Orders)' },
 ];
 
 export default function DataImport() {
@@ -52,7 +53,7 @@ export default function DataImport() {
           </span>
         )}
       </div>
-      <p className="text-gray-500 mb-6">Upload TikTok Shop files in order. Products first, then combos, inventory, and finally orders.</p>
+      <p className="text-gray-500 mb-6">Upload data files in order. Products first, then combos, inventory, orders, and finally Amazon orders (re-import any time).</p>
 
       <div className="space-y-4">
         {STEPS.map(step => {
