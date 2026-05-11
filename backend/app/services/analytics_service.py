@@ -13,7 +13,7 @@ from app.services.stock_calculator import _load_orders_df, _build_combo_dict, de
 
 _cache: dict = {}
 _df_cache: dict = {}  # raw DataFrames; keyed by (store_id, coverage_days)
-_CACHE_TTL = 300
+_CACHE_TTL = 1800  # 30 min — prevents cold-cache timeouts between user sessions
 
 
 def _get_cached(store_id: str, key: str):

@@ -71,15 +71,27 @@ def send_report_now(
     return {"status": "queued", "store": user.store_id[:8]}
 
 
+def _run_all_bg():
+    """Build and send all store reports in a background thread (own DB session)."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        results = run_all_reports(db)
+        logger.info("run-all reports completed: %s", results)
+    except Exception as exc:
+        logger.exception("run-all bg failed: %s", exc)
+    finally:
+        db.close()
+
+
 @router.post("/run-all")
 def run_all_stores_report(
-    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks,
     _: None = Depends(_require_internal_key),
 ):
-    """Cron endpoint — called daily by cron-job.org. Sends report to every store."""
-    results = run_all_reports(db)
-    logger.info("run-all reports completed: %s", results)
-    return {"status": "done", "results": results}
+    """Cron endpoint — returns immediately so cron-job.org doesn't timeout; builds in background."""
+    background_tasks.add_task(_run_all_bg)
+    return {"status": "queued"}
 
 
 @router.get("/history")

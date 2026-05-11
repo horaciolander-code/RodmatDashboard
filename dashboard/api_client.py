@@ -3,13 +3,13 @@ import streamlit as st
 from config import API_BASE_URL
 
 
-def api_get(endpoint: str, params: dict = None) -> dict | list | None:
+def api_get(endpoint: str, params: dict = None, timeout: int = 120) -> dict | list | None:
     token = st.session_state.get("jwt_token")
     if not token:
         return None
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        r = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params, timeout=60)
+        r = requests.get(f"{API_BASE_URL}{endpoint}", headers=headers, params=params, timeout=timeout)
         if r.status_code == 401:
             st.session_state.pop("jwt_token", None)
             st.session_state.pop("cached_user", None)

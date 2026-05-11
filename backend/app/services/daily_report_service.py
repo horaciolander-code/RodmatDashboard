@@ -61,6 +61,18 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
 
     sections = []
 
+    # ── STALE DATA WARNING ────────────────────────────────────────────────────
+    max_date = df["Order_Date"].dropna().max()
+    data_lag_days = (today - max_date).days if pd.notna(max_date) else 999
+    if data_lag_days >= 2:
+        sections.append(f"""
+        <div style="background:#fff3cd;border:2px solid #ffc107;border-radius:8px;padding:15px;margin-bottom:20px;">
+          <strong style="color:#856404;">&#9888; DATOS DESACTUALIZADOS</strong>
+          <span style="color:#856404;"> — El CSV m&aacute;s reciente en BD es del {max_date.strftime('%d/%m/%Y') if pd.notna(max_date) else 'desconocido'} ({data_lag_days} d&iacute;as de retraso).
+          Importa el CSV actualizado para que los KPIs sean correctos.</span>
+        </div>
+        """)
+
     # ── 1. OVERVIEW ──────────────────────────────────────────────────────────
     # Exclude cancelled orders from revenue/unit counts
     active = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)] if "Order Status" in df.columns else df
@@ -380,13 +392,16 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     """
 
     # ── Build subject ────────────────────────────────────────────────────────
-    subject = f"{store_name} Daily Report - {yesterday.strftime('%d/%m/%Y')} | ${rev_y:,.0f} | {orders_y} ordenes"
-    if total_awaiting > 0:
-        subject += f" | {total_awaiting} pendientes envio"
-    if n_stock_alerts > 0:
-        subject += f" | ALERTA {n_stock_alerts} stock bajo"
-        if n_negatives > 0:
-            subject += f" ({n_negatives} negativos)"
+    if data_lag_days >= 2:
+        subject = f"⚠️ {store_name} Daily Report - DATOS {data_lag_days}d desactualizados - importa CSV"
+    else:
+        subject = f"{store_name} Daily Report - {yesterday.strftime('%d/%m/%Y')} | ${rev_y:,.0f} | {orders_y} ordenes"
+        if total_awaiting > 0:
+            subject += f" | {total_awaiting} pendientes envio"
+        if n_stock_alerts > 0:
+            subject += f" | ALERTA {n_stock_alerts} stock bajo"
+            if n_negatives > 0:
+                subject += f" ({n_negatives} negativos)"
 
     return html, subject
 
