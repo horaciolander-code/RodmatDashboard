@@ -44,7 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await api.get('/admin/stores/all');
       setStores(res.data);
       if (res.data.length > 0) {
-        setActiveStoreState((prev) => prev ?? res.data[0]);
+        const preferred = res.data.find((s: StoreOption) => s.name === 'Rodmat') ?? res.data[0];
+        setActiveStoreState((prev) => prev ?? preferred);
       }
     } catch {
       // not superadmin or network error
