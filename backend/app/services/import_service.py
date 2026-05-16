@@ -5,9 +5,12 @@ pandas/openpyxl imported lazily inside functions to reduce startup memory.
 """
 from __future__ import annotations
 import io
+import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+
+logger = logging.getLogger("rodmat.import_service")
 
 from app.models.sales import SalesOrder, AffiliateSale
 from app.models.product import Product
@@ -585,7 +588,8 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
                 notes=notes,
             ))
             inserted += 1
-        except Exception:
+        except Exception as exc:
+            logger.exception("IncomingStock row error — producto=%s exc=%s", producto, exc)
             errors += 1
 
     db.commit()
