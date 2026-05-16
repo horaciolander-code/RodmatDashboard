@@ -1,7 +1,122 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+
+interface UserEntry {
+  user_id: string;
+  email: string;
+  role: string;
+  store_id: string;
+}
+
+function UserManager({ storeId }: { storeId: string }) {
+  const [users, setUsers]         = useState<UserEntry[]>([]);
+  const [email, setEmail]         = useState('');
+  const [password, setPassword]   = useState('');
+  const [role, setRole]           = useState<'warehouse' | 'viewer' | 'admin'>('warehouse');
+  const [saving, setSaving]       = useState(false);
+  const [msg, setMsg]             = useState<{ ok: boolean; text: string } | null>(null);
+
+  const loadUsers = () => {
+    api.get(`/admin/users?store_id=${storeId}`).then(r => setUsers(r.data)).catch(() => {});
+  };
+
+  useEffect(() => { loadUsers(); }, [storeId]);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMsg(null);
+    try {
+      await api.post('/admin/users', { email, password, store_id: storeId, role });
+      setMsg({ ok: true, text: `Usuario ${email} creado con rol ${role}.` });
+      setEmail('');
+      setPassword('');
+      loadUsers();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || 'Error al crear usuario.';
+      setMsg({ ok: false, text: detail });
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="mt-10">
+      <h2 className="text-lg font-semibold mb-4">Gestión de Usuarios</h2>
+
+      {/* Lista actual */}
+      <div className="bg-white border rounded-lg overflow-hidden mb-6">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left">Email</th>
+              <th className="px-4 py-2 text-left">Rol</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.user_id} className="border-t">
+                <td className="px-4 py-2">{u.email}</td>
+                <td className="px-4 py-2">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    u.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                    u.role === 'admin'      ? 'bg-blue-100 text-blue-700' :
+                    u.role === 'warehouse'  ? 'bg-amber-100 text-amber-700' :
+                                             'bg-gray-100 text-gray-600'
+                  }`}>{u.role}</span>
+                </td>
+              </tr>
+            ))}
+            {users.length === 0 && (
+              <tr><td colSpan={2} className="px-4 py-3 text-center text-gray-400">Sin usuarios</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Formulario nuevo usuario */}
+      <form onSubmit={handleCreate} className="max-w-lg space-y-4 bg-white border rounded-lg p-6">
+        <h3 className="font-medium text-gray-800">Crear nuevo usuario</h3>
+        <div>
+          <label className="block text-sm font-medium mb-1">Email</label>
+          <input
+            type="email" required value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="w-full px-3 py-2 border rounded text-sm"
+            placeholder="almacen@rodmat.com"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Contraseña (mín. 8 caracteres)</label>
+          <input
+            type="password" required minLength={8} value={password}
+            onChange={e => setPassword(e.target.value)}
+            className="w-full px-3 py-2 border rounded text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Rol</label>
+          <select value={role} onChange={e => setRole(e.target.value as any)}
+            className="w-full px-3 py-2 border rounded text-sm">
+            <option value="warehouse">warehouse — solo inventario e importación</option>
+            <option value="viewer">viewer — solo lectura</option>
+            <option value="admin">admin — acceso completo</option>
+          </select>
+        </div>
+        <button type="submit" disabled={saving}
+          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+          {saving ? 'Creando...' : 'Crear usuario'}
+        </button>
+        {msg && (
+          <p className={`text-sm text-center ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>
+        )}
+      </form>
+    </div>
+  );
+}
 
 export default function Settings() {
+  const { isSuperadmin, activeStoreId } = useAuth();
   const [store, setStore] = useState<any>(null);
   const [form, setForm] = useState({
     name: '',
@@ -107,6 +222,8 @@ export default function Settings() {
         </button>
         {saved && <p className="text-green-600 text-sm text-center">Settings saved!</p>}
       </form>
+
+      {isSuperadmin && <UserManager storeId={activeStoreId} />}
     </div>
   );
 }

@@ -138,3 +138,62 @@ def list_stores_superadmin(
     """Lista todas las tiendas — solo accesible con JWT de superadmin."""
     stores = db.query(Store).order_by(Store.name).all()
     return [{"id": s.id, "name": s.name, "owner_email": s.owner_email} for s in stores]
+
+
+class CreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str
+    store_id: str
+    role: str = "viewer"
+
+    @field_validator("role")
+    @classmethod
+    def valid_role(cls, v: str) -> str:
+        allowed = {"admin", "viewer", "warehouse"}
+        if v not in allowed:
+            raise ValueError(f"role must be one of {allowed}")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_min(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+
+@router.post("/users", status_code=201)
+def create_user(
+    payload: CreateUserRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_superadmin),
+):
+    """Crea un usuario adicional para una tienda existente. Solo superadmin."""
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=409, detail="Email already registered")
+    store = db.query(Store).filter(Store.id == payload.store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    user = User(
+        email=payload.email,
+        hashed_password=hash_password(payload.password),
+        store_id=payload.store_id,
+        role=payload.role,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"user_id": user.id, "email": user.email, "role": user.role, "store_id": user.store_id}
+
+
+@router.get("/users", status_code=200)
+def list_users(
+    store_id: str | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+):
+    """Lista usuarios. Filtra por store_id si se indica. Solo superadmin."""
+    q = db.query(User)
+    if store_id:
+        q = q.filter(User.store_id == store_id)
+    return [{"user_id": u.id, "email": u.email, "role": u.role, "store_id": u.store_id} for u in q.all()]
