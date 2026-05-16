@@ -23,7 +23,7 @@ interface AuthContextType {
   activeStoreName: string;
   stores: StoreOption[];
   setActiveStore: (store: StoreOption) => void;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<string | null>;
   register: (email: string, password: string, storeName: string) => Promise<boolean>;
   logout: () => void;
 }
@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<string | null> => {
     try {
       const form = new URLSearchParams();
       form.append('username', email);
@@ -85,9 +85,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (me.data.role === 'superadmin') {
         await loadStores();
       }
-      return true;
+      return me.data.role as string;
     } catch {
-      return false;
+      return null;
     }
   };
 

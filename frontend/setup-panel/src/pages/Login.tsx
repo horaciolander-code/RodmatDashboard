@@ -12,8 +12,8 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const ok = await login(email, password);
-    if (ok) navigate('/');
+    const role = await login(email, password);
+    if (role) navigate(role === 'warehouse' ? '/inventory' : '/');
     else setError('Invalid email or password');
   };
 
