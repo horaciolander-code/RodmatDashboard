@@ -18,6 +18,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isSuperadmin: boolean;
+  isWarehouse: boolean;
   activeStoreId: string;
   activeStoreName: string;
   stores: StoreOption[];
@@ -36,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeStore, setActiveStoreState] = useState<StoreOption | null>(null);
 
   const isSuperadmin = user?.role === 'superadmin';
+  const isWarehouse  = user?.role === 'warehouse';
   const activeStoreId = activeStore?.id ?? user?.store_id ?? '';
   const activeStoreName = activeStore?.name ?? '';
 
@@ -110,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, loading, isSuperadmin,
+      user, loading, isSuperadmin, isWarehouse,
       activeStoreId, activeStoreName,
       stores, setActiveStore: setActiveStoreState,
       login, register, logout,

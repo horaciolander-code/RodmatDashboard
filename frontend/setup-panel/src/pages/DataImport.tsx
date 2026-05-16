@@ -41,7 +41,7 @@ const EXTERNAL_STEPS: ExternalStep[] = [
 ];
 
 export default function DataImport() {
-  const { isSuperadmin, activeStoreId, activeStoreName } = useAuth();
+  const { isSuperadmin, isWarehouse, activeStoreId, activeStoreName } = useAuth();
   const [results, setResults] = useState<Record<string, StepResult | null>>({});
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -137,7 +137,7 @@ export default function DataImport() {
         </p>
 
         <div className="space-y-3">
-          {RODMAT_STEPS.map(step => {
+          {RODMAT_STEPS.filter(step => !isWarehouse || step.key === 'initial' || step.key === 'incoming').map(step => {
             const result = results[step.key];
             const hasUnknownSkus = result?.unknown_skus && result.unknown_skus.length > 0;
             return (
@@ -171,8 +171,8 @@ export default function DataImport() {
         </div>
       </div>
 
-      {/* ── Sección 2: Cargas Externas ── */}
-      <div>
+      {/* ── Sección 2: Cargas Externas (solo roles no-warehouse) ── */}
+      {!isWarehouse && <div>
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-lg font-semibold text-gray-800">Cargas Externas</h2>
           <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full">Pedidos de plataformas</span>
@@ -197,7 +197,7 @@ export default function DataImport() {
             </div>
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
