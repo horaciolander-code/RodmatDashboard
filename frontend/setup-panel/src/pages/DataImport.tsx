@@ -7,6 +7,7 @@ interface StepResult {
   inserted: number;
   updated: number;
   errors: number;
+  unknown_skus?: string[];
 }
 
 interface RodmatStep {
@@ -66,9 +67,27 @@ export default function DataImport() {
   const renderResult = (key: string) => {
     const result = results[key];
     if (!result) return null;
-    if (result.errors === -1) return <span className="text-sm text-red-500">Error al subir</span>;
+
+    if (result.errors === -1) {
+      return <span className="text-sm text-red-500 font-medium">Error de conexión</span>;
+    }
+
+    if (result.unknown_skus && result.unknown_skus.length > 0) {
+      return (
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 max-w-sm">
+          <p className="font-semibold mb-1">Bloqueado — {result.unknown_skus.length} SKU(s) no encontrados en el catálogo:</p>
+          <ul className="list-disc list-inside space-y-0.5">
+            {result.unknown_skus.map(sku => (
+              <li key={sku} className="font-mono text-xs">{sku}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-red-500">Carga primero el fichero de Productos o corrige los nombres.</p>
+        </div>
+      );
+    }
+
     return (
-      <span className="text-sm text-green-600">
+      <span className="text-sm text-green-600 font-medium">
         {result.inserted} insertados, {result.updated} actualizados
         {result.errors > 0 && <span className="text-red-500"> ({result.errors} errores)</span>}
       </span>
@@ -118,15 +137,18 @@ export default function DataImport() {
         </p>
 
         <div className="space-y-3">
-          {RODMAT_STEPS.map(step => (
-            <div key={step.key} className="bg-white border rounded-lg p-4">
+          {RODMAT_STEPS.map(step => {
+            const result = results[step.key];
+            const hasUnknownSkus = result?.unknown_skus && result.unknown_skus.length > 0;
+            return (
+            <div key={step.key} className={`bg-white border rounded-lg p-4 ${hasUnknownSkus ? 'border-red-300' : ''}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold text-gray-800">{step.label}</h3>
                   <p className="text-sm text-gray-500">{step.desc}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {renderResult(step.key)}
+                  {!hasUnknownSkus && renderResult(step.key)}
                   <a
                     href={`/api/import/templates/${step.template}`}
                     download
@@ -138,8 +160,14 @@ export default function DataImport() {
                   {renderUploadButton(step)}
                 </div>
               </div>
+              {hasUnknownSkus && (
+                <div className="mt-3">
+                  {renderResult(step.key)}
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

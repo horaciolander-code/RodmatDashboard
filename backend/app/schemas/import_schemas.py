@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import BaseModel
 
 
@@ -6,3 +7,4 @@ class ImportResult(BaseModel):
     inserted: int
     updated: int
     errors: int
+    unknown_skus: List[str] = []
