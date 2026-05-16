@@ -1,6 +1,8 @@
+import io
 import logging
 import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -220,3 +222,65 @@ async def delete_import_batch(
 
     logger.info("Import batch %s deleted — %d rows removed", batch_id[:8], rows_deleted)
     return {"deleted_rows": rows_deleted, "batch_id": batch_id}
+
+
+_TEMPLATES: dict[str, dict] = {
+    "products": {
+        "filename": "plantilla_productos.xlsx",
+        "headers": ["Producto", "Coste", "PRECIO", "UNIDADES POR CAJA", "Tipo", "Proveedor"],
+        "example": ["PROD-001", 5.50, 12.99, 10, "Electrónica", "Proveedor SA"],
+    },
+    "combos": {
+        "filename": "plantilla_combos.xlsx",
+        "headers": ["SKU SELLER", "Nombre combo", "Product1", "Product2", "Product3"],
+        "example": ["COMBO-001", "Pack 2 productos", "PROD-001", "PROD-002", ""],
+    },
+    "initial-inventory": {
+        "filename": "plantilla_inventario_inicial.xlsx",
+        "headers": ["Producto", "Initial_Stock"],
+        "example": ["PROD-001", 100],
+    },
+    "incoming-stock": {
+        "filename": "plantilla_stock_pendiente.xlsx",
+        "headers": ["Producto", "Unidades pedidas", "Status", "Proveedor", "Tracking", "Coste", "Notas", "Fecha pedido"],
+        "example": ["PROD-001", 50, "pending", "Proveedor SA", "TRACK123", 5.50, "", "2026-05-16"],
+    },
+}
+
+
+@router.get("/templates/{template_name}")
+async def download_template(template_name: str):
+    """Return a blank XLSX template file for the given import type (no auth required)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    if template_name not in _TEMPLATES:
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found. Available: {list(_TEMPLATES)}")
+
+    tmpl = _TEMPLATES[template_name]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Plantilla"
+
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+
+    for col_idx, header in enumerate(tmpl["headers"], start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[cell.column_letter].width = max(len(header) + 4, 16)
+
+    for col_idx, value in enumerate(tmpl["example"], start=1):
+        ws.cell(row=2, column=col_idx, value=value)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{tmpl["filename"]}"'},
+    )
