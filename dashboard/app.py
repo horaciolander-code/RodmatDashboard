@@ -913,6 +913,8 @@ def page_gestion_inventario():
 
     if "order_date" in df.columns:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce").dt.date
+    if "expected_arrival" in df.columns:
+        df["expected_arrival"] = pd.to_datetime(df["expected_arrival"], errors="coerce").dt.date
 
     # Filters — use product_name if available, fallback to product_id
     name_col = "product_name" if "product_name" in df.columns else "product_id"
@@ -1904,6 +1906,8 @@ def main():
     _role = user.get("role", "viewer")
     if _role in ("admin", "superadmin"):
         _sections = ["Dashboard", "Gestion", "Finance", "Importar"]
+    elif _role == "warehouse":
+        _sections = ["Gestion"]
     else:
         _sections = ["Dashboard", "Gestion"]
     section = st.sidebar.radio("Sección", _sections, index=0)
