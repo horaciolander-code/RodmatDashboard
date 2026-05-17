@@ -515,7 +515,7 @@ def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str |
 
 
 def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:
-    """Parse Inventario pendiente de recibir.xlsx. Full replace for store.
+    """Parse Inventario pendiente de recibir.xlsx. APPENDS new records — never deletes existing ones.
     Blocks import if any SKU is not found in the product catalog.
     """
     import pandas as pd
@@ -547,9 +547,6 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
             "errors": len(unknown_skus),
             "unknown_skus": unknown_skus,
         }
-
-    db.query(IncomingStock).filter(IncomingStock.store_id == store_id).delete()
-    db.flush()
 
     for _, row in df.iterrows():
         try:
