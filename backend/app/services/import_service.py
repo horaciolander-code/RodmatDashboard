@@ -123,24 +123,31 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str |
         except Exception:
             errors += 1
 
-    # Replace TikTok orders only — Amazon orders (platform='amazon') are preserved.
-    from sqlalchemy import text as _text
-    del_result = db.execute(_text("DELETE FROM sales_orders WHERE store_id = :sid AND COALESCE(platform, 'tiktok') = 'tiktok'"), {"sid": store_id})
-    rows_deleted = del_result.rowcount
-    db.flush()
+    # UPSERT by (store_id, tiktok_order_id, sku) — never deletes historical orders.
+    # Orders that already exist get their status/quantity/prices updated.
+    _update_cols = [
+        'product_name', 'quantity', 'status', 'substatus', 'price', 'shipped_time',
+        'sku_subtotal_after_discount', 'order_amount', 'order_refund_amount',
+        'shipping_fee_after_discount', 'original_shipping_fee', 'sku_seller_discount',
+        'sku_platform_discount', 'cancelation_return_type', 'fulfillment_type',
+        'buyer_username', 'variation', 'recipient', 'city', 'state', 'import_batch_id',
+    ]
 
     BATCH = 3000
-    total_processed = 0
+    inserted, updated = 0, 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint='uq_store_order_sku',
+            set_={col: getattr(stmt.excluded, col) for col in _update_cols},
+        )
         db.execute(stmt)
         db.flush()
-        total_processed += len(batch)
+        inserted += len(batch)
 
     db.commit()
-
-    return {"total_rows": len(df), "inserted": total_processed, "updated": 0, "errors": errors, "rows_deleted": rows_deleted}
+    return {"total_rows": len(df), "inserted": inserted, "updated": 0, "errors": errors}
 
 
 def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
@@ -398,7 +405,7 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
 
 
 def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
-    """Parse Amazon order report TXT (tab-separated). Replaces Amazon orders for this store.
+    """Parse Amazon order report TXT (tab-separated). UPSERTS Amazon orders — never deletes history.
 
     Quantity is expanded by units_per_sale from amazon_sku_map (AV-ID/5 with qty=1 → quantity=5).
     product_name is set to the DB product name so stock_calculator deducts from unified inventory.
@@ -496,22 +503,30 @@ def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str |
         except Exception:
             errors += 1
 
-    # Replace Amazon orders only — keep TikTok orders intact
-    del_result = db.execute(_text("DELETE FROM sales_orders WHERE store_id = :sid AND platform = 'amazon'"), {"sid": store_id})
-    rows_deleted = del_result.rowcount
-    db.flush()
+    # UPSERT by (store_id, tiktok_order_id, sku) — never deletes historical Amazon orders.
+    # Uploading a partial file (e.g. last month) only adds/updates those rows; history stays intact.
+    _update_cols = [
+        'product_name', 'quantity', 'status', 'substatus', 'price',
+        'sku_subtotal_after_discount', 'order_amount', 'order_refund_amount',
+        'shipping_fee_after_discount', 'original_shipping_fee', 'sku_platform_discount',
+        'city', 'state', 'import_batch_id',
+    ]
 
     BATCH = 3000
     total_processed = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint='uq_store_order_sku',
+            set_={col: getattr(stmt.excluded, col) for col in _update_cols},
+        )
         db.execute(stmt)
         db.flush()
         total_processed += len(batch)
 
     db.commit()
-    return {"total_rows": len(df), "inserted": total_processed, "updated": 0, "errors": errors, "rows_deleted": rows_deleted}
+    return {"total_rows": len(df), "inserted": total_processed, "updated": 0, "errors": errors}
 
 
 def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:
