@@ -1905,7 +1905,7 @@ def main():
 
     _role = user.get("role", "viewer")
     if _role in ("admin", "superadmin"):
-        _sections = ["Dashboard", "Gestion", "Finance", "Importar"]
+        _sections = ["Dashboard", "Gestion", "Finance"]
     elif _role == "warehouse":
         _sections = ["Gestion"]
     else:
@@ -1944,10 +1944,6 @@ def main():
         with tab_f3: page_finance_insights()
         with tab_f4: page_finance_management()
 
-    elif section == "Importar":
-        tab_i1, tab_i2 = st.tabs(["Subir Ficheros", "Historial de Cargas"])
-        with tab_i1: page_import_upload()
-        with tab_i2: page_import_history()
 
 
 if __name__ == "__main__":
