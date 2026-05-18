@@ -348,10 +348,31 @@ def parse_combos_excel(content: bytes, store_id: str, db: Session) -> dict:
 
 
 def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:
-    """Parse Inventario inicial.xlsx. Full replace for store.
-    Blocks import if any SKU is not found in the product catalog.
+    """Parse Inventario inicial.xlsx.
+
+    - Tienda SIN inventario inicial: importa y crea los registros (UPSERT por product_id).
+    - Tienda CON inventario inicial ya cargado: bloquea el import y devuelve un warning.
+      Para ajustar stocks usar el panel de Gestión → Inventario, no reimportar.
+    - Nunca borra registros existentes.
     """
     import pandas as pd
+
+    # Block if store already has initial inventory loaded
+    existing_count = db.query(InitialInventory).filter(InitialInventory.store_id == store_id).count()
+    if existing_count > 0:
+        return {
+            "total_rows": 0,
+            "inserted": 0,
+            "updated": 0,
+            "errors": 0,
+            "unknown_skus": [],
+            "warning": (
+                f"Esta tienda ya tiene {existing_count} registros de inventario inicial cargados. "
+                "Este import solo está disponible para tiendas nuevas. "
+                "Para modificar cantidades, usa el panel de Gestión → Inventario Inicial."
+            ),
+        }
+
     df = pd.read_excel(io.BytesIO(content))
     df.columns = df.columns.str.strip()
 
@@ -360,7 +381,7 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
     for p in products:
         product_map[p.name.lower()] = p.id
 
-    inserted, errors = 0, 0
+    inserted, updated, errors = 0, 0, 0
     unknown_skus: list[str] = []
 
     # First pass: detect unknown SKUs before touching the DB
@@ -381,12 +402,10 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
             "unknown_skus": unknown_skus,
         }
 
-    db.query(InitialInventory).filter(InitialInventory.store_id == store_id).delete()
-    db.flush()
-
     from datetime import date as date_type
     start_date = date_type(2026, 1, 1)
 
+    # UPSERT: update quantity if product already has a record, else insert
     for _, row in df.iterrows():
         try:
             producto = _safe_str(row.get('Producto') or row.get('ProductoNombre'))
@@ -395,13 +414,26 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
                 continue
             product_id = product_map.get(producto.lower())
             quantity = _safe_int(row.get('Initial_Stock', row.get('total', row.get('Total', row.get('Cantidad', 0)))))
-            db.add(InitialInventory(store_id=store_id, product_id=product_id, quantity=quantity, start_date=start_date))
-            inserted += 1
+
+            existing = db.query(InitialInventory).filter(
+                InitialInventory.store_id == store_id,
+                InitialInventory.product_id == product_id,
+            ).first()
+
+            if existing:
+                existing.quantity = quantity
+                updated += 1
+            else:
+                db.add(InitialInventory(
+                    store_id=store_id, product_id=product_id,
+                    quantity=quantity, start_date=start_date,
+                ))
+                inserted += 1
         except Exception:
             errors += 1
 
     db.commit()
-    return {"total_rows": len(df), "inserted": inserted, "updated": 0, "errors": errors, "unknown_skus": []}
+    return {"total_rows": len(df), "inserted": inserted, "updated": updated, "errors": errors, "unknown_skus": []}
 
 
 def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:

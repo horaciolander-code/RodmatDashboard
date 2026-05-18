@@ -8,3 +8,4 @@ class ImportResult(BaseModel):
     updated: int
     errors: int
     unknown_skus: List[str] = []
+    warning: str | None = None

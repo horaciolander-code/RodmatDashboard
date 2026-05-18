@@ -8,6 +8,7 @@ interface StepResult {
   updated: number;
   errors: number;
   unknown_skus?: string[];
+  warning?: string;
 }
 
 interface RodmatStep {
@@ -70,6 +71,15 @@ export default function DataImport() {
 
     if (result.errors === -1) {
       return <span className="text-sm text-red-500 font-medium">Error de conexión</span>;
+    }
+
+    if (result.warning) {
+      return (
+        <div className="text-sm text-amber-700 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 max-w-sm">
+          <p className="font-semibold mb-1">Inventario inicial ya cargado</p>
+          <p>{result.warning}</p>
+        </div>
+      );
     }
 
     if (result.unknown_skus && result.unknown_skus.length > 0) {
