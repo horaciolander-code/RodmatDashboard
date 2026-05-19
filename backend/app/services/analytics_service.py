@@ -13,7 +13,19 @@ from app.services.stock_calculator import _load_orders_df, _build_combo_dict, de
 
 _cache: dict = {}
 _df_cache: dict = {}  # raw DataFrames; keyed by (store_id, coverage_days)
-_CACHE_TTL = 1800  # 30 min — prevents cold-cache timeouts between user sessions
+_CACHE_TTL = 900  # 15 min — balance entre cache hits y uso de RAM
+
+
+def _evict_stale_cache() -> int:
+    """Remove expired entries from both caches. Returns number of entries evicted."""
+    now = datetime.now()
+    evicted = 0
+    for d in (_cache, _df_cache):
+        stale = [k for k, (ts, _) in d.items() if (now - ts).total_seconds() >= _CACHE_TTL]
+        for k in stale:
+            del d[k]
+            evicted += 1
+    return evicted
 
 
 def _get_cached(store_id: str, key: str):
@@ -22,6 +34,7 @@ def _get_cached(store_id: str, key: str):
         ts, data = _cache[cache_key]
         if (datetime.now() - ts).total_seconds() < _CACHE_TTL:
             return data
+        del _cache[cache_key]  # evict on stale read
     return None
 
 
@@ -36,6 +49,7 @@ def _get_stock_df(db: Session, store_id: str, coverage_days: int = 30):
         ts, df = _df_cache[cache_key]
         if (datetime.now() - ts).total_seconds() < _CACHE_TTL:
             return df
+        del _df_cache[cache_key]  # evict on stale read
     df = calculate_stock(db, store_id, coverage_days)
     _df_cache[cache_key] = (datetime.now(), df)
     return df
@@ -317,12 +331,15 @@ def get_frequent_buyers(db: Session, store_id: str, n: int = 50) -> list:
     df = _load_orders_df(db, store_id)
     if df.empty or "Buyer Username" not in df.columns:
         return []
+    # OrderAmount is order-level (same value on all SKU lines) — deduplicate before summing
+    order_level = df.drop_duplicates(subset=["Buyer Username", "Order ID"])
+    order_amounts = order_level.groupby("Buyer Username")["Order Amount"].sum()
     buyers = df.groupby("Buyer Username").agg(
         GMV=("SKU Subtotal After Discount", "sum"),
         OrderCount=("Order ID", "nunique"),
-        OrderAmount=("Order Amount", "sum"),
-    ).reset_index().sort_values("OrderCount", ascending=False).head(n)
-    return buyers.to_dict(orient="records")
+    ).reset_index()
+    buyers["OrderAmount"] = buyers["Buyer Username"].map(order_amounts).fillna(0)
+    return buyers.sort_values("OrderCount", ascending=False).head(n).to_dict(orient="records")
 
 
 def get_top_combos(db: Session, store_id: str, n: int = 15) -> list:
@@ -567,7 +584,7 @@ def get_pallet_orders(db: Session, store_id: str) -> list:
     for col in ["Created Time", "Shipped Time"]:
         if col in pallet.columns:
             pallet[col] = pallet[col].astype(str)
-    return pallet[available].head(200).to_dict(orient="records")
+    return pallet[available].fillna("").head(200).to_dict(orient="records")
 
 
 def get_overview_metrics_filtered(db: Session, store_id: str,
@@ -599,7 +616,15 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
     original_shipping = order_level["Original Shipping Fee"].sum() if "Original Shipping Fee" in order_level.columns else 0.0
     buyer_shipping = order_level["Shipping Fee After Discount"].sum()
     shipping_fees = original_shipping
-    net_wo_shipping = net_order_amount - buyer_shipping
+
+    # Amazon: Order Amount is stored as item_price + shipping_price in the import mapping.
+    # Override net_order_amount to use GMV (SKU Subtotal) so it matches the displayed GMV.
+    if platform == 'amazon':
+        net_order_amount = gmv - order_level["Order Refund Amount"].sum()
+        net_wo_shipping = net_order_amount
+    else:
+        net_wo_shipping = net_order_amount - buyer_shipping
+
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
     referral_fees = gmv * 0.06

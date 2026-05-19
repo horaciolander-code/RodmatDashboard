@@ -65,7 +65,7 @@ def _start_scheduler():
         logger.info("Scheduler: running agents for all stores")
         db = SessionLocal()
         try:
-            store_ids = [s.id for s in db.query(Store).filter(Store.is_active == True).all()]
+            store_ids = [s.id for s in db.query(Store).all()]
             for store_id in store_ids:
                 for name, agent in [
                     ("prism", prism_agent), ("haiku", haiku_agent),
@@ -78,6 +78,10 @@ def _start_scheduler():
                         logger.exception("Agent %s failed for store %s: %s", name, store_id[:8], exc)
         finally:
             db.close()
+        # Free pandas DataFrames held in cache after heavy agent work
+        from app.services.analytics_service import _evict_stale_cache
+        evicted = _evict_stale_cache()
+        logger.info("Cache eviction after agents: %d entries freed", evicted)
 
     def _run_reports():
         # Lazy import: pandas/numpy only loaded at run time, not startup
@@ -91,11 +95,22 @@ def _start_scheduler():
             logger.exception("Daily reports failed: %s", exc)
         finally:
             db.close()
+        # Free cache after reports
+        from app.services.analytics_service import _evict_stale_cache
+        evicted = _evict_stale_cache()
+        logger.info("Cache eviction after reports: %d entries freed", evicted)
+
+    def _run_cache_eviction():
+        from app.services.analytics_service import _evict_stale_cache
+        evicted = _evict_stale_cache()
+        if evicted:
+            logger.info("Periodic cache eviction: %d entries freed", evicted)
 
     # 11:00 UTC = 7AM EDT (UTC-4) | 12:00 UTC = 8AM EDT — report at 8AM Miami time
     sched.every().day.at("11:00").do(_run_agents)
     sched.every().day.at("12:00").do(_run_reports)
-    logger.info("Scheduler configured: agents at 11:00 UTC, reports at 12:00 UTC (8AM EDT)")
+    sched.every(15).minutes.do(_run_cache_eviction)
+    logger.info("Scheduler configured: agents at 11:00 UTC, reports at 12:00 UTC (8AM EDT), eviction every 15 min")
 
     def _loop():
         while True:
@@ -116,7 +131,7 @@ def _prewarm_cache():
         from app.services.analytics_service import _get_stock_df, _df_cache
         db = SessionLocal()
         try:
-            stores = db.query(Store).filter(Store.is_active == True).all()
+            stores = db.query(Store).all()
             for store in stores:
                 key = (store.id, 30)
                 ts, _ = _df_cache.get(key, (datetime.min, None))
@@ -161,9 +176,6 @@ def health_check():
         db_ok = True
     except Exception:
         pass
-    # Trigger background cache refresh if near expiry (keeps cache warm between cron pings)
-    if ENVIRONMENT != "dev":
-        _prewarm_cache()
     return {
         "status": "ok" if db_ok else "degraded",
         "version": APP_VERSION,
