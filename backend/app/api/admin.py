@@ -197,3 +197,37 @@ def list_users(
     if store_id:
         q = q.filter(User.store_id == store_id)
     return [{"user_id": u.id, "email": u.email, "role": u.role, "store_id": u.store_id} for u in q.all()]
+
+
+class UpdateUserRequest(BaseModel):
+    store_id: str | None = None
+    role: str | None = None
+
+    @field_validator("role")
+    @classmethod
+    def valid_role(cls, v: str | None) -> str | None:
+        if v is not None and v not in {"superadmin", "admin", "viewer", "warehouse"}:
+            raise ValueError("role inválido")
+        return v
+
+
+@router.patch("/users/{user_id}", status_code=200)
+def update_user(
+    user_id: str,
+    payload: UpdateUserRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+):
+    """Actualiza store_id o role de un usuario. Solo superadmin."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if payload.store_id:
+        store = db.query(Store).filter(Store.id == payload.store_id).first()
+        if not store:
+            raise HTTPException(status_code=404, detail="Store not found")
+        user.store_id = payload.store_id
+    if payload.role:
+        user.role = payload.role
+    db.commit()
+    return {"user_id": user.id, "email": user.email, "role": user.role, "store_id": user.store_id}
