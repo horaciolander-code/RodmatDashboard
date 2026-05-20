@@ -149,7 +149,7 @@ class CreateUserRequest(BaseModel):
     @field_validator("role")
     @classmethod
     def valid_role(cls, v: str) -> str:
-        allowed = {"admin", "viewer", "warehouse"}
+        allowed = {"superadmin", "admin", "viewer", "warehouse"}
         if v not in allowed:
             raise ValueError(f"role must be one of {allowed}")
         return v
