@@ -56,7 +56,7 @@ export default function DataImport() {
         : step.endpoint;
       const res = await api.post(url, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000,
+        timeout: 600000,
       });
       setResults(prev => ({ ...prev, [step.key]: res.data }));
     } catch {
