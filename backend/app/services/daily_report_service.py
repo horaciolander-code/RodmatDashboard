@@ -446,7 +446,9 @@ def run_store_report(db: Session, store_id: str) -> bool:
     settings = store.settings or {}
     if not settings.get("report_enabled", False):
         return False
-    recipients = settings.get("report_recipients", [])
+    recipients = settings.get("report_recipients") or (
+        [os.getenv("SMTP_USER")] if os.getenv("SMTP_USER") else []
+    )
     if not recipients:
         return False
     html, subject = build_report(db, store_id)
@@ -459,9 +461,9 @@ def run_all_reports(db: Session) -> dict:
     results = {}
     for store in stores:
         settings = store.settings or {}
-        if settings.get("report_enabled", False) and settings.get("report_recipients"):
-            ok = run_store_report(db, store.id)
-            results[store.name] = "sent" if ok else "failed"
-        else:
-            results[store.name] = "skipped (reporting not configured)"
+        if not settings.get("report_enabled", False):
+            results[store.name] = "skipped (report_enabled not set)"
+            continue
+        ok = run_store_report(db, store.id)
+        results[store.name] = "sent" if ok else "failed"
     return results
