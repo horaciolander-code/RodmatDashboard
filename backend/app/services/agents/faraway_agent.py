@@ -26,10 +26,13 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
     creator_df = load_creator_df(db, store_id)
     today      = pd.Timestamp.now()
 
-    # Semana Rodmat: sábado → viernes. Saturday = weekday 5.
-    days_since_saturday = (today.weekday() - 5) % 7
-    week_start = (today - pd.Timedelta(days=days_since_saturday)).normalize()
-    week_end   = today
+    # Semana Rodmat: sábado → viernes (Saturday=5, Friday=4).
+    # Si hoy es sábado (inicio de semana nueva), retroceder al viernes anterior
+    # para mostrar la semana que acaba de cerrar.
+    ref = today if today.weekday() != 5 else today - pd.Timedelta(days=1)
+    days_since_saturday = (ref.weekday() - 5) % 7
+    week_start = (ref - pd.Timedelta(days=days_since_saturday)).normalize()
+    week_end   = (week_start + pd.Timedelta(days=7)).normalize()  # hasta el sábado siguiente (exclusive)
     prev_start = week_start - pd.Timedelta(days=7)
     prev_end   = week_start
 
@@ -281,13 +284,13 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def run(db: Session, store_id: str, force: bool = False) -> bool:
+def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None) -> bool:
     from app.models.store import Store
     today = datetime.now()
     if not force and today.weekday() != 4:  # Friday
         return False
     store = db.query(Store).filter(Store.id == store_id).first()
-    recipients = get_recipients(store)
+    recipients = [test_email] if test_email else get_recipients(store)
     if not recipients:
         print(f"[FARAWAY] No recipients for store {store_id}")
         return False
