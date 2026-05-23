@@ -26,8 +26,9 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
     creator_df = load_creator_df(db, store_id)
     today      = pd.Timestamp.now()
 
-    days_since_monday = today.weekday()
-    week_start = (today - pd.Timedelta(days=days_since_monday)).normalize()
+    # Semana Rodmat: sábado → viernes. Saturday = weekday 5.
+    days_since_saturday = (today.weekday() - 5) % 7
+    week_start = (today - pd.Timedelta(days=days_since_saturday)).normalize()
     week_end   = today
     prev_start = week_start - pd.Timedelta(days=7)
     prev_end   = week_start
