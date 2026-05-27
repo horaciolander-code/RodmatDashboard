@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -28,12 +30,18 @@ def create_combo(
         if p.store_id != user.store_id:
             raise HTTPException(status_code=403, detail="Cannot use products from another store")
 
+    # Deduplicate items: if the same product_id appears multiple times in the
+    # payload, sum the quantities. The DB has a UNIQUE(combo_id, product_id)
+    # constraint (uq_combo_product), so duplicate rows would 500 on flush.
+    totals: dict[str, int] = defaultdict(int)
+    for item in payload.items:
+        totals[item.product_id] += item.quantity
+
     combo = Combo(store_id=user.store_id, combo_sku=payload.combo_sku, combo_name=payload.combo_name)
     db.add(combo)
     db.flush()
-    for item in payload.items:
-        combo_item = ComboItem(combo_id=combo.id, product_id=item.product_id, quantity=item.quantity)
-        db.add(combo_item)
+    for pid, qty in totals.items():
+        db.add(ComboItem(combo_id=combo.id, product_id=pid, quantity=qty))
     db.commit()
     db.refresh(combo)
     return combo
