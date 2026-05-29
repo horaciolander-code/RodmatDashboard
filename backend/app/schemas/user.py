@@ -46,5 +46,6 @@ class UserResponse(BaseModel):
     store_name: str | None = None
     role: str
     created_at: datetime
+    modules_enabled: dict | None = None
 
     model_config = {"from_attributes": True}

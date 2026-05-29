@@ -25,7 +25,7 @@ logger = logging.getLogger("rodmat")
 
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="Rodmat Dashboard V2", version=APP_VERSION)
+app = FastAPI(title="Rodmat Dashboard", version=APP_VERSION)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -190,4 +190,4 @@ if _dist.exists():
 else:
     @app.get("/", include_in_schema=False)
     async def root():
-        return {"app": "Rodmat Dashboard V2", "version": APP_VERSION, "docs": "/docs", "health": "/api/health"}
+        return {"app": "Rodmat Dashboard", "version": APP_VERSION, "docs": "/docs", "health": "/api/health"}

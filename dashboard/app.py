@@ -1,6 +1,6 @@
 """
-Rodmat Dashboard V2 - Multi-tenant Streamlit Dashboard
-Full parity with V1: all pages, filters, charts, and features.
+Multi-tenant Streamlit Dashboard — title and modules are rendered
+per-tenant based on /api/auth/me (store_name + modules_enabled).
 """
 import streamlit as st
 import pandas as pd
@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from api_client import api_get, api_post, api_put, api_patch, api_delete, login, register
 
 st.set_page_config(
-    page_title="Rodmat Dashboard V2",
+    page_title="Dashboard",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -1284,7 +1284,7 @@ def page_inventario_fbt():
 #  LOGIN + MAIN
 # ================================================================== #
 def login_page():
-    st.title("Rodmat Dashboard V2")
+    st.title("Dashboard")
     tab1, tab2 = st.tabs(["Login", "Register"])
 
     with tab1:
@@ -1855,7 +1855,8 @@ def main():
     else:
         user = st.session_state["cached_user"]
 
-    st.title("Rodmat Dashboard V2")
+    _store_label = user.get("store_name") or "Dashboard"
+    st.title(f"{_store_label} Dashboard")
 
     with st.sidebar:
         st.write(f"**{user.get('email', '')}**")
@@ -1901,11 +1902,15 @@ def main():
             {_sb_s['emoji']} {_sb_s['label']}</div>""", unsafe_allow_html=True)
         st.caption("Cambia el canal en cada página")
         st.markdown("---")
-        st.caption("v2.2.0 | Rodmat Dashboard")
+        st.caption(f"v2.2.0 | {_store_label}")
 
     _role = user.get("role", "viewer")
+    _modules = user.get("modules_enabled") or {}
+    _finance_enabled = bool(_modules.get("finance", False))
     if _role in ("admin", "superadmin"):
-        _sections = ["Dashboard", "Gestion", "Finance"]
+        _sections = ["Dashboard", "Gestion"]
+        if _finance_enabled:
+            _sections.append("Finance")
     elif _role == "warehouse":
         _sections = ["Gestion"]
     else:
@@ -1936,13 +1941,16 @@ def main():
         with tab_g4: page_inventario_fbt()
 
     elif section == "Finance":
-        tab_f1, tab_f2, tab_f3, tab_f4 = st.tabs(
-            ["Dashboard", "Gestion", "Insights", "Management"]
-        )
-        with tab_f1: page_finance_dashboard()
-        with tab_f2: page_finance_gestion()
-        with tab_f3: page_finance_insights()
-        with tab_f4: page_finance_management()
+        if not _finance_enabled:
+            st.warning("El modulo Finance no esta habilitado para esta tienda.")
+        else:
+            tab_f1, tab_f2, tab_f3, tab_f4 = st.tabs(
+                ["Dashboard", "Gestion", "Insights", "Management"]
+            )
+            with tab_f1: page_finance_dashboard()
+            with tab_f2: page_finance_gestion()
+            with tab_f3: page_finance_insights()
+            with tab_f4: page_finance_management()
 
 
 

@@ -79,7 +79,7 @@ def send_freshness_alert(
     Para forzar el env&iacute;o con datos antiguos: <code>POST /api/reports/send-now?force=true</code>.
   </p>
   <div style="text-align:center;color:#aaa;font-size:10px;margin-top:20px;">
-    Rodmat Dashboard V2 &middot; {datetime.now().strftime('%Y-%m-%d %H:%M')} UTC
+    Rodmat Dashboard &middot; {datetime.now().strftime('%Y-%m-%d %H:%M')} UTC
   </div>
 </body></html>"""
 
