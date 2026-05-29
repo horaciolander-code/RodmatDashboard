@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import app.models  # noqa: F401
 from app.database import SessionLocal
 from app.models.store import Store
+from sqlalchemy import func
+
 from app.models.user import User
 from app.services.auth_service import hash_password
 
@@ -37,7 +39,7 @@ def _get_password(env_key: str, label: str) -> str:
 NEW_USERS = [
     {"email": "horacio@rodmat.com", "pw_env": "USER_PASSWORD_HORACIO", "role": "superadmin"},
     {"email": "info@rodmat.com",    "pw_env": "USER_PASSWORD_INFO",    "role": "superadmin"},
-    {"email": "Jh@rodmat.com",      "pw_env": "USER_PASSWORD_JH",      "role": "admin"},
+    {"email": "jh@rodmat.com",      "pw_env": "USER_PASSWORD_JH",      "role": "admin"},
 ]
 
 db = SessionLocal()
@@ -49,8 +51,9 @@ try:
     print(f"Tienda Rodmat encontrada (id={rodmat_store.id[:8]})\n")
 
     for u in NEW_USERS:
+        u["email"] = u["email"].lower()
         pw = _get_password(u["pw_env"], u["email"])
-        existing = db.query(User).filter(User.email == u["email"]).first()
+        existing = db.query(User).filter(func.lower(User.email) == u["email"]).first()
         if existing:
             existing.hashed_password = hash_password(pw)
             existing.role = u["role"]

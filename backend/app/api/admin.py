@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import re
 
@@ -48,12 +49,13 @@ def create_store(
     db: Session = Depends(get_db),
     _: None = Depends(_require_internal_key),
 ):
-    if db.query(User).filter(User.email == payload.owner_email).first():
+    owner_email = payload.owner_email.lower()
+    if db.query(User).filter(func.lower(User.email) == owner_email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
     store = Store(
         name=payload.store_name,
-        owner_email=payload.owner_email,
+        owner_email=owner_email,
         timezone=payload.timezone,
         currency=payload.currency,
     )
@@ -61,7 +63,7 @@ def create_store(
     db.flush()
 
     user = User(
-        email=payload.owner_email,
+        email=owner_email,
         hashed_password=hash_password(payload.password),
         store_id=store.id,
         role="admin",
@@ -101,15 +103,16 @@ def create_superadmin(
     _: None = Depends(_require_internal_key),
 ):
     """One-time endpoint: creates the Rodmat master store + superadmin account."""
-    if db.query(User).filter(User.email == payload.owner_email).first():
+    owner_email = payload.owner_email.lower()
+    if db.query(User).filter(func.lower(User.email) == owner_email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    store = Store(name=payload.store_name, owner_email=payload.owner_email)
+    store = Store(name=payload.store_name, owner_email=owner_email)
     db.add(store)
     db.flush()
 
     user = User(
-        email=payload.owner_email,
+        email=owner_email,
         hashed_password=hash_password(payload.password),
         store_id=store.id,
         role="superadmin",
@@ -169,13 +172,14 @@ def create_user(
     current_user: User = Depends(require_superadmin),
 ):
     """Crea un usuario adicional para una tienda existente. Solo superadmin."""
-    if db.query(User).filter(User.email == payload.email).first():
+    email = payload.email.lower()
+    if db.query(User).filter(func.lower(User.email) == email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
     store = db.query(Store).filter(Store.id == payload.store_id).first()
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
     user = User(
-        email=payload.email,
+        email=email,
         hashed_password=hash_password(payload.password),
         store_id=payload.store_id,
         role=payload.role,
