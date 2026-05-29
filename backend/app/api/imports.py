@@ -68,10 +68,15 @@ async def import_orders(
     db.commit()
 
     _cache.clear()
+    # Auto-fire whatever is due today (daily report + agents) now that
+    # fresh data has landed. Idempotent: trigger_pending_jobs uses
+    # report_logs + agent_runs to avoid re-firing what was already sent.
+    from app.services.scheduled_jobs import trigger_pending_jobs
+    background_tasks.add_task(trigger_pending_jobs, target)
     if send_report:
         from app.api.reports import _send_report_bg
-        background_tasks.add_task(_send_report_bg, target)
-        logger.info("Post-import report queued for store %s", target[:8])
+        background_tasks.add_task(_send_report_bg, target, True)  # force=True
+        logger.info("Post-import forced report queued for store %s", target[:8])
     return result
 
 
@@ -137,6 +142,7 @@ async def import_incoming_stock(
 
 @router.post("/amazon", response_model=ImportResult)
 async def import_amazon_orders(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     store_id: str | None = Query(None),
     user: User = Depends(get_current_user),
@@ -165,6 +171,8 @@ async def import_amazon_orders(
 
     _cache.clear()
     _df_cache.clear()
+    from app.services.scheduled_jobs import trigger_pending_jobs
+    background_tasks.add_task(trigger_pending_jobs, target)
     return result
 
 

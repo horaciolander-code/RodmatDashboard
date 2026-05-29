@@ -60,36 +60,28 @@ def _start_scheduler():
     from app.models.store import Store
 
     def _run_agents():
-        # Lazy imports: pandas-heavy modules only loaded at run time, not startup
-        from app.services.agents import prism_agent, haiku_agent, faraway_agent, mesmerize_agent
-        logger.info("Scheduler: running agents for all stores")
+        # Lazy import to keep startup light (pandas etc. only loaded at run time).
+        from app.services.scheduled_jobs import run_scheduled_agents
+        logger.info("Scheduler: running agents for all stores (gated by freshness)")
         db = SessionLocal()
         try:
-            store_ids = [s.id for s in db.query(Store).all()]
-            for store_id in store_ids:
-                for name, agent in [
-                    ("prism", prism_agent), ("haiku", haiku_agent),
-                    ("faraway", faraway_agent), ("mesmerize", mesmerize_agent),
-                ]:
-                    try:
-                        ran = agent.run(db, store_id)
-                        logger.info("Agent %s store %s: %s", name, store_id[:8], "sent" if ran else "skipped")
-                    except Exception as exc:
-                        logger.exception("Agent %s failed for store %s: %s", name, store_id[:8], exc)
+            results = run_scheduled_agents(db)
+            logger.info("Scheduled agents done: %s", results)
+        except Exception as exc:
+            logger.exception("Scheduled agents failed: %s", exc)
         finally:
             db.close()
-        # Free pandas DataFrames held in cache after heavy agent work
         from app.services.analytics_service import _evict_stale_cache
         evicted = _evict_stale_cache()
         logger.info("Cache eviction after agents: %d entries freed", evicted)
 
     def _run_reports():
-        # Lazy import: pandas/numpy only loaded at run time, not startup
-        from app.services.daily_report_service import run_all_reports
-        logger.info("Scheduler: running daily reports for all stores")
+        # Lazy import to keep startup light.
+        from app.services.scheduled_jobs import run_scheduled_reports
+        logger.info("Scheduler: running daily reports for all stores (gated by freshness)")
         db = SessionLocal()
         try:
-            results = run_all_reports(db)
+            results = run_scheduled_reports(db)
             logger.info("Daily reports done: %s", results)
         except Exception as exc:
             logger.exception("Daily reports failed: %s", exc)

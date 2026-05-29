@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.config import INTERNAL_API_KEY
 from app.database import get_db, SessionLocal
 from app.models.user import User
-from app.models.store import Store
 from app.dependencies import get_current_user
 
 logger = logging.getLogger("rodmat.agents")
@@ -17,10 +16,6 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 def _require_internal_key(x_api_key: str = Header(...)):
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
-
-
-def _all_store_ids(db: Session) -> list[str]:
-    return [s.id for s in db.query(Store).filter(Store.is_active == True).all()]
 
 
 def _run_agent_bg(agent_module_name: str, store_id: str, force: bool, test_email: str | None = None):
@@ -42,26 +37,12 @@ def run_all_agents(
     db: Session = Depends(get_db),
     _: None = Depends(_require_internal_key),
 ):
-    """Cron endpoint — called daily. Runs whichever agents are scheduled for today (all stores)."""
-    from app.services.agents import prism_agent, haiku_agent, faraway_agent, mesmerize_agent
-
-    results = {}
-    for store_id in _all_store_ids(db):
-        store_results = {}
-        for name, agent in [
-            ("prism",     prism_agent),
-            ("haiku",     haiku_agent),
-            ("faraway",   faraway_agent),
-            ("mesmerize", mesmerize_agent),
-        ]:
-            try:
-                ran = agent.run(db, store_id)
-                store_results[name] = "sent" if ran else "skipped"
-            except Exception as exc:
-                logger.exception("Agent %s failed for store %s", name, store_id)
-                store_results[name] = f"error: {exc}"
-        results[store_id] = store_results
-
+    """Cron endpoint — called daily. Runs whichever agents are scheduled for
+    today (all stores), gated by data freshness. Logs every run attempt to
+    agent_runs and sends a consolidated stale-data alert per store if any
+    agent was skipped because no file was uploaded today."""
+    from app.services.scheduled_jobs import run_scheduled_agents
+    results = run_scheduled_agents(db)
     logger.info("run-all agents: %s", results)
     return {"status": "done", "results": results}
 

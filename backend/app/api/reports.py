@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.report_log import ReportLog
 from app.dependencies import get_current_user
-from app.services.daily_report_service import build_report, run_store_report, run_all_reports
+from app.services.daily_report_service import build_report, run_store_report
 
 logger = logging.getLogger("rodmat.reports")
 
@@ -30,12 +30,18 @@ def preview_report(
     return HTMLResponse(content=html)
 
 
-def _send_report_bg(store_id: str):
-    """Build and send daily report in background (own DB session)."""
+def _send_report_bg(store_id: str, force: bool = False):
+    """Build and send daily report in background (own DB session).
+
+    Honors the freshness gate unless `force=True`. The gate is the same
+    one the scheduler uses, so the manual /send-now endpoint behaves
+    consistently with the scheduled job.
+    """
     import os
     from app.database import SessionLocal
     from app.models.store import Store
     from app.services.daily_report_service import build_report, send_report
+    from app.services.freshness import check_data_freshness
 
     db = SessionLocal()
     try:
@@ -45,6 +51,16 @@ def _send_report_bg(store_id: str):
         if not recipients:
             logger.warning("No recipients for store %s", store_id[:8])
             return
+
+        if not force:
+            f = check_data_freshness(db, store_id, store=store)
+            if not f.is_fresh:
+                log = ReportLog(store_id=store_id, status="skipped_stale")
+                db.add(log); db.commit()
+                logger.warning("send-now skipped (stale) for %s: %s",
+                               store_id[:8], f.reason)
+                return
+
         html, subject = build_report(db, store_id)
         store_name = store.name if store else "Store"
         ok = send_report(html, recipients, store_name, subject)
@@ -54,6 +70,8 @@ def _send_report_bg(store_id: str):
             db.commit()
             logger.info("Daily report sent for store %s -> %s", store_id[:8], recipients)
         else:
+            log = ReportLog(store_id=store_id, status="failed")
+            db.add(log); db.commit()
             logger.error("Daily report SMTP failed for store %s", store_id[:8])
     except Exception as exc:
         logger.exception("Daily report bg failed for store %s: %s", store_id[:8], exc)
@@ -64,19 +82,28 @@ def _send_report_bg(store_id: str):
 @router.post("/send-now")
 def send_report_now(
     background_tasks: BackgroundTasks,
+    force: bool = False,
     user: User = Depends(get_current_user),
 ):
-    """Queue daily report in background — returns immediately to avoid Railway 60s timeout."""
-    background_tasks.add_task(_send_report_bg, user.store_id)
-    return {"status": "queued", "store": user.store_id[:8]}
+    """Queue daily report in background — returns immediately to avoid Railway 60s timeout.
+
+    By default the freshness gate is enforced (skips if no upload today).
+    Pass ?force=true to bypass the gate and send with whatever data is in DB.
+    """
+    background_tasks.add_task(_send_report_bg, user.store_id, force)
+    return {"status": "queued", "store": user.store_id[:8], "force": force}
 
 
 def _run_all_bg():
-    """Build and send all store reports in a background thread (own DB session)."""
+    """Build and send all store reports in a background thread (own DB session).
+
+    Goes through the same freshness-gated path as the in-process scheduler.
+    """
     from app.database import SessionLocal
+    from app.services.scheduled_jobs import run_scheduled_reports
     db = SessionLocal()
     try:
-        results = run_all_reports(db)
+        results = run_scheduled_reports(db)
         logger.info("run-all reports completed: %s", results)
     except Exception as exc:
         logger.exception("run-all bg failed: %s", exc)
