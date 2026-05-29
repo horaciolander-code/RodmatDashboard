@@ -163,6 +163,25 @@ def fetch_pallet_orders():
     return api_get("/analytics/pallet-orders") or []
 
 
+
+# ================================================================== #
+#  Per-tenant enabled platforms (defaults to all if not configured)
+# ================================================================== #
+ALL_PLATFORMS = ["tiktok", "amazon"]
+
+def get_enabled_platforms() -> list[str]:
+    """Returns list of platform keys enabled for the active tenant.
+    Empty config / unauthenticated user => all platforms allowed (legacy default)."""
+    u = st.session_state.get("cached_user") or {}
+    pe = u.get("platforms_enabled")
+    if pe is None:
+        return list(ALL_PLATFORMS)
+    if not isinstance(pe, list):
+        return list(ALL_PLATFORMS)
+    # Keep only valid keys, preserve order matching ALL_PLATFORMS
+    out = [p for p in ALL_PLATFORMS if p in pe]
+    return out or list(ALL_PLATFORMS)
+
 # ================================================================== #
 #  PLATFORM SELECTOR — shown at top of every Dashboard page
 # ================================================================== #
@@ -173,33 +192,52 @@ _PS = {
 }
 
 def render_platform_selector(page_key: str) -> str | None:
+    enabled = get_enabled_platforms()
+    # Single-platform tenant: lock to that platform, render badge only.
+    if len(enabled) == 1:
+        only = enabled[0]
+        if st.session_state.get("platform_filter") != only:
+            st.session_state["platform_filter"] = only
+        sty = _PS.get(only, _PS[None])
+        st.markdown(f"""
+        <div style="background:{sty['bg']};color:{sty['text']};padding:8px 16px;border-radius:8px;
+             margin-bottom:8px;font-weight:700;font-size:14px;letter-spacing:0.4px;
+             box-shadow:0 2px 6px rgba(0,0,0,.25);">
+          {sty['emoji']} &nbsp; CANAL: {sty['label']}
+        </div>""", unsafe_allow_html=True)
+        return only
+
+    # Multi-platform tenant: show "Todos" + one button per enabled platform.
     p = st.session_state.get("platform_filter")
-    s = _PS.get(p, _PS[None])
+    if p is not None and p not in enabled:
+        # User had a filter selected that the tenant no longer has access to.
+        st.session_state["platform_filter"] = None
+        p = None
+    sty = _PS.get(p, _PS[None])
     st.markdown(f"""
-    <div style="background:{s['bg']};color:{s['text']};padding:8px 16px;border-radius:8px;
+    <div style="background:{sty['bg']};color:{sty['text']};padding:8px 16px;border-radius:8px;
          margin-bottom:8px;font-weight:700;font-size:14px;letter-spacing:0.4px;
          box-shadow:0 2px 6px rgba(0,0,0,.25);">
-      {s['emoji']} &nbsp; CANAL ACTIVO: {s['label']}
+      {sty['emoji']} &nbsp; CANAL ACTIVO: {sty['label']}
     </div>""", unsafe_allow_html=True)
-    _, c1, c2, c3, _ = st.columns([3.5, 1, 1, 1, 0.5])
-    with c1:
+    # 1 "Todos" + 1 button per platform; leave generous left padding
+    n_btns = 1 + len(enabled)
+    cols = st.columns([3.5] + [1] * n_btns + [0.5])
+    with cols[1]:
         if st.button("🌐 Todos", key=f"pf_all_{page_key}",
                      type="primary" if p is None else "secondary",
                      use_container_width=True):
             st.session_state["platform_filter"] = None
             st.rerun()
-    with c2:
-        if st.button("🎵 TikTok", key=f"pf_tk_{page_key}",
-                     type="primary" if p == "tiktok" else "secondary",
-                     use_container_width=True):
-            st.session_state["platform_filter"] = "tiktok"
-            st.rerun()
-    with c3:
-        if st.button("🛒 Amazon", key=f"pf_amz_{page_key}",
-                     type="primary" if p == "amazon" else "secondary",
-                     use_container_width=True):
-            st.session_state["platform_filter"] = "amazon"
-            st.rerun()
+    for idx, platform_key in enumerate(enabled, start=2):
+        plat_sty = _PS[platform_key]
+        with cols[idx]:
+            if st.button(f"{plat_sty['emoji']} {plat_sty['label'].split()[0]}",
+                         key=f"pf_{platform_key}_{page_key}",
+                         type="primary" if p == platform_key else "secondary",
+                         use_container_width=True):
+                st.session_state["platform_filter"] = platform_key
+                st.rerun()
     return p
 
 
@@ -215,8 +253,8 @@ def page_overview():
         if unknown:
             st.warning(f"{len(unknown)} SKU(s) en pedidos sin combo asignado. Ve a Gestion > Gestion Combos para revisarlos.")
 
-    # Platform breakdown (always shown when no platform filter)
-    if _platform is None:
+    # Platform breakdown only for multi-platform tenants and when no filter set
+    if _platform is None and len(get_enabled_platforms()) > 1:
         ps = fetch_platform_summary()
         if ps and (ps.get("amazon", {}).get("orders", 0) > 0):
             with st.expander("Resumen por Plataforma", expanded=True):
@@ -1737,19 +1775,20 @@ def page_import_upload():
                 st.success(f"Productos: {result.get('inserted', 0)} nuevos, {result.get('updated', 0)} actualizados")
 
     with col2:
-        st.markdown("#### Amazon — Pedidos")
-        st.caption("Fichero TXT/TSV de Amazon Seller Central (All Orders report)")
-        f_amazon = st.file_uploader("Fichero Amazon (.txt / .tsv)", type=["txt", "tsv", "csv"], key="up_amazon")
-        if st.button("Importar Amazon", key="btn_amazon") and f_amazon:
-            with st.spinner("Importando..."):
-                result = api_post("/import/amazon",
-                                  files={"file": (f_amazon.name, f_amazon.getvalue(), "text/plain")})
-            if result:
-                st.success(f"Amazon: {result.get('inserted', 0)} filas importadas, "
-                           f"{result.get('errors', 0)} errores")
-                st.cache_data.clear()
+        if "amazon" in get_enabled_platforms():
+            st.markdown("#### Amazon — Pedidos")
+            st.caption("Fichero TXT/TSV de Amazon Seller Central (All Orders report)")
+            f_amazon = st.file_uploader("Fichero Amazon (.txt / .tsv)", type=["txt", "tsv", "csv"], key="up_amazon")
+            if st.button("Importar Amazon", key="btn_amazon") and f_amazon:
+                with st.spinner("Importando..."):
+                    result = api_post("/import/amazon",
+                                      files={"file": (f_amazon.name, f_amazon.getvalue(), "text/plain")})
+                if result:
+                    st.success(f"Amazon: {result.get('inserted', 0)} filas importadas, "
+                               f"{result.get('errors', 0)} errores")
+                    st.cache_data.clear()
 
-        st.markdown("---")
+            st.markdown("---")
         st.markdown("#### Combos")
         f_combos = st.file_uploader("Excel de combos", type=["xlsx"], key="up_combos")
         if st.button("Importar Combos", key="btn_combos") and f_combos:

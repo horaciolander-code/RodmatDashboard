@@ -74,4 +74,5 @@ def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)
         role=user.role,
         created_at=user.created_at,
         modules_enabled=settings.get("modules_enabled"),
+        platforms_enabled=settings.get("platforms_enabled"),
     )

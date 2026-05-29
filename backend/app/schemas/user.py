@@ -47,5 +47,6 @@ class UserResponse(BaseModel):
     role: str
     created_at: datetime
     modules_enabled: dict | None = None
+    platforms_enabled: list | None = None
 
     model_config = {"from_attributes": True}
