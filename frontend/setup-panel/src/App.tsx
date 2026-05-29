@@ -76,7 +76,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <nav className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-5">
           <Link to={isWarehouse ? '/inventory' : '/'} className="font-bold text-lg text-blue-600">
-            Rodmat V2
+            {user?.store_name ?? 'Dashboard'}
           </Link>
 
           {isSuperadmin && <StoreSwitcher />}

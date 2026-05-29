@@ -6,13 +6,17 @@ from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_admin, require_finance_enabled
 from app.models.user import User
 from app.schemas.finance import TransactionUpdate
 from app.services import finance_service as svc
 
 logger = logging.getLogger("rodmat.finance")
-router = APIRouter(prefix="/api/finance", tags=["finance"])
+router = APIRouter(
+    prefix="/api/finance",
+    tags=["finance"],
+    dependencies=[Depends(require_finance_enabled)],
+)
 
 
 @router.get("/transactions")

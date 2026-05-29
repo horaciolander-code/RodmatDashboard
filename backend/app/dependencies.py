@@ -53,3 +53,24 @@ def require_superadmin(user: User = Depends(get_current_user)) -> User:
 
 def get_current_store_id(user: User = Depends(get_current_user)) -> str:
     return user.store_id
+
+def require_finance_enabled(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """403 unless the user's store has settings.modules_enabled.finance == True.
+
+    The finance module is operator-specific (Rodmat's own bank ingest), not a
+    generic SaaS feature. Tenants without it explicitly enabled cannot reach
+    /api/finance/* endpoints — protects against new tenants accidentally seeing
+    or hitting this surface."""
+    from app.models.store import Store
+    store = db.query(Store).filter(Store.id == user.store_id).first()
+    settings = (store.settings or {}) if store else {}
+    enabled = bool((settings.get("modules_enabled") or {}).get("finance", False))
+    if not enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Finance module is not enabled for this store",
+        )
+    return user
