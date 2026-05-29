@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 interface ImportStatus {
   orders: number;
@@ -10,6 +11,7 @@ interface ImportStatus {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<ImportStatus>({ orders: 0, products: 0, combos: 0, affiliates: 0 });
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+      <h1 className="text-2xl font-bold mb-6">{user?.store_name ?? 'Rodmat'} Dashboard</h1>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {cards.map((c) => (
           <div key={c.label} className={`${c.color} text-white rounded-lg p-6`}>

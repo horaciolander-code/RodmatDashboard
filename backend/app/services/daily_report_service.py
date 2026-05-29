@@ -384,7 +384,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
       </div>
       {"".join(sections)}
       <div style="text-align:center;padding:20px;color:#999;font-size:11px;">
-        Generado automaticamente por Rodmat Dashboard V2<br>
+        Generado automaticamente por {store_name} Dashboard<br>
         {now.strftime('%H:%M:%S')} UTC | Para dejar de recibir estos emails, contacta al administrador.
       </div>
     </body>

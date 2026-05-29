@@ -63,5 +63,13 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(user: User = Depends(get_current_user)):
-    return user
+def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    store = db.query(Store).filter(Store.id == user.store_id).first()
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        store_id=user.store_id,
+        store_name=store.name if store else None,
+        role=user.role,
+        created_at=user.created_at,
+    )

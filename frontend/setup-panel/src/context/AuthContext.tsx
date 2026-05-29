@@ -5,6 +5,7 @@ interface User {
   id: string;
   email: string;
   store_id: string;
+  store_name?: string;
   role: string;
 }
 
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       api.get('/auth/me')
         .then(async (res) => {
-          setUser(res.data);
+          setUser(res.data); localStorage.setItem('user_info', JSON.stringify(res.data)); if (res.data?.store_name) document.title = res.data.store_name + ' Dashboard';
           if (res.data.role === 'superadmin') {
             await loadStores();
           }
@@ -81,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       localStorage.setItem('jwt_token', res.data.access_token);
       const me = await api.get('/auth/me');
-      setUser(me.data);
+      setUser(me.data); localStorage.setItem('user_info', JSON.stringify(me.data)); if (me.data?.store_name) document.title = me.data.store_name + ' Dashboard';
       if (me.data.role === 'superadmin') {
         await loadStores();
       }
@@ -96,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await api.post('/auth/register', { email, password, store_name: storeName });
       localStorage.setItem('jwt_token', res.data.access_token);
       const me = await api.get('/auth/me');
-      setUser(me.data);
+      setUser(me.data); localStorage.setItem('user_info', JSON.stringify(me.data)); if (me.data?.store_name) document.title = me.data.store_name + ' Dashboard';
       return true;
     } catch {
       return false;
@@ -105,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem('jwt_token');
-    setUser(null);
+    setUser(null); localStorage.removeItem('user_info'); document.title = 'Dashboard';
     setStores([]);
     setActiveStoreState(null);
   };

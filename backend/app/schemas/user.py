@@ -43,6 +43,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     store_id: str
+    store_name: str | None = None
     role: str
     created_at: datetime
 
