@@ -1735,6 +1735,21 @@ def page_finance_management():
 # ================================================================== #
 #  IMPORTAR — SUBIR FICHEROS Y HISTORIAL
 # ================================================================== #
+def _refresh_after_import():
+    """Equivalent to the user clicking "Actualizar Datos": clears the
+    backend analytics cache AND the local Streamlit cache, then reruns the
+    page so the freshly-imported data is visible immediately. Called
+    automatically after every successful upload — owner does not need to
+    walk over to the dashboard and click anything; the next user to open
+    a page sees fresh data."""
+    try:
+        api_post("/analytics/clear-cache")
+    except Exception:
+        pass
+    st.cache_data.clear()
+    st.rerun()
+
+
 def page_import_upload():
     st.subheader("Subir Ficheros")
     col1, col2 = st.columns(2)
@@ -1750,8 +1765,9 @@ def page_import_upload():
                                   files={"file": (f_tiktok.name, f_tiktok.getvalue(), "text/csv")})
             if result:
                 st.success(f"TikTok: {result.get('inserted', 0)} filas importadas, "
-                           f"{result.get('errors', 0)} errores")
-                st.cache_data.clear()
+                           f"{result.get('errors', 0)} errores. "
+                           "El reporte por email se dispara solo en 1-2 min.")
+                _refresh_after_import()
 
         st.markdown("---")
         st.markdown("#### Afiliados / Creadores")
@@ -1762,6 +1778,7 @@ def page_import_upload():
                                   files={"file": (f_aff.name, f_aff.getvalue(), "text/csv")})
             if result:
                 st.success(f"Afiliados: {result.get('inserted', 0)} filas importadas")
+                _refresh_after_import()
 
         st.markdown("---")
         st.markdown("#### Productos")
@@ -1773,6 +1790,7 @@ def page_import_upload():
                                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
             if result:
                 st.success(f"Productos: {result.get('inserted', 0)} nuevos, {result.get('updated', 0)} actualizados")
+                _refresh_after_import()
 
     with col2:
         if "amazon" in get_enabled_platforms():
@@ -1785,8 +1803,9 @@ def page_import_upload():
                                       files={"file": (f_amazon.name, f_amazon.getvalue(), "text/plain")})
                 if result:
                     st.success(f"Amazon: {result.get('inserted', 0)} filas importadas, "
-                               f"{result.get('errors', 0)} errores")
-                    st.cache_data.clear()
+                               f"{result.get('errors', 0)} errores. "
+                               "El reporte por email se dispara solo en 1-2 min.")
+                    _refresh_after_import()
 
             st.markdown("---")
         st.markdown("#### Combos")
@@ -1798,6 +1817,7 @@ def page_import_upload():
                                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
             if result:
                 st.success(f"Combos: {result.get('inserted', 0)} nuevos, {result.get('updated', 0)} actualizados")
+                _refresh_after_import()
 
         st.markdown("---")
         st.markdown("#### Inventario Pendiente")
