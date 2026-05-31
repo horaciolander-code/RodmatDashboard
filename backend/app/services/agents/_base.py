@@ -22,6 +22,32 @@ def get_recipients(store) -> list[str]:
     return [SMTP_USER] if SMTP_USER else []
 
 
+def get_business_context(store) -> str:
+    """Return the tenant-scoped business context line injected into agent
+    prompts. Pulled from store.settings['business_context']. Empty string
+    when the tenant has not configured a vertical/brand description yet —
+    agents must build a coherent prompt with no vertical assumptions in
+    that case."""
+    if store and store.settings:
+        return store.settings.get("business_context") or ""
+    return ""
+
+
+def is_agent_enabled(store, agent_name: str) -> bool:
+    """Return True if the agent is enabled for this tenant.
+
+    Defaults to True for backwards-compat: tenants without
+    settings['agents_enabled'] configured keep their current behaviour.
+    Tenants can disable specific agents per-vertical — e.g. MESMERIZE
+    is fragrance-only and stays False for Nokal."""
+    if not (store and store.settings):
+        return True
+    flags = store.settings.get("agents_enabled")
+    if not isinstance(flags, dict):
+        return True
+    return bool(flags.get(agent_name, True))
+
+
 def call_groq(prompt: str, max_tokens: int = 2048) -> str:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set")
