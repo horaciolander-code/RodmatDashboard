@@ -95,9 +95,29 @@ def run_mesmerize(
 def run_timeless(
     background_tasks: BackgroundTasks,
     force: bool = False,
+    test_email: str | None = None,
     user: User = Depends(get_current_user),
 ):
-    """Queues TIMELESS in background — returns immediately to avoid Railway 60s timeout."""
-    background_tasks.add_task(_run_agent_bg, "timeless", user.store_id, force)
-    return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8]}
+    """Queues TIMELESS in background. test_email overrides recipients (solo a ti)."""
+    background_tasks.add_task(_run_agent_bg, "timeless", user.store_id, force, test_email)
+    return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8], "test_email": test_email}
+
+
+@router.post("/test-run/{agent_name}")
+def test_run_any(
+    agent_name: str,
+    background_tasks: BackgroundTasks,
+    store_id: str,
+    test_email: str,
+    force: bool = True,
+    _: None = Depends(_require_internal_key),
+):
+    """Internal-key endpoint for one-off preview emails. Lets a superadmin
+    fire ANY agent against ANY store, with the recipient list replaced by
+    a single test email. Used for previews / dry-runs."""
+    if agent_name not in ("prism","haiku","faraway","mesmerize","timeless"):
+        raise HTTPException(status_code=400, detail=f"Unknown agent: {agent_name}")
+    background_tasks.add_task(_run_agent_bg, agent_name, store_id, force, test_email)
+    return {"status": "queued", "agent": agent_name, "store": store_id[:8],
+            "test_email": test_email, "force": force}
 
