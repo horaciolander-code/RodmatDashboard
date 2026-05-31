@@ -42,6 +42,7 @@ AGENT_MODULES = {
     "haiku":     "app.services.agents.haiku_agent",
     "faraway":   "app.services.agents.faraway_agent",
     "mesmerize": "app.services.agents.mesmerize_agent",
+    "timeless":  "app.services.agents.timeless_agent",
 }
 
 
@@ -101,6 +102,7 @@ def _is_agent_day(agent_name: str, today: Optional[datetime] = None) -> bool:
     if agent_name == "haiku":     return wd == 2                      # Wed
     if agent_name == "faraway":   return wd == 4                      # Fri
     if agent_name == "mesmerize": return wd == 0 and today.day <= 7   # 1st Mon
+    if agent_name == "timeless":  return today.day == 1               # Día 1 de cada mes
     return False
 
 

@@ -1939,9 +1939,17 @@ def main():
                     ("HAIKU", "/agents/haiku", "Miercoles", 2),
                     ("FARAWAY", "/agents/faraway", "Viernes", 4),
                     ("MESMERIZE", "/agents/mesmerize", "1er Lunes", 0),
+                    ("TIMELESS", "/agents/timeless", "Día 1 mes", None),
                 ]
+                from datetime import date as _date_today
+                _today_dom = _date_today.today().day
                 for _aname, _apath, _aday, _awd in _agents:
-                    _is_day = _today_wd == _awd
+                    if _aname == "TIMELESS":
+                        _is_day = _today_dom == 1
+                    elif _aname == "MESMERIZE":
+                        _is_day = _today_wd == _awd and _today_dom <= 7
+                    else:
+                        _is_day = _today_wd == _awd
                     _label = f"{_aname} ({_aday})" + (" [HOY]" if _is_day else "")
                     if st.button(_label, key=f"ag_{_aname}"):
                         _r = api_post(f"{_apath}?force=true")

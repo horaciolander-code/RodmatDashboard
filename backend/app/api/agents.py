@@ -90,3 +90,14 @@ def run_mesmerize(
     """Queues MESMERIZE in background — returns immediately to avoid Railway 60s timeout."""
     background_tasks.add_task(_run_agent_bg, "mesmerize", user.store_id, force)
     return {"status": "queued", "agent": "MESMERIZE", "store": user.store_id[:8]}
+
+@router.post("/timeless")
+def run_timeless(
+    background_tasks: BackgroundTasks,
+    force: bool = False,
+    user: User = Depends(get_current_user),
+):
+    """Queues TIMELESS in background — returns immediately to avoid Railway 60s timeout."""
+    background_tasks.add_task(_run_agent_bg, "timeless", user.store_id, force)
+    return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8]}
+
