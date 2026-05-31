@@ -236,10 +236,12 @@ def pallet_orders(
 @router.post("/clear-cache")
 def clear_cache(user: User = Depends(get_current_user)):
     """Force-clear the backend analytics cache for this store."""
+    from app.services.stock_calculator import clear_orders_df_cache
     keys_removed = [k for k in list(svc._cache.keys()) if k[0] == user.store_id]
     for k in keys_removed:
         del svc._cache[k]
     df_keys = [k for k in list(svc._df_cache.keys()) if k[0] == user.store_id]
     for k in df_keys:
         del svc._df_cache[k]
-    return {"cleared": len(keys_removed) + len(df_keys)}
+    odf_cleared = clear_orders_df_cache(user.store_id)
+    return {"cleared": len(keys_removed) + len(df_keys) + odf_cleared}

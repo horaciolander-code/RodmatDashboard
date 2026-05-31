@@ -17,7 +17,7 @@ _CACHE_TTL = 900  # 15 min — balance entre cache hits y uso de RAM
 
 
 def _evict_stale_cache() -> int:
-    """Remove expired entries from both caches. Returns number of entries evicted."""
+    """Remove expired entries from all caches. Returns number of entries evicted."""
     now = datetime.now()
     evicted = 0
     for d in (_cache, _df_cache):
@@ -25,6 +25,12 @@ def _evict_stale_cache() -> int:
         for k in stale:
             del d[k]
             evicted += 1
+    # Also evict the orders_df cache (uses its own TTL, defined alongside it).
+    try:
+        from app.services.stock_calculator import _evict_stale_orders_df_cache
+        evicted += _evict_stale_orders_df_cache()
+    except Exception:
+        pass
     return evicted
 
 

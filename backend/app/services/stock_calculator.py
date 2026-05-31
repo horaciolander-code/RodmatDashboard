@@ -32,8 +32,47 @@ def _build_combo_dict(db: Session, store_id: str) -> dict:
     return combo_dict
 
 
+# ── orders_df cache ─────────────────────────────────────────────────────────
+# Heavy 23K+ row full-table read; without caching the same scan ran 1389x in
+# prod (May 2026 audit). Cache the result per store_id for 10 min; invalidated
+# on every import/delete via clear_orders_df_cache().
+from datetime import datetime as _dt
+_orders_df_cache: dict = {}        # {store_id: (ts, DataFrame)}
+_ORDERS_DF_TTL = 600               # 10 min
+
+
+def clear_orders_df_cache(store_id: str | None = None) -> int:
+    """Drop cached orders DataFrame(s). If store_id is None, clears all."""
+    if store_id is None:
+        n = len(_orders_df_cache)
+        _orders_df_cache.clear()
+        return n
+    if store_id in _orders_df_cache:
+        del _orders_df_cache[store_id]
+        return 1
+    return 0
+
+
+def _evict_stale_orders_df_cache() -> int:
+    """Drop entries older than the TTL. Called by the periodic scheduler."""
+    now = _dt.now()
+    stale = [sid for sid, (ts, _) in _orders_df_cache.items()
+             if (now - ts).total_seconds() >= _ORDERS_DF_TTL]
+    for sid in stale:
+        del _orders_df_cache[sid]
+    return len(stale)
+
+
 def _load_orders_df(db: Session, store_id: str):
+    """Full sales_orders DataFrame for a store. Cached per store_id (TTL 10min).
+    Returns a .copy() so callers may mutate freely without touching the cache."""
     import pandas as pd
+    cached = _orders_df_cache.get(store_id)
+    if cached is not None:
+        ts, df_cached = cached
+        if (_dt.now() - ts).total_seconds() < _ORDERS_DF_TTL:
+            return df_cached.copy() if not df_cached.empty else df_cached
+
     from sqlalchemy import text
     result = db.execute(text("""
         SELECT
@@ -66,13 +105,16 @@ def _load_orders_df(db: Session, store_id: str):
     """), {"sid": store_id})
     rows = result.fetchall()
     if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows, columns=result.keys())
-    df["Order_Date"]    = pd.to_datetime(df["Order_Date"],    errors="coerce")
-    df["Created Time"]  = pd.to_datetime(df["Created Time"],  errors="coerce")
-    df["Shipped Time"]  = pd.to_datetime(df["Shipped Time"],  errors="coerce")
-    df["SKU_ID_Clean"]  = df["Seller SKU"].fillna(df["SKU ID"]).astype(str).str.strip()
-    return df
+        df = pd.DataFrame()
+    else:
+        df = pd.DataFrame(rows, columns=result.keys())
+        df["Order_Date"]    = pd.to_datetime(df["Order_Date"],    errors="coerce")
+        df["Created Time"]  = pd.to_datetime(df["Created Time"],  errors="coerce")
+        df["Shipped Time"]  = pd.to_datetime(df["Shipped Time"],  errors="coerce")
+        df["SKU_ID_Clean"]  = df["Seller SKU"].fillna(df["SKU ID"]).astype(str).str.strip()
+
+    _orders_df_cache[store_id] = (_dt.now(), df)
+    return df.copy() if not df.empty else df
 
 
 def decompose_orders(df, combo_dict: dict):

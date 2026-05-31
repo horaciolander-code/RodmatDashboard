@@ -50,7 +50,7 @@ async def import_orders(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from app.services.analytics_service import _cache
+    from app.services.analytics_service import _cache, _df_cache
     content = await file.read()
     _validate_upload(file, content, ".csv")
     target = _target_store(user, store_id)
@@ -68,6 +68,9 @@ async def import_orders(
     db.commit()
 
     _cache.clear()
+    _df_cache.clear()
+    from app.services.stock_calculator import clear_orders_df_cache
+    clear_orders_df_cache(target)
     # Auto-fire whatever is due today (daily report + agents) now that
     # fresh data has landed. Idempotent: trigger_pending_jobs uses
     # report_logs + agent_runs to avoid re-firing what was already sent.
@@ -171,6 +174,8 @@ async def import_amazon_orders(
 
     _cache.clear()
     _df_cache.clear()
+    from app.services.stock_calculator import clear_orders_df_cache
+    clear_orders_df_cache(target)
     from app.services.scheduled_jobs import trigger_pending_jobs
     background_tasks.add_task(trigger_pending_jobs, target)
     return result
@@ -223,8 +228,10 @@ async def delete_import_batch(
 
     try:
         from app.services.analytics_service import _cache, _df_cache
+        from app.services.stock_calculator import clear_orders_df_cache
         _cache.clear()
         _df_cache.clear()
+        clear_orders_df_cache(history.store_id)
     except Exception:
         pass
 
