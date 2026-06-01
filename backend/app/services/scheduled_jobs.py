@@ -75,6 +75,27 @@ def _today_has_agent_run(db: Session, store_id: str, agent_name: str,
     ).first() is not None
 
 
+def _scheduler_already_attempted_report_today(db: Session, store_id: str) -> bool:
+    """True if the scheduler has logged ANY report attempt today (sent,
+    failed, or skipped_stale). Used by trigger_pending_jobs to decide
+    whether to act as catch-up vs wait for the scheduler."""
+    start_naive = _today_start_utc().replace(tzinfo=None)
+    return db.query(ReportLog).filter(
+        ReportLog.store_id == store_id,
+        ReportLog.sent_at >= start_naive,
+    ).first() is not None
+
+
+def _scheduler_already_attempted_agent_today(db: Session, store_id: str,
+                                              agent_name: str) -> bool:
+    """True if the scheduler has logged ANY attempt today for this agent."""
+    return db.query(AgentRun).filter(
+        AgentRun.store_id == store_id,
+        AgentRun.agent_name == agent_name,
+        AgentRun.run_at >= _today_start_utc(),
+    ).first() is not None
+
+
 def _log_report(db: Session, store_id: str, status: str,
                 recipients: str | None = None) -> None:
     log = ReportLog(store_id=store_id, status=status, recipients=recipients)
@@ -130,6 +151,14 @@ def run_scheduled_reports(db: Session) -> dict:
         settings = store.settings or {}
         if not settings.get("report_enabled", False):
             results[store.name] = "skipped_disabled"
+            continue
+
+        # Idempotency: if the daily report was already sent today (e.g. via
+        # post-import catch-up earlier in the day), don't fire again.
+        if _today_has_sent_report(db, store.id):
+            results[store.name] = "skipped_already_sent_today"
+            logger.info("[scheduled_reports] %s skipped (already sent today)",
+                        store.name)
             continue
 
         f = check_data_freshness(db, store.id, store=store)
@@ -196,6 +225,11 @@ def run_scheduled_agents(db: Session) -> dict:
 
         for agent_name, mod_path in AGENT_MODULES.items():
             try:
+                # Idempotency: already sent today via earlier catch-up? Skip.
+                if _today_has_agent_run(db, store.id, agent_name, status="sent"):
+                    store_results[agent_name] = "skipped_already_sent_today"
+                    continue
+
                 if not f.is_fresh:
                     if _is_agent_day(agent_name):
                         _log_agent_run(
@@ -256,13 +290,19 @@ def run_scheduled_agents(db: Session) -> dict:
 # ── post-import trigger ──────────────────────────────────────────────────────
 
 def trigger_pending_jobs(store_id: str) -> dict:
-    """Fire any daily report / agent run that is due today for this store
-    and hasn't been sent yet. Called as a FastAPI background task after a
-    successful import (tiktok / amazon).
+    """Catch-up trigger: called as a FastAPI background task after a
+    successful import. Only fires reports/agents that the scheduler
+    already ATTEMPTED earlier today and SKIPPED due to stale data
+    (skipped_stale). Does NOT pre-fire — if the scheduler hasn't run
+    yet today (upload arrived BEFORE the scheduled hour), this function
+    waits for the scheduler to do its job at the normal time.
 
-    Uses its own DB session because background tasks don't share the request
-    session, and FastAPI's session may already be closed by the time this
-    runs.
+    Behavior matrix:
+      - already_sent_today      -> skip
+      - scheduler not yet run   -> skip ('waiting_for_scheduler')
+      - scheduler skipped stale + data now fresh -> CATCH UP, send
+      - scheduler skipped stale + data still stale -> skip ('still_stale')
+      - agent not its day       -> skip ('not_its_day')
     """
     import importlib
     from app.database import SessionLocal
@@ -278,14 +318,18 @@ def trigger_pending_jobs(store_id: str) -> dict:
         settings = store.settings or {}
         f = check_data_freshness(db, store_id, store=store)
 
-        # 1) Daily report
+        # ── 1) Daily report ───────────────────────────────────────────
         if not settings.get("report_enabled", False):
             out["daily_report"] = "disabled"
         elif _today_has_sent_report(db, store_id):
-            out["daily_report"] = "already_sent"
+            out["daily_report"] = "already_sent_today"
+        elif not _scheduler_already_attempted_report_today(db, store_id):
+            # Scheduler hasn't run yet today (upload arrived BEFORE its
+            # scheduled hour). Let the scheduler handle it at the normal
+            # time — do NOT pre-fire. User's rule: upload only triggers
+            # when the upload arrives AFTER the scheduled hour.
+            out["daily_report"] = "waiting_for_scheduler"
         elif not f.is_fresh:
-            # Edge case: import landed but freshness check still false (race
-            # or filtered-out import_type). Don't fire; don't log noise either.
             out["daily_report"] = "still_stale"
         else:
             try:
@@ -293,7 +337,7 @@ def trigger_pending_jobs(store_id: str) -> dict:
                 if ok:
                     recips = ", ".join(settings.get("report_recipients") or [])
                     _log_report(db, store_id, status="sent", recipients=recips)
-                    out["daily_report"] = "sent"
+                    out["daily_report"] = "sent_catchup"
                 else:
                     _log_report(db, store_id, status="failed")
                     out["daily_report"] = "failed"
@@ -303,13 +347,16 @@ def trigger_pending_jobs(store_id: str) -> dict:
                 _log_report(db, store_id, status="failed")
                 out["daily_report"] = f"error: {type(exc).__name__}"
 
-        # 2) Agents — only if today is the agent's day AND not already sent
+        # ── 2) Agents — same catch-up-only semantics, per agent ───────
         for agent_name, mod_path in AGENT_MODULES.items():
             if not _is_agent_day(agent_name):
                 out[agent_name] = "not_its_day"
                 continue
             if _today_has_agent_run(db, store_id, agent_name, status="sent"):
-                out[agent_name] = "already_sent"
+                out[agent_name] = "already_sent_today"
+                continue
+            if not _scheduler_already_attempted_agent_today(db, store_id, agent_name):
+                out[agent_name] = "waiting_for_scheduler"
                 continue
             if not f.is_fresh:
                 out[agent_name] = "still_stale"
@@ -320,7 +367,7 @@ def trigger_pending_jobs(store_id: str) -> dict:
                 if ran:
                     _log_agent_run(db, store_id, agent_name, status="sent",
                                    latest_import_at=f.latest_import_at)
-                    out[agent_name] = "sent"
+                    out[agent_name] = "sent_catchup"
                 else:
                     _log_agent_run(
                         db, store_id, agent_name,

@@ -1757,11 +1757,9 @@ def page_import_upload():
     with col1:
         st.markdown("#### TikTok Shop — Pedidos")
         f_tiktok = st.file_uploader("CSV de pedidos TikTok", type=["csv"], key="up_tiktok")
-        send_report = st.checkbox("Enviar reporte tras importar", key="up_tiktok_report")
         if st.button("Importar TikTok", key="btn_tiktok") and f_tiktok:
             with st.spinner("Importando..."):
-                params = "?send_report=true" if send_report else ""
-                result = api_post(f"/import/orders{params}",
+                result = api_post("/import/orders",
                                   files={"file": (f_tiktok.name, f_tiktok.getvalue(), "text/csv")})
             if result:
                 st.success(f"TikTok: {result.get('inserted', 0)} filas importadas, "

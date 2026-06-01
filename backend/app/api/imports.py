@@ -46,7 +46,6 @@ async def import_orders(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     store_id: str | None = Query(None),
-    send_report: bool = Query(False, description="Send daily report after import"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -71,15 +70,17 @@ async def import_orders(
     _df_cache.clear()
     from app.services.stock_calculator import clear_orders_df_cache
     clear_orders_df_cache(target)
-    # Auto-fire whatever is due today (daily report + agents) now that
-    # fresh data has landed. Idempotent: trigger_pending_jobs uses
-    # report_logs + agent_runs to avoid re-firing what was already sent.
+    # Catch-up trigger: trigger_pending_jobs only fires reports/agents
+    # that the scheduler ALREADY ATTEMPTED today and skipped due to stale
+    # data. If the upload arrived BEFORE the scheduled hour, this is a
+    # no-op and the scheduler will fire normally at its time. Eliminates
+    # the historical double-send bug.
     from app.services.scheduled_jobs import trigger_pending_jobs
     background_tasks.add_task(trigger_pending_jobs, target)
-    if send_report:
-        from app.api.reports import _send_report_bg
-        background_tasks.add_task(_send_report_bg, target, True)  # force=True
-        logger.info("Post-import forced report queued for store %s", target[:8])
+    # NOTE: the ?send_report=true legacy override was removed — the
+    # operator's rule is "one email per day, only at the scheduled hour
+    # unless the upload arrives after". If you really need an out-of-band
+    # send for debugging, use POST /api/reports/send-now?force=true.
     return result
 
 
