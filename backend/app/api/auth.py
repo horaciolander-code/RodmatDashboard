@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -20,9 +20,17 @@ limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _require_internal_key(x_api_key: str = Header(...)):
+    from app.config import INTERNAL_API_KEY
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registration is closed")
+
+
 @router.post("/register", response_model=TokenResponse, status_code=201)
 @limiter.limit("3/hour")
-def register(request: Request, payload: UserRegister, db: Session = Depends(get_db)):
+def register(request: Request, payload: UserRegister,
+             db: Session = Depends(get_db),
+             _: None = Depends(_require_internal_key)):
     email = payload.email.lower()
     existing = db.query(User).filter(func.lower(User.email) == email).first()
     if existing:

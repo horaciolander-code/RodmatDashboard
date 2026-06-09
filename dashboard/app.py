@@ -1323,32 +1323,18 @@ def page_inventario_fbt():
 # ================================================================== #
 def login_page():
     st.title("Dashboard")
-    tab1, tab2 = st.tabs(["Login", "Register"])
-
-    with tab1:
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            if st.form_submit_button("Login"):
-                if login(email, password):
-                    token = st.session_state.get("jwt_token", "")
-                    if token:
-                        st.query_params["t"] = token
-                    st.rerun()
-                else:
-                    st.error("Email o contraseña incorrectos")
-
-    with tab2:
-        with st.form("register_form"):
-            store_name = st.text_input("Store Name")
-            email = st.text_input("Email", key="reg_email")
-            password = st.text_input("Password", type="password", key="reg_pass")
-            if st.form_submit_button("Register"):
-                if store_name and email and password:
-                    if register(email, password, store_name):
-                        st.rerun()
-                else:
-                    st.warning("Completa todos los campos")
+    with st.form("login_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        if st.form_submit_button("Login"):
+            if login(email, password):
+                token = st.session_state.get("jwt_token", "")
+                if token:
+                    st.query_params["t"] = token
+                st.rerun()
+            else:
+                st.error("Email o contraseña incorrectos")
+    st.caption("Acceso restringido. Si necesitas una cuenta, contacta al administrador.")
 
 
 # ================================================================== #

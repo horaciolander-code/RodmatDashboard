@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth, type StoreOption } from './context/AuthContext';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Combos from './pages/Combos';
@@ -124,7 +123,6 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login"    element={<Login />} />
-          <Route path="/register" element={<Register />} />
 
           {/* Rutas solo para roles NO warehouse */}
           <Route path="/" element={
