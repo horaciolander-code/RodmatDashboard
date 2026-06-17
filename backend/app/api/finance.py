@@ -1,133 +1,105 @@
-import logging
-from datetime import date
-from typing import Optional
+"""
+Finance API — P&L estructurado + líneas custom (calculadora).
+Sustituye el módulo legacy de bank_transactions.
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile, status
+Todas las rutas requieren user autenticado + módulo `finance` habilitado para el store.
+"""
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin, require_finance_enabled
 from app.models.user import User
-from app.schemas.finance import TransactionUpdate
+from app.dependencies import get_current_user, require_finance_enabled
+from app.schemas.finance import (
+    PLResponse, CustomLineOut, CustomLinesReplaceRequest,
+)
 from app.services import finance_service as svc
 
 logger = logging.getLogger("rodmat.finance")
-router = APIRouter(
-    prefix="/api/finance",
-    tags=["finance"],
-    dependencies=[Depends(require_finance_enabled)],
-)
+
+router = APIRouter(prefix="/api/finance", tags=["finance"])
 
 
-@router.get("/transactions")
-def list_transactions(
-    skip: int = 0,
-    limit: int = 500,
-    tipo: str = "Todos",
-    estado: str = "Todas",
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+def _target_store(user: User, store_id: str | None) -> str:
+    if user.role == "superadmin" and store_id:
+        return store_id
+    return user.store_id
+
+
+@router.get("/pl", response_model=PLResponse)
+def get_pl(
+    year:     int  = Query(...),
+    period:   str  = Query(..., description="'YTD' or 'MM' (01..12)"),
+    store_id: str  = Query(None),
+    user:  User    = Depends(get_current_user),
+    _:        None = Depends(require_finance_enabled),
+    db:    Session = Depends(get_db),
 ):
-    return svc.get_transactions(db, user.store_id, skip, limit, tipo, estado, date_from, date_to)
+    """Devuelve P&L estructurado para el período seleccionado (mes o YTD)."""
+    try:
+        target = _target_store(user, store_id)
+        return svc.compute_pl(db, target, year, period)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.patch("/transactions/{tx_id}")
-def update_transaction(
-    tx_id: str,
-    payload: TransactionUpdate,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+@router.get("/custom-lines")
+def get_custom_lines(
+    year:     int  = Query(...),
+    period:   str  = Query(...),
+    store_id: str  = Query(None),
+    user:  User    = Depends(get_current_user),
+    _:        None = Depends(require_finance_enabled),
+    db:    Session = Depends(get_db),
 ):
-    result = svc.update_transaction(db, user.store_id, tx_id, payload.tipo, payload.clasificacion, payload.comentarios)
-    if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    return result
+    """Lista las líneas custom del período."""
+    try:
+        target = _target_store(user, store_id)
+        rows = svc.list_custom_lines(db, target, year, period)
+        return [
+            {"id": r.id, "year_month": r.year_month, "description": r.description,
+             "amount": float(r.amount), "sort_order": float(r.sort_order)}
+            for r in rows
+        ]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/transactions/{tx_id}")
-def delete_transaction(
-    tx_id: str,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+@router.put("/custom-lines")
+def replace_custom_lines(
+    body:     CustomLinesReplaceRequest,
+    year:     int  = Query(...),
+    period:   str  = Query(..., description="'MM' — no YTD"),
+    store_id: str  = Query(None),
+    user:  User    = Depends(get_current_user),
+    _:        None = Depends(require_finance_enabled),
+    db:    Session = Depends(get_db),
 ):
-    if not svc.delete_transaction(db, user.store_id, tx_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    return {"status": "deleted"}
+    """Reemplaza atómicamente todas las líneas del período (mes)."""
+    try:
+        target = _target_store(user, store_id)
+        new_rows = svc.replace_custom_lines(db, target, year, period, body.lines)
+        logger.info("Replaced %d custom lines for store=%s year=%d period=%s",
+                    len(new_rows), target[:8], year, period)
+        return {"replaced": len(new_rows)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/preview")
-async def preview_import(
-    file: UploadFile = File(...),
-    user: User = Depends(require_admin),
+@router.post("/custom-lines/copy-from-previous")
+def copy_from_previous_month(
+    year:     int  = Query(...),
+    period:   str  = Query(...),
+    store_id: str  = Query(None),
+    user:  User    = Depends(get_current_user),
+    _:        None = Depends(require_finance_enabled),
+    db:    Session = Depends(get_db),
 ):
-    content = await file.read()
-    result = svc.preview_file(content, file.filename or "upload.xlsx")
-    return result
-
-
-@router.post("/import")
-def import_transactions(
-    rows: list[dict] = Body(...),
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return svc.import_rows(db, user.store_id, rows)
-
-
-@router.post("/reclassify-pending")
-def reclassify_pending(
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return svc.reclassify_pending(db, user.store_id)
-
-
-@router.post("/fix-dates")
-def fix_inverted_dates(
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return svc.fix_inverted_dates(db, user.store_id)
-
-
-@router.get("/dashboard")
-def finance_dashboard(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return svc.get_dashboard(db, user.store_id)
-
-
-@router.get("/insights")
-def finance_insights(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return svc.get_insights(db, user.store_id)
-
-
-@router.get("/classifications")
-def get_classifications(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return svc.get_classifications(db, user.store_id)
-
-
-@router.put("/classifications")
-def update_classifications(
-    data: dict = Body(...),
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return svc.save_classifications(db, user.store_id, data)
-
-
-@router.get("/pending-count")
-def pending_count(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return {"count": svc.get_pending_count(db, user.store_id)}
+    """Copia las líneas del mes anterior al mes actual (si el actual está vacío)."""
+    try:
+        target = _target_store(user, store_id)
+        new_rows = svc.copy_from_previous_month(db, target, year, period)
+        return {"copied": len(new_rows)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

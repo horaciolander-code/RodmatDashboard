@@ -1338,384 +1338,214 @@ def login_page():
 
 
 # ================================================================== #
-#  FINANCE SECTION PAGES
+#  FINANCE SECTION — P&L estructurado + calculadora de líneas custom
 # ================================================================== #
 
-def page_finance_dashboard():
-    st.header("Finance Dashboard")
-    data = api_get("/finance/dashboard")
-    if data is None:
-        return
-    if not data.get("recent_transactions"):
-        st.info("No hay transacciones. Ve a Finance → Management → Importar Nuevas para empezar.")
-        return
-
-    bal = data.get("balance_actual", 0)
-    ing = data.get("ingresos_mes", 0)
-    gas = data.get("gastos_mes", 0)
-    net = data.get("net_mes", 0)
-    ing_prev = data.get("ingresos_prev", 0)
-    gas_prev = data.get("gastos_prev", 0)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Balance Actual", f"${bal:,.2f}")
-    c2.metric("Ingresos Mes", f"${ing:,.2f}", delta=f"{ing - ing_prev:+,.0f}" if ing_prev else None)
-    c3.metric("Gastos Mes", f"${gas:,.2f}", delta=f"{gas - gas_prev:+,.0f}" if gas_prev else None, delta_color="inverse")
-    c4.metric("Net Mes", f"${net:,.2f}", delta_color="normal" if net >= 0 else "inverse")
-
-    st.markdown("---")
-
-    monthly_raw = data.get("monthly_cashflow", [])
-    top_cat = data.get("top_gastos_cat", [])
-
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.subheader("Cash Flow Mensual")
-        if monthly_raw:
-            df_m = pd.DataFrame(monthly_raw)
-            fig = go.Figure()
-            bal_rows = df_m[df_m["tipo"] == "Balance"] if "tipo" in df_m.columns else pd.DataFrame()
-            gas_rows = df_m[df_m["tipo"] == "Gastos"] if "tipo" in df_m.columns else pd.DataFrame()
-            if not bal_rows.empty:
-                fig.add_trace(go.Bar(name="Ingresos", x=bal_rows["month"], y=bal_rows["amount"], marker_color="#27ae60"))
-            if not gas_rows.empty:
-                fig.add_trace(go.Bar(name="Gastos", x=gas_rows["month"], y=gas_rows["amount"].abs(), marker_color="#e74c3c"))
-            fig.update_layout(barmode="group", height=350, margin=dict(t=20))
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Sin datos de cash flow.")
-
-    with col_right:
-        st.subheader("Top Gastos por Categoría (mes actual)")
-        if top_cat:
-            df_cat = pd.DataFrame(top_cat)
-            fig_pie = px.pie(df_cat, values="amount", names="clasificacion", height=350)
-            fig_pie.update_layout(margin=dict(t=20))
-            st.plotly_chart(fig_pie, use_container_width=True)
-        else:
-            st.info("Sin gastos clasificados este mes.")
-
-    pivot_raw = data.get("pivot_6m", [])
-    if pivot_raw:
-        st.subheader("Resumen por Clasificación (últimos 6 meses)")
-        st.dataframe(pd.DataFrame(pivot_raw), use_container_width=True, hide_index=True)
-
-    recent = data.get("recent_transactions", [])
-    if recent:
-        st.subheader("Últimas 50 transacciones")
-        st.dataframe(pd.DataFrame(recent), use_container_width=True, hide_index=True)
+_MES_NOMBRES = ["", "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+_MES_CORTOS  = ["", "Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
 
 
-def page_finance_gestion():
-    st.header("Gestión de Transacciones")
+def page_finance_pl():
+    """Página única de Finance: P&L + calculadora de líneas custom por mes/YTD."""
+    import datetime as _dt
+    import pandas as _pd
 
-    clasif_map = api_get("/finance/classifications") or {}
-    all_clasif = sorted(set(c for lst in clasif_map.values() for c in lst))
-    tipos_list = ["Balance", "Gastos", "Pendiente"]
+    st.header("P&L Operacional")
 
-    pend_data = api_get("/finance/pending-count") or {}
-    n_pending = pend_data.get("count", 0)
-    if n_pending > 0:
-        st.info(f"{n_pending} transacciones pendientes de clasificar.")
+    # --- Selector año + botones mes / YTD ---
+    today = _dt.date.today()
+    if "fin_year" not in st.session_state:
+        st.session_state.fin_year = today.year
+    if "fin_period" not in st.session_state:
+        st.session_state.fin_period = f"{today.month:02d}"
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        fecha_desde = st.date_input("Desde", value=None, key="fg_desde")
-    with col2:
-        fecha_hasta = st.date_input("Hasta", value=None, key="fg_hasta")
-    with col3:
-        tipo_filter = st.selectbox("Tipo", ["Todos"] + tipos_list, key="fg_tipo")
-    with col4:
-        estado_filter = st.selectbox("Estado", ["Todas", "Pendientes", "Auto-clasificadas", "Manuales"], key="fg_estado")
-
-    params: dict = {"tipo": tipo_filter, "estado": estado_filter, "limit": 500}
-    if fecha_desde:
-        params["date_from"] = str(fecha_desde)
-    if fecha_hasta:
-        params["date_to"] = str(fecha_hasta)
-
-    txs = api_get("/finance/transactions", params=params) or []
-
-    if not txs:
-        st.info("Sin transacciones con esos filtros.")
-        return
-
-    st.caption(f"{len(txs)} transacciones")
-
-    df = pd.DataFrame(txs)
-    edited = st.data_editor(
-        df[["id", "date", "description", "amount", "tipo", "clasificacion",
-            "classification_method", "classification_confidence", "is_pending_review"]],
-        column_config={
-            "id": st.column_config.TextColumn("ID", disabled=True, width="small"),
-            "date": st.column_config.TextColumn("Fecha", disabled=True, width="small"),
-            "description": st.column_config.TextColumn("Descripción", disabled=True, width="large"),
-            "amount": st.column_config.NumberColumn("Monto", format="$%.2f", disabled=True),
-            "tipo": st.column_config.SelectboxColumn("Tipo", options=tipos_list),
-            "clasificacion": st.column_config.SelectboxColumn("Clasificación", options=all_clasif),
-            "classification_method": st.column_config.TextColumn("Método", disabled=True, width="small"),
-            "classification_confidence": st.column_config.NumberColumn("Conf.", format="%.0%%", disabled=True, width="small"),
-            "is_pending_review": st.column_config.CheckboxColumn("Pendiente", disabled=True, width="small"),
-        },
-        use_container_width=True,
-        hide_index=True,
-        num_rows="fixed",
-        key="finance_gestion_editor",
-    )
-
-    if st.button("Guardar cambios", type="primary"):
-        saved = 0
-        for _, row in edited.iterrows():
-            orig = next((t for t in txs if t["id"] == row["id"]), None)
-            if orig and (orig["tipo"] != row["tipo"] or orig["clasificacion"] != row["clasificacion"]):
-                api_patch(f"/finance/transactions/{row['id']}", {
-                    "tipo": row["tipo"],
-                    "clasificacion": row["clasificacion"],
-                })
-                saved += 1
-        if saved:
-            st.success(f"{saved} transacciones actualizadas.")
-            st.rerun()
-        else:
-            st.info("Sin cambios para guardar.")
-
-
-def page_finance_insights():
-    st.header("Finance Insights")
-    data = api_get("/finance/insights")
-    if data is None:
-        return
-    if data.get("burn_rate", 0) == 0 and data.get("ingresos_tiktok", 0) == 0:
-        st.info("Importa transacciones bancarias para ver los insights financieros.")
-        return
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Ingresos TikTok Total", f"${data.get('ingresos_tiktok', 0):,.0f}")
-    c2.metric("Burn Rate Mensual", f"${data.get('burn_rate', 0):,.0f}")
-    c3.metric("Runway estimado", f"{data.get('runway_months', 0):.1f} meses")
-    c4.metric("Margen neto banco", f"{data.get('margen_pct', 0):.1f}%")
-
-    st.markdown("---")
-    st.subheader("TikTok Facturado vs Cobrado en Banco")
-    cxc = data.get("cxc_cobrado", 0)
-    tiktok = data.get("ingresos_tiktok", 0)
-    gap = data.get("gap_tiktok_banco", 0)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Facturado TikTok", f"${tiktok:,.0f}")
-    col2.metric("Cobrado en banco (CxC)", f"${cxc:,.0f}")
-    col3.metric("Diferencia", f"${gap:,.0f}", delta_color="inverse" if gap > 0 else "normal")
-
-    st.markdown("---")
-    alertas = data.get("alertas", [])
-    st.subheader("Alertas de Gastos Anormales (vs mes anterior)")
-    if alertas:
-        st.dataframe(pd.DataFrame(alertas), use_container_width=True, hide_index=True)
-    else:
-        st.success("Sin variaciones mayores al 50% entre meses.")
-
-    recurrentes = data.get("recurrentes", [])
-    if recurrentes:
-        st.subheader("Top Gastos Recurrentes")
-        st.dataframe(pd.DataFrame(recurrentes), use_container_width=True, hide_index=True)
-
-
-def page_finance_management():
-    st.header("Finance Management")
-
-    clasif_map = api_get("/finance/classifications") or {}
-    all_clasif = sorted(set(c for lst in clasif_map.values() for c in lst))
-    tipos_list = [t for t in clasif_map.keys() if t != "Pendiente"] + ["Pendiente"]
-
-    tab_import, tab_pending, tab_tools, tab_catalog = st.tabs(
-        ["📥 Importar Nuevas", "📋 Revisar Pendientes", "⚙️ Herramientas", "🗂️ Plantilla"]
-    )
-
-    # ---- TAB 1: IMPORTAR ----
-    with tab_import:
-        st.subheader("Importar Nuevas Transacciones")
-        st.markdown("**Paso 1 — Selecciona archivo**")
-        uploaded = st.file_uploader(
-            "Archivo del banco (.xlsx, .xls, .csv)",
-            type=["xlsx", "xls", "csv"],
-            key="finance_uploader",
+    col_y, _ = st.columns([1, 6])
+    with col_y:
+        st.session_state.fin_year = st.selectbox(
+            "Año", [today.year, today.year-1, today.year-2],
+            index=[today.year, today.year-1, today.year-2].index(st.session_state.fin_year)
+            if st.session_state.fin_year in [today.year, today.year-1, today.year-2] else 0,
         )
 
-        if not uploaded:
-            st.info("Sube un archivo Excel o CSV exportado desde el banco.")
-        else:
-            if st.button("Analizar archivo", type="secondary", key="btn_preview"):
-                with st.spinner("Analizando..."):
-                    files = {"file": (uploaded.name, uploaded.getvalue(), "application/octet-stream")}
-                    preview = api_post("/finance/preview", files=files)
-                    if preview:
-                        st.session_state["finance_preview"] = preview
-                        st.session_state["finance_preview_file"] = uploaded.name
-
-            preview = st.session_state.get("finance_preview")
-            if preview:
-                detected = preview.get("detected", [])
-                if detected:
-                    st.markdown("**Paso 2 — Columnas detectadas**")
-                    st.dataframe(pd.DataFrame(detected), use_container_width=True, hide_index=True)
-
-                if not preview.get("ok"):
-                    missing = preview.get("missing", [])
-                    st.error(f"Faltan columnas obligatorias: **{', '.join(missing)}**.")
-                else:
-                    st.success("Todas las columnas obligatorias detectadas.")
-                    rows = preview.get("rows", [])
-                    if rows:
-                        n_auto = sum(1 for r in rows if r.get("tipo") != "Pendiente")
-                        n_pend = len(rows) - n_auto
-                        cm1, cm2 = st.columns(2)
-                        cm1.metric("Se auto-clasificarán ✅", n_auto)
-                        cm2.metric("Quedarán pendientes ⚠️", n_pend)
-
-                        st.markdown("**Paso 3 — Revisa y edita antes de importar**")
-                        df_prev = pd.DataFrame(rows)[["fecha", "description", "amount", "tipo", "clasificacion", "confidence"]]
-                        edited_prev = st.data_editor(
-                            df_prev,
-                            column_config={
-                                "fecha": st.column_config.TextColumn("Fecha", disabled=True, width="small"),
-                                "description": st.column_config.TextColumn("Descripción", disabled=True, width="large"),
-                                "amount": st.column_config.NumberColumn("Monto", format="$%.2f", disabled=True, width="small"),
-                                "tipo": st.column_config.SelectboxColumn("Tipo", options=tipos_list, width="small"),
-                                "clasificacion": st.column_config.SelectboxColumn("Clasificación", options=all_clasif, width="medium"),
-                                "confidence": st.column_config.NumberColumn("Conf.", format="%.0%%", disabled=True, width="small"),
-                            },
-                            use_container_width=True,
-                            hide_index=True,
-                            num_rows="fixed",
-                            key="finance_import_preview",
-                        )
-
-                        st.markdown("---")
-                        if st.button("Importar y Confirmar", type="primary", key="btn_import"):
-                            full_rows = preview.get("rows", [])
-                            import_payload = []
-                            for i, r in enumerate(full_rows):
-                                import_payload.append({
-                                    "fecha": r["fecha"],
-                                    "description": r["description"],
-                                    "amount": r["amount"],
-                                    "running_balance": r.get("running_balance"),
-                                    "tipo": edited_prev.iloc[i]["tipo"] if i < len(edited_prev) else r["tipo"],
-                                    "clasificacion": edited_prev.iloc[i]["clasificacion"] if i < len(edited_prev) else r["clasificacion"],
-                                })
-                            with st.spinner("Importando..."):
-                                result = api_post("/finance/import", json_data=import_payload)
-                            if result:
-                                st.success(
-                                    f"Importación completa: **{result['added']}** nuevas | "
-                                    f"**{result['duplicates']}** duplicadas | "
-                                    f"**{result['pending']}** pendientes de revisión"
-                                )
-                                st.session_state.pop("finance_preview", None)
-                                if result["pending"] > 0:
-                                    st.info("Ve a **Revisar Pendientes** para clasificarlas.")
-                                st.rerun()
-
-    # ---- TAB 2: REVISAR PENDIENTES ----
-    with tab_pending:
-        pend = api_get("/finance/transactions", params={"estado": "Pendientes", "limit": 200}) or []
-        if not pend:
-            st.success("No hay transacciones pendientes de clasificar.")
-        else:
-            st.info(f"{len(pend)} transacciones pendientes")
-            col_btn, _ = st.columns([1, 4])
-            with col_btn:
-                if st.button("Auto-clasificar todas", type="secondary", key="btn_auto_all"):
-                    with st.spinner("Clasificando..."):
-                        result = api_post("/finance/reclassify-pending")
-                    if result:
-                        st.success(f"{result['classified']} clasificadas. {result['still_pending']} siguen pendientes.")
-                        st.rerun()
-
-            st.markdown("---")
-            for row in pend[:50]:
-                with st.container():
-                    cols = st.columns([3, 1, 2, 2, 1])
-                    cols[0].markdown(f"**{str(row['description'])[:80]}**")
-                    cols[1].markdown(f"${float(row['amount']):,.2f}")
-                    tipo_sel = cols[2].selectbox(
-                        "Tipo", tipos_list, key=f"tp_{row['id']}",
-                        label_visibility="collapsed",
-                    )
-                    clasif_sel = cols[3].selectbox(
-                        "Clasificación", all_clasif, key=f"cl_{row['id']}",
-                        label_visibility="collapsed",
-                    )
-                    if cols[4].button("✓", key=f"ok_{row['id']}"):
-                        api_patch(f"/finance/transactions/{row['id']}", {
-                            "tipo": tipo_sel,
-                            "clasificacion": clasif_sel,
-                        })
-                        st.rerun()
-                    st.divider()
-
-    # ---- TAB 3: HERRAMIENTAS ----
-    with tab_tools:
-        st.subheader("Herramientas")
-
-        st.markdown("### Re-clasificar pendientes con reglas")
-        pend_count = (api_get("/finance/pending-count") or {}).get("count", 0)
-        st.write(f"Transacciones pendientes: **{pend_count}**")
-        if st.button("Re-clasificar con reglas", type="secondary", key="btn_reclasify"):
-            with st.spinner("Clasificando..."):
-                result = api_post("/finance/reclassify-pending")
-            if result:
-                st.success(f"{result['classified']} clasificadas. {result['still_pending']} siguen pendientes.")
+    # 12 botones mes + 1 botón YTD en una fila
+    btn_cols = st.columns(13)
+    for i in range(1, 13):
+        with btn_cols[i-1]:
+            label = _MES_CORTOS[i]
+            mm = f"{i:02d}"
+            is_selected = (st.session_state.fin_period == mm)
+            if st.button(("● " if is_selected else "") + label, key=f"fin_btn_{mm}",
+                         use_container_width=True,
+                         type="primary" if is_selected else "secondary"):
+                st.session_state.fin_period = mm
                 st.rerun()
+    with btn_cols[12]:
+        is_ytd = (st.session_state.fin_period == "YTD")
+        if st.button(("● " if is_ytd else "") + "YTD", key="fin_btn_ytd",
+                     use_container_width=True,
+                     type="primary" if is_ytd else "secondary"):
+            st.session_state.fin_period = "YTD"
+            st.rerun()
 
-        st.markdown("---")
-        st.markdown("### Corrección de fechas (banco americano)")
-        st.info("Si los datos tienen día y mes invertidos (MM/DD/YYYY), corrige los registros con fechas en el futuro.")
-        if st.button("Corregir fechas invertidas", key="btn_fix_dates"):
-            with st.spinner("Corrigiendo..."):
-                result = api_post("/finance/fix-dates")
-            if result:
-                fixed = result.get("fixed", 0)
-                if fixed:
-                    st.success(f"{fixed} fechas corregidas.")
+    st.markdown("---")
+
+    # --- Llamar API ---
+    year   = st.session_state.fin_year
+    period = st.session_state.fin_period
+    try:
+        pl = api_get(f"/finance/pl?year={year}&period={period}")
+    except Exception as exc:
+        st.error(f"Error cargando P&L: {exc}")
+        return
+
+    st.subheader(f"P&L {pl['period_label']}")
+
+    # --- Tabla P&L estructurada ---
+    def _row(label, tt, am, tot, *, bold=False, sign="", color=None):
+        cls = "font-weight:bold;" if bold else ""
+        if color: cls += f"color:{color};"
+        return (f"<tr style='{cls}'>"
+                f"<td>{sign}{label}</td>"
+                f"<td style='text-align:right'>${tt:,.2f}</td>"
+                f"<td style='text-align:right'>${am:,.2f}</td>"
+                f"<td style='text-align:right'>${tot:,.2f}</td>"
+                f"</tr>")
+
+    t = pl["tiktok"]; a = pl["amazon"]; tot = pl["total"]
+    html = "<table style='width:100%;border-collapse:collapse;font-size:14px'>"
+    html += "<tr style='border-bottom:2px solid #555;background:#1e2530'>"
+    html += "<th style='text-align:left;padding:6px'>Concepto</th>"
+    html += "<th style='text-align:right;padding:6px'>TIKTOK</th>"
+    html += "<th style='text-align:right;padding:6px'>AMAZON</th>"
+    html += "<th style='text-align:right;padding:6px'>TOTAL</th></tr>"
+
+    # INGRESOS
+    html += "<tr><td colspan=4 style='padding-top:8px;font-weight:bold;color:#7fc8ff'>INGRESOS</td></tr>"
+    html += _row("Subtotal bruto (antes descuento)", t["gross_subtotal"], a["gross_subtotal"], tot["gross_subtotal"])
+    html += _row("Seller discount", t["seller_discount"], a["seller_discount"], tot["seller_discount"], sign="− ")
+    html += _row("Platform discount", t["platform_discount"], a["platform_discount"], tot["platform_discount"], sign="− ")
+    html += _row("GMV (subtotal después de descuento)", t["gmv"], a["gmv"], tot["gmv"], bold=True, sign="= ")
+    html += _row("Shipping cobrado al buyer", t["shipping_buyer"], a["shipping_buyer"], tot["shipping_buyer"], sign="+ ")
+    html += _row("Ajuste plataforma (tax/etc)", t["platform_adjustment"], a["platform_adjustment"], tot["platform_adjustment"], sign="+ ")
+    html += _row("Order amount cobrado al cliente", t["order_amount"], a["order_amount"], tot["order_amount"], bold=True, sign="= ")
+    html += _row("Refunds", t["refunds"], a["refunds"], tot["refunds"], sign="− ")
+    html += _row("NET ORDER AMOUNT", t["net_order_amount"], a["net_order_amount"], tot["net_order_amount"], bold=True, sign="= ")
+
+    # COSTES
+    html += "<tr><td colspan=4 style='padding-top:10px;font-weight:bold;color:#ff9999'>COSTES DIRECTOS</td></tr>"
+    html += _row("COGS (coste mercancía vendida)", t["cogs"], a["cogs"], tot["cogs"], sign="− ")
+    html += _row("Shipping carrier (Smart Ship)", t["shipping_carrier"], a["shipping_carrier"], tot["shipping_carrier"], sign="− ")
+    html += _row(f"Shipping NETO (carrier − cobrado al buyer)", 0, 0, pl["shipping_net"], sign="  → ")
+
+    # FEES
+    html += "<tr><td colspan=4 style='padding-top:10px;font-weight:bold;color:#ffcb99'>FEES PLATAFORMA (auto)</td></tr>"
+    html += _row("Referral fee", t["referral_fee"], a["referral_fee"], tot["referral_fee"], sign="− ")
+    html += _row("Smart Promo fee (3.5%)", t["smart_promo_fee"], a["smart_promo_fee"], tot["smart_promo_fee"], sign="− ")
+    html += _row("Smart Promo Campaign (1%)", t["smart_promo_campaign_fee"], a["smart_promo_campaign_fee"], tot["smart_promo_campaign_fee"], sign="− ")
+    html += _row("Fees total", t["fees_total"], a["fees_total"], tot["fees_total"], bold=True, sign="= ")
+
+    # CREATORS
+    html += "<tr><td colspan=4 style='padding-top:10px;font-weight:bold;color:#cd99ff'>CREATORS</td></tr>"
+    html += _row("Comisión creators (affiliate_sales)", 0, 0, tot["creators_commission"], sign="− ")
+
+    # MARGEN BRUTO
+    html += "<tr style='border-top:2px solid #555'><td colspan=4 style='padding-top:10px'></td></tr>"
+    html += (f"<tr style='background:#243040;font-weight:bold;font-size:16px'>"
+             f"<td style='padding:8px'>MARGEN BRUTO OPERACIONAL</td>"
+             f"<td colspan=3 style='text-align:right;padding:8px;color:{'#7eff7e' if pl['gross_margin']>=0 else '#ff7e7e'}'>"
+             f"${pl['gross_margin']:,.2f}</td></tr>")
+    html += "</table>"
+    st.markdown(html, unsafe_allow_html=True)
+
+    # --- Calculadora de líneas custom ---
+    st.markdown("---")
+    st.subheader("Líneas custom (gastos fijos + extras)")
+
+    if period == "YTD":
+        st.info(
+            "📊 Modo YTD: muestra todas las líneas custom del año "
+            f"({year}). Para editar, selecciona un mes concreto."
+        )
+        if pl["custom_lines"]:
+            df_view = _pd.DataFrame([
+                {"Mes": l.get("year_month", ""),
+                 "Descripción": l["description"], "Importe ($)": l["amount"]}
+                for l in pl["custom_lines"]
+            ])
+            st.dataframe(df_view, hide_index=True, use_container_width=True)
+        else:
+            st.caption("Sin líneas custom en este año.")
+    else:
+        st.caption("Positivo = ingreso, negativo = gasto. Guarda con el botón debajo.")
+
+        # Cargar líneas actuales para editar
+        try:
+            lines = api_get(f"/finance/custom-lines?year={year}&period={period}")
+        except Exception as exc:
+            st.error(f"Error cargando líneas: {exc}")
+            lines = []
+
+        # Construir DataFrame editable; añadir 10 filas vacías al final para que Oralia pueda meter nuevas
+        rows = [{"Descripción": l["description"], "Importe ($)": float(l["amount"])} for l in lines]
+        for _ in range(10):
+            rows.append({"Descripción": "", "Importe ($)": 0.0})
+
+        df_edit = _pd.DataFrame(rows)
+        edited = st.data_editor(
+            df_edit, num_rows="dynamic", use_container_width=True,
+            column_config={
+                "Descripción": st.column_config.TextColumn(width="large"),
+                "Importe ($)": st.column_config.NumberColumn(format="$ %.2f", width="medium"),
+            },
+            key=f"fin_editor_{year}_{period}",
+        )
+
+        c1, c2, c3 = st.columns([1.4, 1.6, 4])
+        with c1:
+            if st.button("💾 Guardar líneas", type="primary", use_container_width=True):
+                lines_payload = []
+                for i, r in edited.iterrows():
+                    desc = (r["Descripción"] or "").strip()
+                    if not desc: continue
+                    lines_payload.append({"description": desc, "amount": float(r["Importe ($)"] or 0), "sort_order": float(i)})
+                try:
+                    api_put(f"/finance/custom-lines?year={year}&period={period}",
+                            {"lines": lines_payload})
+                    st.success(f"Guardadas {len(lines_payload)} líneas.")
+                    st.cache_data.clear()
                     st.rerun()
-                else:
-                    st.info("No se encontraron fechas futuras para corregir.")
+                except Exception as exc:
+                    st.error(f"Error guardando: {exc}")
 
-    # ---- TAB 4: PLANTILLA ----
-    with tab_catalog:
-        st.subheader("Plantilla: Tipos y Clasificaciones")
-        st.info("Define los tipos y clasificaciones disponibles en todo el módulo Finance.")
+        with c2:
+            if st.button("📋 Copiar del mes anterior", use_container_width=True):
+                try:
+                    res = api_post(f"/finance/custom-lines/copy-from-previous?year={year}&period={period}", {})
+                    st.success(f"Copiadas {res['copied']} líneas del mes anterior.")
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Error copiando: {exc}")
 
-        for tipo_name, clasif_list in list(clasif_map.items()):
-            with st.expander(f"**{tipo_name}** — {len(clasif_list)} clasificaciones", expanded=False):
-                for i, cname in enumerate(list(clasif_list)):
-                    c1, c2 = st.columns([5, 1])
-                    c1.text(cname)
-                    if c2.button("🗑", key=f"del_{tipo_name}_{i}"):
-                        clasif_map[tipo_name] = [x for x in clasif_map[tipo_name] if x != cname]
-                        api_put("/finance/classifications", clasif_map)
-                        st.rerun()
-
-                nc1, nc2 = st.columns([4, 1])
-                new_c = nc1.text_input("Nueva clasificación", key=f"new_c_{tipo_name}", label_visibility="collapsed", placeholder="Ej: Publicidad digital")
-                if nc2.button("Añadir", key=f"add_{tipo_name}"):
-                    v = new_c.strip()
-                    if v and v not in clasif_map[tipo_name]:
-                        clasif_map[tipo_name].append(v)
-                        clasif_map[tipo_name].sort()
-                        api_put("/finance/classifications", clasif_map)
-                        st.rerun()
-
-        st.markdown("---")
-        st.markdown("**Crear nuevo tipo:**")
-        nt1, nt2 = st.columns([4, 1])
-        new_tipo = nt1.text_input("Nombre del tipo", key="new_tipo_input", label_visibility="collapsed", placeholder="Ej: Inversiones")
-        if nt2.button("Crear", key="btn_new_tipo"):
-            v = new_tipo.strip()
-            if v and v not in clasif_map:
-                clasif_map[v] = []
-                api_put("/finance/classifications", clasif_map)
-                st.rerun()
+    # --- Resultado neto final ---
+    st.markdown("---")
+    summary_html = (
+        f"<div style='padding:14px;background:#1e2530;border-radius:6px'>"
+        f"<table style='width:100%;font-size:15px'>"
+        f"<tr><td>Margen bruto operacional</td>"
+        f"<td style='text-align:right'>${pl['gross_margin']:,.2f}</td></tr>"
+        f"<tr><td>Ingresos custom</td>"
+        f"<td style='text-align:right;color:#7eff7e'>+ ${pl['custom_total_income']:,.2f}</td></tr>"
+        f"<tr><td>Gastos custom</td>"
+        f"<td style='text-align:right;color:#ff7e7e'>− ${pl['custom_total_expense']:,.2f}</td></tr>"
+        f"<tr style='border-top:2px solid #555;font-weight:bold;font-size:18px'>"
+        f"<td style='padding-top:8px'>RESULTADO NETO {pl['period_label'].upper()}</td>"
+        f"<td style='text-align:right;padding-top:8px;color:{'#7eff7e' if pl['net_result']>=0 else '#ff7e7e'}'>"
+        f"${pl['net_result']:,.2f}</td></tr>"
+        f"</table></div>"
+    )
+    st.markdown(summary_html, unsafe_allow_html=True)
 
 
 # ================================================================== #
@@ -1995,13 +1825,7 @@ def main():
         if not _finance_enabled:
             st.warning("El modulo Finance no esta habilitado para esta tienda.")
         else:
-            tab_f1, tab_f2, tab_f3, tab_f4 = st.tabs(
-                ["Dashboard", "Gestion", "Insights", "Management"]
-            )
-            with tab_f1: page_finance_dashboard()
-            with tab_f2: page_finance_gestion()
-            with tab_f3: page_finance_insights()
-            with tab_f4: page_finance_management()
+            page_finance_pl()
 
 
 
