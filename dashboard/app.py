@@ -975,19 +975,28 @@ def page_gestion_inventario():
     col_order = [c for c in col_order if c in df_view.columns]
     df_view = df_view[col_order]
 
+    # Cargar catálogo de productos para el dropdown del editor (multi-tenant: filtra por store del user)
+    _all_products = fetch_products() or []
+    _product_names = sorted([p.get("name") for p in _all_products if p.get("name")])
+    _name_to_pid = {p["name"]: p["id"] for p in _all_products if p.get("name") and p.get("id")}
+
     st.subheader("Pedidos actuales")
+    st.caption("Para añadir un pedido nuevo, ve a la última fila vacía, elige el producto en el desplegable y rellena unidades + status.")
     edited = st.data_editor(
         df_view, num_rows="dynamic",
         column_config={
-            "product_name": st.column_config.TextColumn("Producto"),
-            "status": st.column_config.SelectboxColumn("Status", options=status_options, default="pending"),
-            "qty_ordered": st.column_config.NumberColumn("Unidades", min_value=0),
+            "product_name": st.column_config.SelectboxColumn(
+                "Producto", options=_product_names, required=False,
+                help="Selecciona el producto del catálogo (se filtra por tu tienda)",
+            ),
+            "status": st.column_config.SelectboxColumn("Status", options=status_options, default="Pendiente"),
+            "qty_ordered": st.column_config.NumberColumn("Unidades", min_value=-99999),
             "cost": st.column_config.NumberColumn("Coste", min_value=0, format="$%.2f"),
             "order_date": st.column_config.DateColumn("Fecha pedido"),
             "expected_arrival": st.column_config.DateColumn("Entrega estimada"),
         },
         use_container_width=True, height=500, key="inv_editor",
-        disabled=["id", "store_id", "product_id", "product_name", "actual_arrival"],
+        disabled=["id", "store_id", "product_id", "actual_arrival"],  # product_name ya NO está disabled
         column_order=["product_name", "qty_ordered", "status", "cost", "order_date",
                       "expected_arrival", "supplier", "tracking", "notes"],
     )
@@ -995,13 +1004,15 @@ def page_gestion_inventario():
     col_save, col_info = st.columns([1, 3])
     with col_save:
         if st.button("Guardar cambios", type="primary", key="save_pending"):
-            saved, errors = 0, 0
+            saved, created, errors = 0, 0, 0
+            err_msgs = []
             for _, row in edited.iterrows():
                 record_id = row.get("id")
                 if record_id and pd.notna(record_id):
+                    # UPDATE de fila existente
                     update_data = {
                         "qty_ordered": int(row.get("qty_ordered", 0) or 0),
-                        "status": row.get("status", "pending"),
+                        "status": row.get("status", "Pendiente"),
                         "supplier": row.get("supplier") if pd.notna(row.get("supplier", None)) else None,
                         "tracking": row.get("tracking") if pd.notna(row.get("tracking", None)) else None,
                         "cost": float(row["cost"]) if pd.notna(row.get("cost")) else None,
@@ -1012,9 +1023,42 @@ def page_gestion_inventario():
                         saved += 1
                     else:
                         errors += 1
-            st.success(f"Guardado: {saved} registros.")
+                else:
+                    # INSERT de fila nueva — requiere product_name + qty_ordered
+                    pname = row.get("product_name")
+                    qty = row.get("qty_ordered")
+                    if not pname or pd.isna(pname) or qty is None or pd.isna(qty):
+                        continue  # fila vacía, skip silencioso
+                    pid = _name_to_pid.get(pname)
+                    if not pid:
+                        errors += 1
+                        err_msgs.append(f"Producto '{pname}' no encontrado en el catálogo")
+                        continue
+                    create_data = {
+                        "product_id": pid,
+                        "qty_ordered": int(qty or 0),
+                        "status": row.get("status", "Pendiente") or "Pendiente",
+                        "supplier": row.get("supplier") if pd.notna(row.get("supplier", None)) else None,
+                        "tracking": row.get("tracking") if pd.notna(row.get("tracking", None)) else None,
+                        "cost": float(row["cost"]) if pd.notna(row.get("cost")) else None,
+                        "notes": row.get("notes") if pd.notna(row.get("notes", None)) else None,
+                        "order_date": str(row["order_date"]) if pd.notna(row.get("order_date")) else None,
+                        "expected_arrival": str(row["expected_arrival"]) if pd.notna(row.get("expected_arrival")) else None,
+                    }
+                    # Limpiar None en order_date/expected_arrival si vinieron como NaT
+                    create_data = {k: v for k, v in create_data.items() if v is not None}
+                    result = api_post("/inventory/incoming", create_data)
+                    if result:
+                        created += 1
+                    else:
+                        errors += 1
+                        err_msgs.append(f"Error creando línea de '{pname}'")
+            msg = f"Guardado: {saved} actualizados"
+            if created:
+                msg += f", {created} nuevos creados"
+            st.success(msg + ".")
             if errors:
-                st.warning(f"{errors} errores al guardar.")
+                st.warning(f"{errors} errores: " + " | ".join(err_msgs[:5]))
             st.cache_data.clear()
             st.rerun()
     with col_info:
