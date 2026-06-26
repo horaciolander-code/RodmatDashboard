@@ -52,3 +52,4 @@ jobs:
           node-version: '20'
       - run: cd frontend/setup-panel && npm ci
       - run: cd frontend/setup-panel && npm run build
+# test branch protection
