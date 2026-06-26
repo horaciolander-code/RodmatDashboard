@@ -638,3 +638,155 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
 
     db.commit()
     return {"total_rows": len(df), "inserted": inserted, "updated": 0, "errors": errors, "unknown_skus": []}
+
+
+def parse_walmart_xlsx(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
+    """Parse Walmart Seller PO Data export (.xlsx). UPSERTS by Order# + SKU — never deletes history.
+
+    Walmart genera DOS archivos por export:
+    - Seller Fulfilled (Fulfillment Entity = 'SellerFulfilled')
+    - WFS Fulfilled    (Fulfillment Entity = 'WFSFulfilled', Walmart's FBA-equivalent)
+    Ambos se procesan IGUAL — stock se descuenta independientemente.
+
+    Quantity se expande por units_per_sale del walmart_sku_map. Ej: SKU AV-MD12
+    con qty=1 + units_per_sale=12 → quantity=12 (descuenta 12 unidades del producto base).
+    """
+    import uuid as _uuid
+    import openpyxl
+    import io as _io
+    from sqlalchemy import text as _text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from datetime import datetime
+
+    # Load Walmart SKU map
+    sku_rows = db.execute(_text("""
+        SELECT m.walmart_sku, p.name AS product_name, m.units_per_sale
+        FROM walmart_sku_map m
+        LEFT JOIN products p ON p.id = m.product_id
+        WHERE m.store_id = :sid
+    """), {"sid": store_id}).fetchall()
+    sku_map = {
+        r.walmart_sku: {"product_name": r.product_name, "units_per_sale": r.units_per_sale or 1}
+        for r in sku_rows
+    }
+
+    wb = openpyxl.load_workbook(_io.BytesIO(content), data_only=True, read_only=True)
+    # La hoja se llama 'Po Details'; si no existe, usa la primera
+    sheet_name = "Po Details" if "Po Details" in wb.sheetnames else wb.sheetnames[0]
+    ws = wb[sheet_name]
+
+    # Map column name → index (row 1 = headers)
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+    col_idx = {h: i for i, h in enumerate(header_row) if h}
+
+    def _get(row_vals, col_name):
+        i = col_idx.get(col_name)
+        return row_vals[i] if i is not None and i < len(row_vals) else None
+
+    rows = []
+    errors = 0
+    for row_vals in ws.iter_rows(min_row=2, values_only=True):
+        if not row_vals or not any(row_vals):
+            continue
+        try:
+            order_num = _safe_str(_get(row_vals, "Order#"))
+            if not order_num:
+                errors += 1
+                continue
+
+            walmart_sku = _safe_str(_get(row_vals, "SKU")) or ""
+            qty_ordered = _safe_int(_get(row_vals, "Qty")) or 1
+
+            mapping = sku_map.get(walmart_sku, {})
+            mapped_name = mapping.get("product_name")
+            units_per_sale = mapping.get("units_per_sale", 1)
+            expanded_qty = qty_ordered * units_per_sale
+
+            wm_status = _safe_str(_get(row_vals, "Status")) or ""
+            if "Cancel" in wm_status:
+                status = "Cancelled"
+            elif wm_status in ("Shipped", "Delivered"):
+                status = wm_status
+            elif wm_status:
+                status = wm_status
+            else:
+                status = "Pending"
+
+            order_date_raw = _get(row_vals, "Order Date")
+            if isinstance(order_date_raw, datetime):
+                order_date = order_date_raw
+            else:
+                order_date = _safe_datetime(order_date_raw)
+
+            item_cost = _safe_float(_get(row_vals, "Item Cost")) or 0.0
+            shipping_cost = _safe_float(_get(row_vals, "Shipping Cost")) or 0.0
+            discount = _safe_float(_get(row_vals, "Discount")) or 0.0
+            wm_funded = _safe_float(_get(row_vals, "Walmart Funded Incentive")) or 0.0
+            tax_val = _safe_float(_get(row_vals, "Tax")) or 0.0
+
+            fulfillment = _safe_str(_get(row_vals, "Fulfillment Entity")) or "SellerFulfilled"
+
+            rows.append(dict(
+                id=str(_uuid.uuid4()),
+                store_id=store_id,
+                tiktok_order_id=order_num,           # reuso del campo como Order#
+                order_date=order_date,
+                sku=_safe_str(_get(row_vals, "Item ID")) or _safe_str(_get(row_vals, "UPC")),
+                seller_sku=walmart_sku,
+                product_name=mapped_name or _safe_str(_get(row_vals, "Item Description")),
+                quantity=expanded_qty,
+                status=status,
+                substatus=_safe_str(_get(row_vals, "Service Status")),
+                price=item_cost / max(qty_ordered, 1),
+                shipped_time=None,
+                created_time=order_date,
+                sku_subtotal_after_discount=item_cost,
+                order_amount=item_cost + shipping_cost + tax_val,
+                order_refund_amount=0.0,
+                shipping_fee_after_discount=shipping_cost,
+                original_shipping_fee=shipping_cost,
+                sku_seller_discount=discount,
+                sku_platform_discount=wm_funded,
+                cancelation_return_type=None,
+                fulfillment_type=fulfillment,        # WFSFulfilled | SellerFulfilled
+                buyer_username=_safe_str(_get(row_vals, "Customer Name")),
+                variation=None,
+                recipient=_safe_str(_get(row_vals, "Customer Name")),
+                city=_safe_str(_get(row_vals, "City")),
+                state=_safe_str(_get(row_vals, "State")),
+                platform="walmart",
+                import_batch_id=batch_id,
+                raw_data=None,
+            ))
+        except Exception:
+            errors += 1
+
+    if not rows:
+        wb.close()
+        return {"total_rows": 0, "inserted": 0, "updated": 0, "errors": errors}
+
+    _update_cols = [
+        "product_name", "quantity", "status", "substatus", "price",
+        "sku_subtotal_after_discount", "order_amount",
+        "shipping_fee_after_discount", "original_shipping_fee",
+        "sku_seller_discount", "sku_platform_discount",
+        "fulfillment_type", "buyer_username", "recipient", "city", "state",
+        "import_batch_id",
+    ]
+
+    BATCH = 3000
+    total_processed = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i:i + BATCH]
+        stmt = pg_insert(SalesOrder).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_store_order_sku",
+            set_={col: getattr(stmt.excluded, col) for col in _update_cols},
+        )
+        db.execute(stmt)
+        db.flush()
+        total_processed += len(batch)
+
+    db.commit()
+    wb.close()
+    return {"total_rows": len(rows), "inserted": total_processed, "updated": 0, "errors": errors}

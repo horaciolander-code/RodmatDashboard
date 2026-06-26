@@ -20,6 +20,7 @@ from app.services.import_service import (
     parse_initial_inventory_excel,
     parse_pending_inventory_excel,
     parse_amazon_txt,
+    parse_walmart_xlsx,
 )
 
 logger = logging.getLogger("rodmat.imports")
@@ -168,6 +169,49 @@ async def import_amazon_orders(
     db.flush()
 
     result = parse_amazon_txt(content, target, db, batch_id=batch_id)
+
+    history.rows_imported = result["inserted"]
+    history.rows_deleted = result.get("rows_deleted", 0)
+    db.commit()
+
+    _cache.clear()
+    _df_cache.clear()
+    from app.services.stock_calculator import clear_orders_df_cache
+    clear_orders_df_cache(target)
+    from app.services.scheduled_jobs import trigger_pending_jobs
+    background_tasks.add_task(trigger_pending_jobs, target)
+    return result
+
+
+@router.post("/walmart", response_model=ImportResult)
+async def import_walmart_orders(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    store_id: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Importa Walmart Seller PO Data export (.xlsx).
+
+    Acepta tanto SellerFulfilled como WFSFulfilled (mismo formato). Cada archivo
+    se sube por separado y se procesa en su propio batch (UPSERT por Order#+SKU,
+    NO duplica si subes el mismo dos veces)."""
+    from app.services.analytics_service import _cache, _df_cache
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large.")
+    filename = (file.filename or "").lower()
+    if not (filename.endswith(".xlsx") or filename.endswith(".xls")):
+        raise HTTPException(status_code=415, detail="Expected .xlsx from Walmart Seller PO Data export.")
+
+    target = _target_store(user, store_id)
+    batch_id = str(uuid.uuid4())
+    history = ImportHistory(id=batch_id, store_id=target, import_type="walmart",
+                            filename=file.filename, imported_by=user.email)
+    db.add(history)
+    db.flush()
+
+    result = parse_walmart_xlsx(content, target, db, batch_id=batch_id)
 
     history.rows_imported = result["inserted"]
     history.rows_deleted = result.get("rows_deleted", 0)

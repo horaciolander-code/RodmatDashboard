@@ -167,7 +167,7 @@ def fetch_pallet_orders():
 # ================================================================== #
 #  Per-tenant enabled platforms (defaults to all if not configured)
 # ================================================================== #
-ALL_PLATFORMS = ["tiktok", "amazon"]
+ALL_PLATFORMS = ["tiktok", "amazon", "walmart"]
 
 def get_enabled_platforms() -> list[str]:
     """Returns list of platform keys enabled for the active tenant.
@@ -189,6 +189,7 @@ _PS = {
     None:     {"bg": "#4f46e5", "text": "white",   "emoji": "🌐", "label": "Todas las plataformas"},
     "tiktok": {"bg": "#010101", "text": "white",   "emoji": "🎵", "label": "TikTok Shop"},
     "amazon": {"bg": "#FF9900", "text": "#232F3E", "emoji": "🛒", "label": "Amazon"},
+    "walmart": {"bg": "#0071CE", "text": "#FFC220", "emoji": "🏬", "label": "Walmart"},
 }
 
 def render_platform_selector(page_key: str) -> str | None:
@@ -1661,6 +1662,23 @@ def page_import_upload():
                                       files={"file": (f_amazon.name, f_amazon.getvalue(), "text/plain")})
                 if result:
                     st.success(f"Amazon: {result.get('inserted', 0)} filas importadas, "
+                               f"{result.get('errors', 0)} errores. "
+                               "El reporte por email se dispara solo en 1-2 min.")
+                    _refresh_after_import()
+
+            st.markdown("---")
+        if "walmart" in get_enabled_platforms():
+            st.markdown("#### Walmart — Pedidos")
+            st.caption("Excel PO Data export de Walmart Seller Center. Sube los 2 archivos por separado "
+                       "(SellerFulfilled + WFSFulfilled) — cada uno con su batch.")
+            f_walmart = st.file_uploader("Fichero Walmart (.xlsx)", type=["xlsx", "xls"], key="up_walmart")
+            if st.button("Importar Walmart", key="btn_walmart") and f_walmart:
+                with st.spinner("Importando..."):
+                    result = api_post("/import/walmart",
+                                      files={"file": (f_walmart.name, f_walmart.getvalue(),
+                                                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+                if result:
+                    st.success(f"Walmart: {result.get('inserted', 0)} filas importadas, "
                                f"{result.get('errors', 0)} errores. "
                                "El reporte por email se dispara solo en 1-2 min.")
                     _refresh_after_import()
