@@ -412,10 +412,11 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     # WH/FBT coverage days
     avg_wh  = (stock["Sales_30d_WH"]  / actual_30d).clip(lower=0)
     avg_fbt = (stock["Sales_30d_FBT"] / actual_30d).clip(lower=0)
-    # np.divide con where evita evaluar la división donde el divisor es 0
-    # (np.where eager-evaluaría ambas ramas → ZeroDivisionError con stores nuevos sin ventas)
-    days_wh  = np.divide(stock["Stock_Warehouse"], avg_wh,  out=np.full(len(stock), -999.0, dtype=float), where=(avg_wh  > 0))
-    days_fbt = np.divide(stock["Stock_FBT"],       avg_fbt, out=np.full(len(stock), -999.0, dtype=float), where=(avg_fbt > 0))
+    # Patrón pandas seguro: replace 0→NaN, dividir, fillna(-999).
+    # (np.divide(where=) NO funciona con pandas Series — internamente redirige
+    # a __truediv__ que ignora 'where' → ZeroDivisionError con stores sin ventas.)
+    days_wh  = (stock["Stock_Warehouse"] / avg_wh.replace(0,  np.nan)).fillna(-999)
+    days_fbt = (stock["Stock_FBT"]       / avg_fbt.replace(0, np.nan)).fillna(-999)
     stock["Days_Cov_WH"]  = np.where(avg_wh  > 0, np.minimum(days_wh,  365), -999)
     stock["Days_Cov_FBT"] = np.where(avg_fbt > 0, np.minimum(days_fbt, 365), -999)
     stock["Days_Cov_WH"]  = stock["Days_Cov_WH"].round(0).astype(int)

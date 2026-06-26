@@ -1,6 +1,5 @@
 """Self-check endpoint — validar salud del sistema tras cada deploy.
-Llamado manualmente o por CI. Protegido con INTERNAL_API_KEY.
-NO modifica datos. NO envía emails. Solo lectura."""
+NO modifica datos. NO envía emails. Solo lectura. Protegido con INTERNAL_API_KEY."""
 import time
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
@@ -10,7 +9,7 @@ from app.config import INTERNAL_API_KEY
 from app.database import get_db
 from app.models.store import Store
 
-router = APIRouter(prefix="/api/_self_check", tags=["health"])
+router = APIRouter(prefix="/api/health", tags=["health"])
 
 RODMAT_STORE = "13c02ce8-7761-43b7-9525-fb5aad6f0a09"
 
@@ -20,14 +19,11 @@ def _require_internal_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=403, detail="Invalid API key")
 
 
-@router.post("")
+@router.post("/check")
 def run_self_check(db: Session = Depends(get_db),
                    _: None = Depends(_require_internal_key)):
-    """Ejecuta 8 checks críticos sin tocar datos productivos.
-
-    Devuelve JSON con resumen + detalle por check. Útil tras cada deploy
-    para validar que nada se rompió. Cero efectos secundarios.
-    """
+    """POST /api/health/check con header X-API-Key.
+    Ejecuta 8 checks read-only. Devuelve {status, passed, failed, checks}."""
     checks = []
     t0 = time.time()
 
@@ -42,21 +38,19 @@ def run_self_check(db: Session = Depends(get_db),
                            "duration_s": round(time.time() - start, 2),
                            "error": str(e)[:200]})
 
-    chk("db_ping",
-        lambda: db.execute(text("SELECT 1")).scalar())
-    chk("stores_query",
-        lambda: db.query(Store).count())
-    chk("products_query",
-        lambda: db.execute(text("SELECT COUNT(*) FROM products WHERE store_id=:s"),
-                           {"s": RODMAT_STORE}).scalar())
-    chk("sales_query_fast",
-        lambda: db.execute(text("SELECT COUNT(*) FROM sales_orders WHERE store_id=:s"),
-                           {"s": RODMAT_STORE}).scalar())
-    chk("import_history",
-        lambda: db.execute(text("SELECT MAX(imported_at) FROM import_history WHERE store_id=:s"),
-                           {"s": RODMAT_STORE}).scalar())
-    chk("agent_runs",
-        lambda: db.execute(text("SELECT COUNT(*) FROM agent_runs WHERE run_at::date=CURRENT_DATE")).scalar())
+    chk("db_ping",        lambda: db.execute(text("SELECT 1")).scalar())
+    chk("stores_query",   lambda: db.query(Store).count())
+    chk("products_query", lambda: db.execute(text(
+        "SELECT COUNT(*) FROM products WHERE store_id=:s"),
+        {"s": RODMAT_STORE}).scalar())
+    chk("sales_query",    lambda: db.execute(text(
+        "SELECT COUNT(*) FROM sales_orders WHERE store_id=:s"),
+        {"s": RODMAT_STORE}).scalar())
+    chk("import_history", lambda: db.execute(text(
+        "SELECT MAX(imported_at) FROM import_history WHERE store_id=:s"),
+        {"s": RODMAT_STORE}).scalar())
+    chk("agent_runs",     lambda: db.execute(text(
+        "SELECT COUNT(*) FROM agent_runs WHERE run_at::date=CURRENT_DATE")).scalar())
 
     def _stock_check():
         from app.services.stock_calculator import calculate_stock
@@ -76,9 +70,7 @@ def run_self_check(db: Session = Depends(get_db),
     failed = sum(1 for c in checks if c["status"] == "fail")
     return {
         "status": "healthy" if failed == 0 else "unhealthy",
-        "passed": passed,
-        "failed": failed,
-        "total": len(checks),
+        "passed": passed, "failed": failed, "total": len(checks),
         "total_duration_s": round(time.time() - t0, 2),
         "checks": checks,
     }
