@@ -1,0 +1,57 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-syntax:
+    name: Backend — syntax + import routers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+      - name: Check syntax all .py
+        run: |
+          cd backend
+          python -m compileall -q app
+      - name: Import FastAPI app + count routes
+        env:
+          DATABASE_URL: postgresql://x:x@localhost/x?sslmode=disable
+          JWT_SECRET: test-only-not-real
+          ENVIRONMENT: dev
+        run: |
+          cd backend
+          python -c "
+          import os
+          os.environ.setdefault('DATABASE_URL','postgresql://x:x@localhost/x?sslmode=disable')
+          os.environ.setdefault('JWT_SECRET','x')
+          os.environ.setdefault('ENVIRONMENT','dev')
+          from app.main import app
+          routes = [r.path for r in app.routes if hasattr(r,'path')]
+          api_routes = [r for r in routes if r.startswith('/api')]
+          print(f'OK — {len(routes)} total routes, {len(api_routes)} /api/*')
+          assert len(api_routes) > 20, f'Too few API routes — expected >20, got {len(api_routes)}'
+          assert '/api/health' in routes, '/api/health missing'
+          "
+
+  frontend-build:
+    name: Frontend — vite build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/setup-panel/package-lock.json
+      - run: cd frontend/setup-panel && npm ci
+      - run: cd frontend/setup-panel && npm run build
