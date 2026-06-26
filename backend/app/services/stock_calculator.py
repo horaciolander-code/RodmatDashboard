@@ -412,16 +412,21 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     # WH/FBT coverage days
     avg_wh  = (stock["Sales_30d_WH"]  / actual_30d).clip(lower=0)
     avg_fbt = (stock["Sales_30d_FBT"] / actual_30d).clip(lower=0)
-    stock["Days_Cov_WH"]  = np.where(avg_wh  > 0, np.minimum(stock["Stock_Warehouse"] / avg_wh,  365), -999)
-    stock["Days_Cov_FBT"] = np.where(avg_fbt > 0, np.minimum(stock["Stock_FBT"]       / avg_fbt, 365), -999)
+    # np.divide con where evita evaluar la división donde el divisor es 0
+    # (np.where eager-evaluaría ambas ramas → ZeroDivisionError con stores nuevos sin ventas)
+    days_wh  = np.divide(stock["Stock_Warehouse"], avg_wh,  out=np.full(len(stock), -999.0, dtype=float), where=(avg_wh  > 0))
+    days_fbt = np.divide(stock["Stock_FBT"],       avg_fbt, out=np.full(len(stock), -999.0, dtype=float), where=(avg_fbt > 0))
+    stock["Days_Cov_WH"]  = np.where(avg_wh  > 0, np.minimum(days_wh,  365), -999)
+    stock["Days_Cov_FBT"] = np.where(avg_fbt > 0, np.minimum(days_fbt, 365), -999)
     stock["Days_Cov_WH"]  = stock["Days_Cov_WH"].round(0).astype(int)
     stock["Days_Cov_FBT"] = stock["Days_Cov_FBT"].round(0).astype(int)
 
     stock["Inv_deseado"]      = (stock["AvgVentas30d"] * coverage_days).round(0)
     stock["Unid_a_comprar"]   = np.maximum(0, stock["Inv_deseado"] - stock["StockActualizado"]).round(0)
+    upc = stock["UNIDADES POR CAJA"].replace(0, 1)  # evita división por 0 (1 no cambia el numerador)
     stock["Cajas_a_comprar"]  = np.where(
         stock["UNIDADES POR CAJA"] > 0,
-        np.ceil(stock["Unid_a_comprar"] / stock["UNIDADES POR CAJA"]),
+        np.ceil(stock["Unid_a_comprar"] / upc),
         stock["Unid_a_comprar"],
     )
     stock["Importe_a_comprar"] = stock["Unid_a_comprar"] * stock["Coste"]
