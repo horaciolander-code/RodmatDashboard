@@ -133,7 +133,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str |
         'buyer_username', 'variation', 'recipient', 'city', 'state', 'import_batch_id',
     ]
 
-    BATCH = 3000
+    BATCH = 500   # micro-batches: evita statement_timeout Supabase Micro
     inserted, updated = 0, 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
@@ -544,7 +544,7 @@ def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str |
         'city', 'state', 'import_batch_id',
     ]
 
-    BATCH = 3000
+    BATCH = 500   # micro-batches: evita statement_timeout Supabase Micro
     total_processed = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
