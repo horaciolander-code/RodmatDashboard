@@ -4,8 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>setup-panel</title>
-    <script type="module" crossorigin src="/assets/index-DqsHMTG3.js"></script>
+    <title>Dashboard</title>
+    <script>
+      // Update tab title once user logs in. AuthContext stores user in
+      // localStorage (we mirror it just for the title; main state still in React).
+      try {
+        var u = localStorage.getItem('user_info');
+        if (u) { var p = JSON.parse(u); if (p && p.store_name) document.title = p.store_name + ' Dashboard'; }
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-LxfkzuZ3.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-mExvY7Fe.css">
   </head>
   <body>

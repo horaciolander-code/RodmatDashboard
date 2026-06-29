@@ -39,6 +39,7 @@ const EXTERNAL_STEPS: ExternalStep[] = [
   { key: 'orders',    label: '5. TikTok Orders',   endpoint: '/import/orders',     accept: '.csv',          desc: 'AllBBDD.csv (pedidos principales)' },
   { key: 'affiliates',label: '6. Afiliadas',        endpoint: '/import/affiliates', accept: '.csv',          desc: 'CSV de afiliadas (TikTok Creator Center)' },
   { key: 'amazon',   label: '7. Amazon Orders',    endpoint: '/import/amazon',     accept: '.txt,.tsv,.csv', desc: 'Amazon order report .txt (Seller Central → Reports → Order Reports → All Orders)' },
+  { key: 'walmart',  label: '8. Walmart Orders',   endpoint: '/import/walmart',    accept: '.xlsx,.xls',     desc: 'Walmart Seller Center PO Data export (.xlsx). Sube SellerFulfilled y WFSFulfilled por separado.' },
 ];
 
 export default function DataImport() {
