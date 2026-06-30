@@ -176,6 +176,12 @@ def build_shipped_components(decomposed, initial_date):
 
 
 def get_unknown_combo_skus(db: Session, store_id: str) -> list:
+    """Devuelve SKUs vistos en sales_orders que NO están mapeados a producto.
+    Un SKU está 'mapeado' si está en combos.combo_sku, walmart_sku_map.walmart_sku,
+    o amazon_sku_map.amazon_sku. (Comparación case-insensitive sobre el SKU literal.)
+    Los SKUs no mapeados aparecen en el banner para que el operador los asigne.
+    """
+    from sqlalchemy import text as _text
     orders_df = _load_orders_df(db, store_id)
     if orders_df.empty:
         return []
@@ -183,9 +189,21 @@ def get_unknown_combo_skus(db: Session, store_id: str) -> list:
     combo_dict = _build_combo_dict(db, store_id)
     known_combo_lower = {k.strip().lower() for k in combo_dict.keys()}
 
+    # walmart_sku_map + amazon_sku_map: mapeos 1-a-1 platform SKU → product_id
+    wmap_rows = db.execute(_text(
+        "SELECT walmart_sku FROM walmart_sku_map WHERE store_id = :sid"
+    ), {"sid": store_id}).fetchall()
+    known_walmart_lower = {r.walmart_sku.strip().lower() for r in wmap_rows if r.walmart_sku}
+    amap_rows = db.execute(_text(
+        "SELECT amazon_sku FROM amazon_sku_map WHERE store_id = :sid"
+    ), {"sid": store_id}).fetchall()
+    known_amazon_lower = {r.amazon_sku.strip().lower() for r in amap_rows if r.amazon_sku}
+
     products = db.query(Product).filter(Product.store_id == store_id).all()
     known_product_lower = {p.name.strip().lower() for p in products}
-    known_lower = known_combo_lower | known_product_lower
+    # NOTE: products.sku NOT included intentionally — un SKU en products.sku que
+    # no esté en combos sigue siendo 'sin asignar' (combo nuevo aunque el producto exista).
+    known_lower = known_combo_lower | known_product_lower | known_walmart_lower | known_amazon_lower
 
     order_skus = orders_df['SKU_ID_Clean'].dropna().unique()
     sku_map = {s.strip().lower(): s for s in order_skus if s and s != 'nan'}

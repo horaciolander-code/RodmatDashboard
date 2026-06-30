@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.config import APP_VERSION, CORS_ORIGINS, ENVIRONMENT
 from app.database import engine, Base, SessionLocal
-from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check
+from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps
 
 import app.models  # noqa: F401
 
@@ -40,6 +40,7 @@ app.add_middleware(
 app.include_router(stores.router)
 app.include_router(products.router)
 app.include_router(combos.router)
+app.include_router(sku_maps.router)
 app.include_router(inventory.router)
 app.include_router(sales.router)
 app.include_router(auth.router)
