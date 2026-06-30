@@ -70,3 +70,58 @@ def list_combos(
             ],
         })
     return result
+
+
+@router.put("/{combo_id}", response_model=ComboResponse)
+def update_combo(
+    combo_id: str,
+    payload: ComboCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update combo SKU, name, and replace items wholesale."""
+    combo = db.query(Combo).filter(Combo.id == combo_id, Combo.store_id == user.store_id).first()
+    if not combo:
+        raise HTTPException(status_code=404, detail="Combo not found")
+
+    # Validate products belong to same store
+    product_ids = [item.product_id for item in payload.items]
+    if product_ids:
+        products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+        found_ids = {p.id for p in products}
+        for pid in product_ids:
+            if pid not in found_ids:
+                raise HTTPException(status_code=404, detail=f"Product {pid} not found")
+        for p in products:
+            if p.store_id != user.store_id:
+                raise HTTPException(status_code=403, detail="Cannot use products from another store")
+
+    combo.combo_sku = payload.combo_sku
+    combo.combo_name = payload.combo_name
+
+    # Replace items: delete current then re-add (dedup quantities)
+    db.query(ComboItem).filter(ComboItem.combo_id == combo.id).delete()
+    db.flush()
+    totals: dict[str, int] = defaultdict(int)
+    for item in payload.items:
+        totals[item.product_id] += item.quantity
+    for pid, qty in totals.items():
+        db.add(ComboItem(combo_id=combo.id, product_id=pid, quantity=qty))
+
+    db.commit()
+    db.refresh(combo)
+    return combo
+
+
+@router.delete("/{combo_id}", status_code=204)
+def delete_combo(
+    combo_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    combo = db.query(Combo).filter(Combo.id == combo_id, Combo.store_id == user.store_id).first()
+    if not combo:
+        raise HTTPException(status_code=404, detail="Combo not found")
+    db.delete(combo)  # cascade deletes combo_items
+    db.commit()
+    return None
