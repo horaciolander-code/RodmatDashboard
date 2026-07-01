@@ -7,7 +7,11 @@ import os
 
 from sqlalchemy.orm import Session
 
-GROQ_MODEL    = "llama-3.3-70b-versatile"
+# Groq model — Llama 3.3 70B Versatile deprecated 2026-06-30, decommission 2026-08-16.
+# Migration: default to openai/gpt-oss-20b (similar size/speed, ~good quality on structured JSON).
+# Env var GROQ_MODEL allows swapping without redeploy if a model regresses.
+# Groq model catalog: https://console.groq.com/docs/models
+GROQ_MODEL    = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_API_KEY  = os.getenv("GROQ_API_KEY", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 SMTP_USER     = os.getenv("SMTP_USER", "")  # kept for reply-to / fallback recipient
