@@ -126,7 +126,14 @@ def decompose_orders(df, combo_dict: dict):
         df["Is_Combo"] = False
         return df
 
-    is_combo = df["SKU_ID_Clean"].isin(combo_dict)
+    # Solo TikTok usa descomposición vía combos. Amazon/Walmart ya traen
+    # quantity expandida por *_sku_map.units_per_sale en el parser
+    # (parse_amazon_txt / parse_walmart_xlsx). Si el mismo SKU está también
+    # en combos con combo_units>1, sin este filtro habría doble descuento
+    # (bug detectado con AV-BSS/2: sistema descontaba 4 unidades por pack
+    # cuando debía 2). Ver PROJECT_MEMORY.md sesión 2026-06-30.
+    platform_col = df["Platform"] if "Platform" in df.columns else "tiktok"
+    is_combo = df["SKU_ID_Clean"].isin(combo_dict) & (platform_col.astype(str).str.lower() == "tiktok")
 
     # Non-combo rows — vectorized, no iteration
     non_combo = df[~is_combo].copy()
