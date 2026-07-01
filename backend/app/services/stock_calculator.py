@@ -117,7 +117,7 @@ def _load_orders_df(db: Session, store_id: str):
     return df.copy() if not df.empty else df
 
 
-def decompose_orders(df, combo_dict: dict):
+def decompose_orders(df, combo_dict: dict, db: Session = None, store_id: str = None):
     import pandas as pd
     if df.empty:
         df = df.copy()
@@ -126,14 +126,30 @@ def decompose_orders(df, combo_dict: dict):
         df["Is_Combo"] = False
         return df
 
-    # Solo TikTok usa descomposición vía combos. Amazon/Walmart ya traen
-    # quantity expandida por *_sku_map.units_per_sale en el parser
-    # (parse_amazon_txt / parse_walmart_xlsx). Si el mismo SKU está también
-    # en combos con combo_units>1, sin este filtro habría doble descuento
-    # (bug detectado con AV-BSS/2: sistema descontaba 4 unidades por pack
-    # cuando debía 2). Ver PROJECT_MEMORY.md sesión 2026-06-30.
-    platform_col = df["Platform"] if "Platform" in df.columns else "tiktok"
-    is_combo = df["SKU_ID_Clean"].isin(combo_dict) & (platform_col.astype(str).str.lower() == "tiktok")
+    # Doble-descuento guard (Amazon/Walmart):
+    # parse_amazon_txt / parse_walmart_xlsx expanden quantity ×units_per_sale al
+    # insertar sales_orders SI el SKU está en amazon_sku_map / walmart_sku_map.
+    # Si además ese SKU está en combos con combo_units>1, aplicar aquí la
+    # descomposición doblaría el descuento (bug detectado con AV-BSS/2: sistema
+    # descontaba 4 unidades por pack cuando debía 2).
+    # Regla: skip combos SOLO cuando el SKU está también en el sku_map de su
+    # plataforma. Los SKUs Amazon/Walmart en combos pero NO en sku_map (ej.
+    # AV-BSP, AV-ID/3, AV-FP/2) SÍ deben usar combos como antes — su quantity
+    # NO fue expandida en el parser.
+    from sqlalchemy import text as _sql_text
+    _amz = db.execute(_sql_text("SELECT amazon_sku FROM amazon_sku_map WHERE store_id = :sid"),
+                      {"sid": store_id}).fetchall()
+    _wmt = db.execute(_sql_text("SELECT walmart_sku FROM walmart_sku_map WHERE store_id = :sid"),
+                      {"sid": store_id}).fetchall()
+    amz_expanded_skus = {r[0] for r in _amz}
+    wmt_expanded_skus = {r[0] for r in _wmt}
+
+    platform_col = df["Platform"].astype(str).str.lower() if "Platform" in df.columns else pd.Series("tiktok", index=df.index)
+    already_expanded = (
+        ((platform_col == "amazon")  & df["SKU_ID_Clean"].isin(amz_expanded_skus)) |
+        ((platform_col == "walmart") & df["SKU_ID_Clean"].isin(wmt_expanded_skus))
+    )
+    is_combo = df["SKU_ID_Clean"].isin(combo_dict) & ~already_expanded
 
     # Non-combo rows — vectorized, no iteration
     non_combo = df[~is_combo].copy()
@@ -250,7 +266,7 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     weeks_60d = max(1, actual_60d / 7)
 
     if not orders_df.empty:
-        decomposed = decompose_orders(orders_df, combo_dict)
+        decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
         if "Fulfillment Type" in decomposed.columns:
             decomposed["Is_FBT"] = decomposed["Fulfillment Type"].astype(str).str.lower().str.contains("tiktok", na=False)
         else:
