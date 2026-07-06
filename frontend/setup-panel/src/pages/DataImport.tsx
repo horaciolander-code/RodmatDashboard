@@ -26,6 +26,7 @@ interface ExternalStep {
   endpoint: string;
   accept: string;
   desc: string;
+  platform: 'tiktok' | 'amazon' | 'walmart';
 }
 
 const RODMAT_STEPS: RodmatStep[] = [
@@ -36,14 +37,15 @@ const RODMAT_STEPS: RodmatStep[] = [
 ];
 
 const EXTERNAL_STEPS: ExternalStep[] = [
-  { key: 'orders',    label: '5. TikTok Orders',   endpoint: '/import/orders',     accept: '.csv',          desc: 'AllBBDD.csv (pedidos principales)' },
-  { key: 'affiliates',label: '6. Afiliadas',        endpoint: '/import/affiliates', accept: '.csv',          desc: 'CSV de afiliadas (TikTok Creator Center)' },
-  { key: 'amazon',   label: '7. Amazon Orders',    endpoint: '/import/amazon',     accept: '.txt,.tsv,.csv', desc: 'Amazon order report .txt (Seller Central → Reports → Order Reports → All Orders)' },
-  { key: 'walmart',  label: '8. Walmart Orders',   endpoint: '/import/walmart',    accept: '.xlsx,.xls',     desc: 'Walmart Seller Center PO Data export (.xlsx). Sube SellerFulfilled y WFSFulfilled por separado.' },
+  { key: 'orders',    label: '5. TikTok Orders',   endpoint: '/import/orders',     accept: '.csv',           desc: 'AllBBDD.csv (pedidos principales)', platform: 'tiktok' },
+  { key: 'affiliates',label: '6. Afiliadas',       endpoint: '/import/affiliates', accept: '.csv',           desc: 'CSV de afiliadas (TikTok Creator Center)', platform: 'tiktok' },
+  { key: 'amazon',    label: '7. Amazon Orders',   endpoint: '/import/amazon',     accept: '.txt,.tsv,.csv', desc: 'Amazon order report .txt (Seller Central → Reports → Order Reports → All Orders)', platform: 'amazon' },
+  { key: 'walmart',   label: '8. Walmart Orders',  endpoint: '/import/walmart',    accept: '.xlsx,.xls',     desc: 'Walmart Seller Center PO Data export (.xlsx). Sube SellerFulfilled y WFSFulfilled por separado.', platform: 'walmart' },
 ];
 
 export default function DataImport() {
-  const { isSuperadmin, isWarehouse, activeStoreId, activeStoreName } = useAuth();
+  const { isSuperadmin, isWarehouse, activeStoreId, activeStoreName, platformsEnabled } = useAuth();
+  const enabledExternalSteps = EXTERNAL_STEPS.filter(s => platformsEnabled.includes(s.platform));
   const [results, setResults] = useState<Record<string, StepResult | null>>({});
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -134,13 +136,13 @@ export default function DataImport() {
         )}
       </div>
       <p className="text-gray-500 mb-8">
-        Sube los archivos en orden. Primero los datos RODMAT (productos, combos, inventario), luego las cargas externas (pedidos).
+        Sube los archivos en orden. Primero los datos de tu tienda (productos, combos, inventario), luego las cargas externas (pedidos).
       </p>
 
       {/* ── Sección 1: Datos RODMAT ── */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-semibold text-gray-800">Datos RODMAT</h2>
+          <h2 className="text-lg font-semibold text-gray-800">Datos {activeStoreName || 'Tienda'}</h2>
           <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">Catálogo e inventario</span>
         </div>
         <p className="text-sm text-gray-400 mb-4">
@@ -182,18 +184,18 @@ export default function DataImport() {
         </div>
       </div>
 
-      {/* ── Sección 2: Cargas Externas (solo roles no-warehouse) ── */}
-      {!isWarehouse && <div>
+      {/* ── Sección 2: Cargas Externas (solo roles no-warehouse y con al menos 1 plataforma habilitada) ── */}
+      {!isWarehouse && enabledExternalSteps.length > 0 && <div>
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-lg font-semibold text-gray-800">Cargas Externas</h2>
           <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full">Pedidos de plataformas</span>
         </div>
         <p className="text-sm text-gray-400 mb-4">
-          Exporta los informes directamente desde TikTok Shop y Amazon Seller Central y súbelos aquí.
+          Exporta los informes directamente desde las plataformas de venta y súbelos aquí.
         </p>
 
         <div className="space-y-3">
-          {EXTERNAL_STEPS.map(step => (
+          {enabledExternalSteps.map(step => (
             <div key={step.key} className="bg-white border rounded-lg p-4">
               <div className="flex items-center justify-between">
                 <div>

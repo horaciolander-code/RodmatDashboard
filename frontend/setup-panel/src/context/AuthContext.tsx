@@ -7,6 +7,8 @@ interface User {
   store_id: string;
   store_name?: string;
   role: string;
+  platforms_enabled?: string[] | null;
+  modules_enabled?: Record<string, boolean> | null;
 }
 
 export interface StoreOption {
@@ -22,6 +24,8 @@ interface AuthContextType {
   isWarehouse: boolean;
   activeStoreId: string;
   activeStoreName: string;
+  platformsEnabled: string[];
+  modulesEnabled: Record<string, boolean>;
   stores: StoreOption[];
   setActiveStore: (store: StoreOption) => void;
   login: (email: string, password: string) => Promise<string | null>;
@@ -41,6 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isWarehouse  = user?.role === 'warehouse';
   const activeStoreId = activeStore?.id ?? user?.store_id ?? '';
   const activeStoreName = activeStore?.name ?? '';
+  // Superadmin viewing any store gets ALL enabled; non-superadmin gets store-scoped from /auth/me.
+  const platformsEnabled: string[] = isSuperadmin
+    ? ['tiktok', 'amazon', 'walmart']
+    : (user?.platforms_enabled ?? ['tiktok', 'amazon', 'walmart']);
+  const modulesEnabled: Record<string, boolean> = isSuperadmin
+    ? {}
+    : (user?.modules_enabled ?? {});
 
   const loadStores = useCallback(async () => {
     try {
@@ -115,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, loading, isSuperadmin, isWarehouse,
       activeStoreId, activeStoreName,
+      platformsEnabled, modulesEnabled,
       stores, setActiveStore: setActiveStoreState,
       login, register, logout,
     }}>
