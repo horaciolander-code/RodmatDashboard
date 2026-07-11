@@ -314,6 +314,9 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not force and not _is_first_monday():
         return False
     store = db.query(Store).filter(Store.id == store_id).first()
+    if not is_agent_enabled(store, "mesmerize"):
+        print(f"[MESMERIZE] Disabled by tenant settings for store {store_id[:8]}")
+        return False
     recipients = [test_email] if test_email else get_recipients(store)
     if not recipients:
         print(f"[MESMERIZE] No recipients for store {store_id}")
