@@ -352,13 +352,13 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def run(db: Session, store_id: str, force: bool = False) -> bool:
+def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None) -> bool:
     from app.models.store import Store
     today = datetime.now()
     if not force and today.weekday() != 2:
         return False
     store = db.query(Store).filter(Store.id == store_id).first()
-    recipients = get_recipients(store)
+    recipients = [test_email] if test_email else get_recipients(store)
     if not recipients:
         print(f"[HAIKU] No recipients for store {store_id}")
         return False
