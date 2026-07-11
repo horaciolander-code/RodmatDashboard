@@ -284,8 +284,8 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 # ── Groq prompt ───────────────────────────────────────────────────────────────
 
 _PROMPT = """\
-Eres PRISM, analista senior de inteligencia de mercado para Rodmat.
-Rodmat vende fragancias Avon en TikTok Shop (EE.UU.) — mercado altamente emocional y visual.
+Eres PRISM, analista senior de inteligencia de mercado para {store_name}.
+{business_context_line}Analiza el negocio con perspectiva del mercado donde opera (dinámica plataforma, competencia, comportamiento comprador).
 
 PRINCIPIOS DE ANÁLISIS:
 1. Las tendencias internas (velocidad, sell-through, geografía) SON el mercado — datos reales, no predicciones.
@@ -311,7 +311,7 @@ Lista numerada de 4-6 acciones concretas: QUÉ hacer, POR QUÉ (dato), CUÁNDO.
 """
 
 
-def _build_prompt(snapshot: dict) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str:
     vel = snapshot["velocity"]; cat = snapshot["categories"]
     geo = snapshot["geography"]; port = snapshot["portfolio"]
     cre = snapshot["creator"];   opp = snapshot["opportunities"]
@@ -334,7 +334,9 @@ def _build_prompt(snapshot: dict) -> str:
     opp_txt   = "\n".join(f"  [{o['score']}] {o['type']} — {o['product']}: {o['detail']}"
                           for o in opp[:8]) or "  Sin signals."
 
-    return _PROMPT + f"""
+    bc_line = f"Contexto del negocio: {business_context}\n" if business_context else ""
+    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line)
+    return header + f"""
 
 DATOS DE ESTA SEMANA ({snapshot['analysis_date']}):
 
@@ -404,7 +406,7 @@ def _score_badge(score):
     return f"<span style='background:{bg};color:#fff;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:bold;'>{score}</span>"
 
 
-def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodmat") -> str:
+def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Store") -> str:
     today    = datetime.now()
     sections = _parse_sections(analysis_text)
     vel = snapshot["velocity"]; geo = snapshot["geography"]
@@ -573,6 +575,9 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not force and today.weekday() != 0:
         return False
     store = db.query(Store).filter(Store.id == store_id).first()
+    if not is_agent_enabled(store, "prism"):
+        print(f"[PRISM] Disabled by tenant settings for store {store_id[:8]}")
+        return False
     recipients = [test_email] if test_email else get_recipients(store)
     if not recipients:
         print(f"[PRISM] No recipients for store {store_id}")
@@ -586,7 +591,8 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
           f"{len(snapshot['velocity'].get('accelerating',[]))} accelerating")
 
     print("[PRISM] Calling Groq...")
-    analysis = call_groq(_build_prompt(snapshot))
+    business_context = get_business_context(store)
+    analysis = call_groq(_build_prompt(snapshot, store_name, business_context))
     print(f"[PRISM] Response: {len(analysis)} chars")
 
     html    = build_email_html(analysis, snapshot, store_name)

@@ -132,8 +132,8 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 # ── Groq prompt ───────────────────────────────────────────────────────────────
 
 _PROMPT = """\
-Eres FARAWAY, el agente de cierre semanal de negocio de Rodmat.
-Rodmat vende fragancias Avon en TikTok Shop (EE.UU.).
+Eres FARAWAY, agente de cierre semanal de {store_name}.
+{business_context_line}Analiza el performance de la semana con perspectiva del negocio en su mercado.
 
 Produce un informe de cierre semanal ejecutivo en ESPAÑOL con estas 4 secciones:
 
@@ -151,7 +151,7 @@ Lista de 3-5 acciones concretas y priorizadas para la semana siguiente.
 """
 
 
-def _build_prompt(snapshot: dict) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str:
     gmv_pct_str = f"{snapshot['gmv_pct']:+.1f}%" if snapshot["gmv_pct"] is not None else "N/A"
     top_prod_txt = "\n".join(f"  {p['name']}: ${p['gmv']:,.0f} ({p['units']} uds)"
                              for p in snapshot["top_products"]) or "  Sin datos."
@@ -162,7 +162,9 @@ def _build_prompt(snapshot: dict) -> str:
     monthly_txt = "\n".join(f"  {m['month']}: ${m['gmv']:,.0f} ({m['orders']} ordenes)"
                             for m in snapshot["monthly_trend"])
 
-    return _PROMPT + f"""
+    bc_line = f"Contexto del negocio: {business_context}\n" if business_context else ""
+    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line)
+    return header + f"""
 
 DATOS DE LA SEMANA ({snapshot['week_start']} → {snapshot['week_end']}):
 
@@ -214,7 +216,7 @@ def _card(title, content, border="#3498db", bg="#fff"):
             f'<div style="color:#444;font-size:13px;line-height:1.8;">{content}</div></div>')
 
 
-def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodmat") -> str:
+def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Store") -> str:
     today    = datetime.now()
     sections = _parse_sections(analysis_text)
     gmv_pct  = snapshot["gmv_pct"]
@@ -290,6 +292,9 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not force and today.weekday() != 4:  # Friday
         return False
     store = db.query(Store).filter(Store.id == store_id).first()
+    if not is_agent_enabled(store, "faraway"):
+        print(f"[FARAWAY] Disabled by tenant settings for store {store_id[:8]}")
+        return False
     recipients = [test_email] if test_email else get_recipients(store)
     if not recipients:
         print(f"[FARAWAY] No recipients for store {store_id}")
@@ -302,7 +307,8 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     print(f"[FARAWAY] GMV ${snapshot['gmv_cur']:,.0f} ({pct_str} vs prev week)")
 
     print("[FARAWAY] Calling Groq...")
-    analysis = call_groq(_build_prompt(snapshot))
+    business_context = get_business_context(store)
+    analysis = call_groq(_build_prompt(snapshot, store_name, business_context))
     html = build_email_html(analysis, snapshot, store_name)
     subject = (f"FARAWAY · {snapshot['analysis_date']} · {store_name} · "
                f"Weekly Close ${snapshot['gmv_cur']:,.0f} ({pct_str})")
