@@ -9,7 +9,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
-    call_groq, send_email, get_recipients,
+    call_groq, send_email, get_recipients, is_agent_enabled,
     load_orders_df, load_kpis, load_creator_df,
 )
 
