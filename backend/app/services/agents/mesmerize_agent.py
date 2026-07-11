@@ -309,12 +309,12 @@ def _is_first_monday() -> bool:
     return today.weekday() == 0 and today.day <= 7
 
 
-def run(db: Session, store_id: str, force: bool = False) -> bool:
+def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None) -> bool:
     from app.models.store import Store
     if not force and not _is_first_monday():
         return False
     store = db.query(Store).filter(Store.id == store_id).first()
-    recipients = get_recipients(store)
+    recipients = [test_email] if test_email else get_recipients(store)
     if not recipients:
         print(f"[MESMERIZE] No recipients for store {store_id}")
         return False
