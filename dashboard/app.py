@@ -1913,6 +1913,15 @@ def main():
     else:
         user = st.session_state["cached_user"]
 
+    # ─── Cache tenant safety: si cambia el user o store, limpiar cache global ───
+    # st.cache_data es un cache global compartido entre sesiones/usuarios de la
+    # misma instancia Streamlit. Sin este check, un user de Nokal vería datos
+    # cacheados de Rodmat cuando otro dev había entrado antes con Rodmat.
+    _uid_marker = f"{user.get('email','')}:{user.get('store_id','')}"
+    if st.session_state.get("_last_uid_marker") != _uid_marker:
+        st.cache_data.clear()
+        st.session_state["_last_uid_marker"] = _uid_marker
+
     _store_label = user.get("store_name") or "Dashboard"
     st.title(f"{_store_label} Dashboard")
 
