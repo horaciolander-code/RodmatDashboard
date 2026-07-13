@@ -1176,27 +1176,106 @@ def page_gestion_combos():
     st.header("Gestion Combos y Mapeos")
     st.caption("Editor unificado de combos TikTok, mapeos Walmart y Amazon. Todos los SKUs con multiplicador N × producto base.")
 
-    # Banner unknown
-    unknown = fetch_unknown_combos()
-    if unknown:
-        n = len(unknown)
-        st.warning(f"⚠️ {n} SKU(s) vendidos SIN mapear — asígnalos abajo o quedarán descontando 1 al azar")
-        st.dataframe(pd.DataFrame(unknown), use_container_width=True, height=min(240, 50 + 35 * n))
-    else:
-        st.success("✅ Todos los SKUs vendidos están mapeados.")
-
-    st.markdown("---")
-
-    # ─── Cargar datos ───
+    # ─── Cargar datos comunes ───
     combos = fetch_combos()
     sku_maps = fetch_sku_maps("all")
     products_data = fetch_products()
     product_names = sorted([p["name"] for p in products_data]) if products_data else []
     product_map = {p["name"]: p["id"] for p in products_data} if products_data else {}
 
-    # ─── Tabla unificada ───
-    # Combos: 1 fila por (combo_sku, producto_componente, cantidad)
-    # SKU maps: 1 fila por mapeo (walmart/amazon)
+    # ═══════════════════════════════════════════════════════════════
+    # BLOQUE 1 — SKUs sin asignar + asistente para asignarlos
+    # ═══════════════════════════════════════════════════════════════
+    unknown = fetch_unknown_combos()
+    if unknown:
+        n = len(unknown)
+        st.warning(f"⚠️ {n} SKU(s) vendidos SIN mapear — asígnalos abajo o quedarán descontando 1 al azar")
+        st.dataframe(pd.DataFrame(unknown), use_container_width=True, height=min(240, 50 + 35 * n))
+
+        # ─── Quick-add: Asignar combo nuevo (restaurado del pre-FASE B) ───
+        st.subheader("➕ Asignar combo nuevo")
+        st.caption("Para SKUs huérfanos vendidos. Elige el SKU, cuántos productos incluye y el desglose.")
+        sku_options = [r.get("seller_sku", "") for r in unknown if r.get("seller_sku")]
+
+        selected_sku = st.selectbox("SKU a asignar", [""] + sku_options, key="combo_assign_sku")
+        if selected_sku:
+            row_data = next((r for r in unknown if r.get("seller_sku") == selected_sku), {})
+            st.caption(f"Producto tentativo (del CSV): {row_data.get('product_name', 'N/A')}  ·  Órdenes vistas: {row_data.get('order_count', 0)}")
+
+            plataforma = st.selectbox(
+                "Plataforma de este SKU",
+                options=["tiktok (combo multi-producto)", "amazon (SKU con units_per_sale)", "walmart (SKU con units_per_sale)"],
+                key="combo_assign_platform",
+            )
+
+            if plataforma.startswith("tiktok"):
+                n_products = st.number_input(
+                    "¿Cuántos productos DISTINTOS contiene este combo?",
+                    min_value=1, max_value=12, value=1, step=1, key="combo_n_prods",
+                )
+                selected_products = []
+                selected_qtys = []
+                prod_cols = st.columns(min(int(n_products), 4))
+                for i in range(int(n_products)):
+                    with prod_cols[i % len(prod_cols)]:
+                        p = st.selectbox(f"Producto {i+1}", [""] + product_names,
+                                         key=f"combo_prod_{i}")
+                        q = st.number_input(f"Cantidad {i+1}", min_value=1, max_value=99, value=1, step=1,
+                                            key=f"combo_qty_{i}")
+                        selected_products.append(p)
+                        selected_qtys.append(q)
+
+                if st.button("💾 Agregar combo y guardar", type="primary", key="btn_add_combo"):
+                    valid = [(p, q) for p, q in zip(selected_products, selected_qtys) if p]
+                    if not valid:
+                        st.error("Selecciona al menos un producto.")
+                    else:
+                        items = [{"product_id": product_map[p], "quantity": int(q)} for p, q in valid if p in product_map]
+                        result = api_post("/combos", {
+                            "combo_sku":  selected_sku,
+                            "combo_name": row_data.get("product_name", selected_sku),
+                            "items":      items,
+                        })
+                        if result:
+                            st.success(f"✅ Combo '{selected_sku}' creado con {len(items)} producto(s).")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("Error creando combo.")
+            else:
+                # amazon/walmart → mapeo directo con units_per_sale
+                plat_key = "amazon" if plataforma.startswith("amazon") else "walmart"
+                col_p, col_u = st.columns([3, 1])
+                with col_p:
+                    prod_sel = st.selectbox("Producto base", [""] + product_names, key="mapeo_prod")
+                with col_u:
+                    ups = st.number_input("Units per sale", min_value=1, max_value=99, value=1, step=1, key="mapeo_ups")
+
+                if st.button(f"💾 Crear mapeo {plat_key} y guardar", type="primary", key="btn_add_mapeo"):
+                    if not prod_sel:
+                        st.error("Selecciona un producto.")
+                    else:
+                        pid = product_map.get(prod_sel)
+                        result = api_post("/sku-maps", {
+                            "platform":       plat_key,
+                            "external_sku":   selected_sku,
+                            "product_id":     pid,
+                            "units_per_sale": int(ups),
+                        })
+                        if result:
+                            st.success(f"✅ Mapeo {plat_key} '{selected_sku}' → {prod_sel} (×{ups}) creado.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("Error creando mapeo.")
+    else:
+        st.success("✅ Todos los SKUs vendidos están mapeados.")
+
+    st.markdown("---")
+
+    # ═══════════════════════════════════════════════════════════════
+    # BLOQUE 2 — Editor unificado (mapeos existentes)
+    # ═══════════════════════════════════════════════════════════════
     rows = []
     for c in combos:
         for it in c.get("items", []):
@@ -1220,12 +1299,11 @@ def page_gestion_combos():
             "_item_id":    None,
         })
 
-    st.subheader("Todos los mapeos activos")
-    st.caption(f"Total: {len(rows)} mapeos ({len(combos)} combos TikTok, {sum(1 for m in sku_maps if m['platform']=='walmart')} Walmart, {sum(1 for m in sku_maps if m['platform']=='amazon')} Amazon)")
+    st.subheader("📋 Todos los mapeos activos")
+    st.caption(f"Total: {len(rows)} mapeos ({len(combos)} combos TikTok, {sum(1 for m in sku_maps if m['platform']=='walmart')} Walmart, {sum(1 for m in sku_maps if m['platform']=='amazon')} Amazon). Edita/borra aquí; para asignar rápido combos nuevos usa el asistente de arriba.")
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["id","Plataforma","SKU","Producto","Cantidad","_source","_item_id"])
 
-    # Editor con dropdowns
     edited = st.data_editor(
         df,
         num_rows="dynamic",
@@ -1238,7 +1316,7 @@ def page_gestion_combos():
                             options=product_names, required=True, width="large"),
             "Cantidad":   st.column_config.NumberColumn("Cant.", min_value=1, max_value=99,
                             step=1, required=True, width="small"),
-            "_source":    None,   # oculta
+            "_source":    None,
             "_item_id":   None,
         },
         column_order=["id","Plataforma","SKU","Producto","Cantidad"],
@@ -1251,7 +1329,6 @@ def page_gestion_combos():
     with col_save:
         if st.button("💾 Guardar cambios", type="primary", key="save_mapeos"):
             n_created, n_updated, n_deleted, n_errors = 0, 0, 0, 0
-            # Diff filas originales vs editadas
             original_ids = {(r["id"], r.get("_item_id")): r for r in rows}
             edited_ids = set()
             for _, r in edited.iterrows():
@@ -1264,13 +1341,11 @@ def page_gestion_combos():
                     continue
 
                 if rid and pd.notna(rid) and str(rid).strip():
-                    # UPDATE existente
                     edited_ids.add(str(rid).strip())
                     orig = next((o for o in rows if o["id"] == rid), None)
                     if orig and (orig["Plataforma"]!=plat or orig["SKU"]!=sku or
                                  orig["Producto"]!=prod or orig["Cantidad"]!=qty):
                         if plat == "tiktok":
-                            # combo update — reemplaza items wholesale (mismo prod, misma qty por simplicidad)
                             pid = product_map.get(prod)
                             if not pid: n_errors += 1; continue
                             res = api_put(f"/combos/{rid}", {
@@ -1287,7 +1362,6 @@ def page_gestion_combos():
                             if res: n_updated += 1
                             else: n_errors += 1
                 else:
-                    # INSERT nuevo
                     pid = product_map.get(prod)
                     if not pid: n_errors += 1; continue
                     if plat == "tiktok":
@@ -1303,7 +1377,6 @@ def page_gestion_combos():
                     if res: n_created += 1
                     else: n_errors += 1
 
-            # DELETE los que estaban y no están en edited
             for orig in rows:
                 if str(orig["id"]) not in edited_ids and orig["id"]:
                     if orig["_source"] == "combo":
@@ -1328,7 +1401,6 @@ def page_gestion_combos():
 
     with col_info:
         st.info("💡 Añade filas nuevas al final. Cambia cualquier valor. Vacía la fila para borrarla. Guarda con el botón.")
-
 
 # ================================================================== #
 #  PAGE 12: INVENTARIO FBT
