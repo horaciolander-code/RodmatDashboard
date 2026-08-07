@@ -58,3 +58,4 @@ class IncomingStock(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     product = relationship("Product")
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)

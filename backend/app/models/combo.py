@@ -17,6 +17,8 @@ class Combo(Base):
     combo_name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)
+
     store = relationship("Store", back_populates="combos")
     items = relationship("ComboItem", back_populates="combo", cascade="all, delete-orphan")
 

@@ -29,3 +29,4 @@ class FinanceCustomLine(Base):
     updated_at  = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     store = relationship("Store")
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)

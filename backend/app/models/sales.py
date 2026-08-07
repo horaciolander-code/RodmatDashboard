@@ -52,7 +52,8 @@ class SalesOrder(Base):
 
     raw_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)
+    shipping_brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)
 
 class AffiliateSale(Base):
     __tablename__ = "affiliate_sales"
