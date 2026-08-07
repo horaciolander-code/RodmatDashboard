@@ -30,7 +30,12 @@ def get_product_brand_map(user: User = Depends(get_current_user), db: Session = 
     """Devuelve mapa SKU → brand_slug para el store. Usado por el dashboard
     Streamlit para filtrar client-side sin tocar todos los endpoints existentes."""
     from app.models import Product
-    q = db.query(Product.sku, Brand.slug).outerjoin(
-        Brand, Brand.id == Product.brand_id
-    ).filter(Product.store_id == user.store_id)
-    return {sku: (slug or None) for sku, slug in q.all()}
+    # Explicit join from Product to Brand (SQLAlchemy 2.x safe)
+    rows = (
+        db.query(Product.sku, Brand.slug)
+        .select_from(Product)
+        .outerjoin(Brand, Brand.id == Product.brand_id)
+        .filter(Product.store_id == user.store_id)
+        .all()
+    )
+    return {row[0]: row[1] for row in rows}
