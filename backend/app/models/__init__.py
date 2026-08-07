@@ -1,4 +1,5 @@
 from app.models.store import Store
+from app.models.brand import Brand
 from app.models.user import User
 from app.models.product import Product
 from app.models.combo import Combo, ComboItem
@@ -12,7 +13,7 @@ from app.models.import_history import ImportHistory
 from app.models.agent_run import AgentRun
 
 __all__ = [
-    "Store", "User", "Product", "Combo", "ComboItem",
+    "Store", "Brand", "User", "Product", "Combo", "ComboItem",
     "InitialInventory", "IncomingStock", "FBTInventory",
     "SalesOrder", "AffiliateSale", "ReportLog", "FinanceCustomLine",
     "AmazonSkuMap", "WalmartSkuMap", "ImportHistory", "AgentRun",

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, JSON
+from sqlalchemy import String, DateTime, JSON, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -16,6 +16,7 @@ class Store(Base):
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     timezone: Mapped[str] = mapped_column(String(50), default="America/New_York")
     settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    brands_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     users = relationship("User", back_populates="store", cascade="all, delete-orphan")

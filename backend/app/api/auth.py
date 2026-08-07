@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.store import Store
+from app.models.brand import Brand
 from app.models.user import User
 from app.schemas.user import UserRegister, TokenResponse, UserResponse
 from app.services.auth_service import hash_password, verify_password, create_access_token
@@ -74,6 +75,23 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
 def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     store = db.query(Store).filter(Store.id == user.store_id).first()
     settings = (store.settings or {}) if store else {}
+    brands_on = bool(getattr(store, "brands_enabled", False)) if store else False
+
+    user_brand = None
+    if user.brand_id:
+        user_brand = db.query(Brand).filter(Brand.id == user.brand_id).first()
+
+    available = []
+    if brands_on and store:
+        rows = db.query(Brand).filter(Brand.store_id == store.id, Brand.is_active == True).order_by(Brand.slug).all()
+        available = [{
+            "id": b.id,
+            "slug": b.slug,
+            "display_name": b.display_name,
+            "brand_color": b.brand_color,
+            "absorbs_shared_costs": b.absorbs_shared_costs,
+        } for b in rows]
+
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -83,4 +101,9 @@ def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)
         created_at=user.created_at,
         modules_enabled=settings.get("modules_enabled"),
         platforms_enabled=settings.get("platforms_enabled"),
+        brand_id=user.brand_id,
+        brand_slug=user_brand.slug if user_brand else None,
+        brand_display_name=user_brand.display_name if user_brand else None,
+        brands_enabled=brands_on,
+        available_brands=available if brands_on else None,
     )

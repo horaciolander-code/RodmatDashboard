@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.config import APP_VERSION, CORS_ORIGINS, ENVIRONMENT
 from app.database import engine, Base, SessionLocal
-from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps
+from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps, brands
 
 import app.models  # noqa: F401
 
@@ -51,6 +51,7 @@ app.include_router(admin.router)
 app.include_router(agents.router)
 app.include_router(finance.router)
 app.include_router(self_check.router)
+app.include_router(brands.router)
 
 
 def _start_scheduler():
