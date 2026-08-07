@@ -18,14 +18,15 @@ def _require_internal_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
 
 
-def _run_agent_bg(agent_module_name: str, store_id: str, force: bool, test_email: str | None = None):
-    """Run a single agent in a background task with its own DB session."""
+def _run_agent_bg(agent_module_name: str, store_id: str, force: bool, test_email: str | None = None, brand_slug: str | None = None):
+    """Run a single agent in a background task with its own DB session.
+    brand_slug: opcional, si se pasa el agente filtra data + email por brand."""
     db = SessionLocal()
     try:
         import importlib
         agent = importlib.import_module(f"app.services.agents.{agent_module_name}_agent")
-        ran = agent.run(db, store_id, force=force, test_email=test_email)
-        logger.info("Agent %s store %s bg: %s", agent_module_name, store_id[:8], "sent" if ran else "skipped")
+        ran = agent.run(db, store_id, force=force, test_email=test_email, brand_slug=brand_slug)
+        logger.info("Agent %s store %s brand %s bg: %s", agent_module_name, store_id[:8], brand_slug or "ALL", "sent" if ran else "skipped")
     except Exception as exc:
         logger.exception("Agent %s bg failed for store %s: %s", agent_module_name, store_id[:8], exc)
     finally:
@@ -51,10 +52,11 @@ def run_all_agents(
 def run_prism(
     background_tasks: BackgroundTasks,
     force: bool = False,
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
 ):
     """Queues PRISM in background — returns immediately to avoid Railway 60s timeout."""
-    background_tasks.add_task(_run_agent_bg, "prism", user.store_id, force)
+    background_tasks.add_task(_run_agent_bg, "prism", user.store_id, force, None, brand_slug)
     return {"status": "queued", "agent": "PRISM", "store": user.store_id[:8]}
 
 
@@ -62,10 +64,11 @@ def run_prism(
 def run_haiku(
     background_tasks: BackgroundTasks,
     force: bool = False,
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
 ):
     """Queues HAIKU in background — returns immediately to avoid Railway 60s timeout."""
-    background_tasks.add_task(_run_agent_bg, "haiku", user.store_id, force)
+    background_tasks.add_task(_run_agent_bg, "haiku", user.store_id, force, None, brand_slug)
     return {"status": "queued", "agent": "HAIKU", "store": user.store_id[:8]}
 
 
@@ -77,7 +80,7 @@ def run_faraway(
     user: User = Depends(get_current_user),
 ):
     """Queues FARAWAY in background. test_email overrides recipients (for testing, solo a ti)."""
-    background_tasks.add_task(_run_agent_bg, "faraway", user.store_id, force, test_email)
+    background_tasks.add_task(_run_agent_bg, "faraway", user.store_id, force, test_email, brand_slug)
     return {"status": "queued", "agent": "FARAWAY", "store": user.store_id[:8], "test_email": test_email}
 
 
@@ -85,10 +88,11 @@ def run_faraway(
 def run_mesmerize(
     background_tasks: BackgroundTasks,
     force: bool = False,
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
 ):
     """Queues MESMERIZE in background — returns immediately to avoid Railway 60s timeout."""
-    background_tasks.add_task(_run_agent_bg, "mesmerize", user.store_id, force)
+    background_tasks.add_task(_run_agent_bg, "mesmerize", user.store_id, force, None, brand_slug)
     return {"status": "queued", "agent": "MESMERIZE", "store": user.store_id[:8]}
 
 @router.post("/timeless")
@@ -99,7 +103,7 @@ def run_timeless(
     user: User = Depends(get_current_user),
 ):
     """Queues TIMELESS in background. test_email overrides recipients (solo a ti)."""
-    background_tasks.add_task(_run_agent_bg, "timeless", user.store_id, force, test_email)
+    background_tasks.add_task(_run_agent_bg, "timeless", user.store_id, force, test_email, brand_slug)
     return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8], "test_email": test_email}
 
 

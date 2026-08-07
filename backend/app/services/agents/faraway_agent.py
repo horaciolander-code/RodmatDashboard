@@ -286,7 +286,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None) -> bool:
+def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None, brand_slug: str | None = None) -> bool:
     from app.models.store import Store
     today = datetime.now()
     if not force and today.weekday() != 4:  # Friday

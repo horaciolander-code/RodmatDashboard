@@ -141,3 +141,114 @@ def load_pending_df(db: Session, store_id: str):
         "Fecha pedido":           inc.order_date,
         "Status":                 inc.status,
     } for inc, prod in rows])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  BRAND-aware helpers (multi-brand support LuxPerfumes/Avon)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def get_brand(db: Session, store_id: str, brand_slug: str | None):
+    """Return the Brand row for a store+slug, or None."""
+    if not brand_slug:
+        return None
+    from app.models import Brand
+    return db.query(Brand).filter(
+        Brand.store_id == store_id,
+        Brand.slug == brand_slug,
+        Brand.is_active == True,
+    ).first()
+
+
+def get_brand_context(store, brand=None) -> str:
+    """Return the business context — brand-specific if brand provided,
+    else store-level. Falls back gracefully to store business_context if
+    brand has no specific setting."""
+    if brand is not None:
+        # brand context stored in store.settings['brands_context'][slug]
+        if store and store.settings:
+            bctx = store.settings.get("brands_context") or {}
+            if isinstance(bctx, dict) and brand.slug in bctx:
+                return bctx[brand.slug]
+        # fallback: just the display_name for the LLM to know the brand
+        return f"Brand: {brand.display_name}."
+    return get_business_context(store)
+
+
+def get_brand_recipients(store, brand=None) -> list[str]:
+    """Return recipients — brand-scoped list if brand provided and
+    settings['brands_recipients'][slug] set, else store-level.
+
+    Regla operativa: los emails Atralia/LuxPerfumes NO se mezclan con Rodmat.
+    Cuando brand se pasa, si no hay lista brand-específica, devuelve lista vacía
+    (mejor no enviar que enviar a la lista wrong)."""
+    if brand is not None:
+        if store and store.settings:
+            br = (store.settings.get("brands_recipients") or {})
+            if isinstance(br, dict) and brand.slug in br:
+                return br[brand.slug]
+        return []  # safety: no leak
+    return get_recipients(store)
+
+
+def get_brand_sender(brand=None) -> str:
+    """Return the from-address for emails — brand-specific if brand has
+    email_sender set, else default reportes@rodmatcenter.com."""
+    if brand and getattr(brand, "email_sender", None):
+        return brand.email_sender
+    return "reportes@rodmatcenter.com"
+
+
+def load_orders_df_branded(db: Session, store_id: str, brand_slug: str | None = None):
+    """Wrapper that filters orders by brand when brand_slug provided.
+    Uses the SKU→brand map from products.brand_id (client-side filter after load
+    to avoid touching stock_calculator._load_orders_df signature).
+    When brand_slug is None → passthrough (current behavior)."""
+    df = load_orders_df(db, store_id)
+    if not brand_slug or df is None or df.empty:
+        return df
+    # Build sku→slug map for this store
+    from app.models import Product, Brand
+    rows = db.query(Product.sku, Brand.slug).select_from(Product).outerjoin(
+        Brand, Brand.id == Product.brand_id
+    ).filter(Product.store_id == store_id).all()
+    bmap = {r[0]: r[1] for r in rows}
+    # Filter df by SKU column (case: 'Seller SKU' o 'SKU ID' o 'sku')
+    sku_col = None
+    for candidate in ("Seller SKU", "SKU ID", "sku", "SKU"):
+        if candidate in df.columns:
+            sku_col = candidate
+            break
+    if not sku_col:
+        return df  # no way to filter, passthrough
+    mask = df[sku_col].astype(str).map(lambda s: bmap.get(s) == brand_slug)
+    return df[mask].reset_index(drop=True)
+
+
+def send_email_branded(html: str, subject: str, recipients: list[str], brand=None) -> bool:
+    """Send email using brand-specific sender when brand provided."""
+    if not RESEND_API_KEY or not recipients:
+        print("[email] RESEND_API_KEY not set or no recipients")
+        return False
+    from_addr = get_brand_sender(brand)
+    to = [r.lower() for r in recipients]
+    try:
+        import httpx
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            json={
+                "from":     from_addr,
+                "reply_to": SMTP_USER or to[0],
+                "to":       to,
+                "subject":  subject,
+                "html":     html,
+            },
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            return True
+        print(f"[email] Resend error {r.status_code}: {r.text}")
+        return False
+    except Exception as e:
+        print(f"[email] send failed: {e}")
+        return False

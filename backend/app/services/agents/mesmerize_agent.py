@@ -309,7 +309,7 @@ def _is_first_monday() -> bool:
     return today.weekday() == 0 and today.day <= 7
 
 
-def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None) -> bool:
+def run(db: Session, store_id: str, force: bool = False, test_email: str | None = None, brand_slug: str | None = None) -> bool:
     from app.models.store import Store
     if not force and not _is_first_monday():
         return False
