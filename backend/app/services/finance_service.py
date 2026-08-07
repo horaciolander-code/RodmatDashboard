@@ -40,6 +40,25 @@ def _period_bounds(year: int, period: str) -> tuple[date, date, str, Optional[in
     return start, end, f"{MES_ES[m]} {year}", m
 
 
+
+
+def _brand_id_from_slug(db: Session, store_id: str, brand_slug: str | None) -> str | None:
+    """Return brand_id for a store+slug or None."""
+    if not brand_slug:
+        return None
+    r = db.execute(text("SELECT id FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
+                   {"sid": store_id, "slug": brand_slug}).fetchone()
+    return r[0] if r else None
+
+
+def _brand_sku_clause(brand_id: str | None) -> str:
+    """Return SQL WHERE fragment to filter sales_orders by brand via products join.
+    Empty string when brand_id is None (no filter)."""
+    if not brand_id:
+        return ""
+    # Filter by SKU that maps to a product with this brand_id
+    return " AND sku IN (SELECT sku FROM products WHERE brand_id = :brand_id) "
+
 def _build_combo_map(db: Session, store_id: str):
     rows = db.execute(text("""
         SELECT c.combo_sku, ci.product_id, ci.quantity
@@ -69,7 +88,7 @@ def _build_amazon_map(db: Session, store_id: str):
     return {r.amazon_sku: r.product_id for r in rows}
 
 
-def _aggregate_sales(db: Session, store_id: str, platform: str, start: date, end: date):
+def _aggregate_sales(db: Session, store_id: str, platform: str, start: date, end: date, brand_id: str | None = None):
     """Agrega columnas raw de sales_orders para una plataforma + ventana."""
     row = db.execute(text("""
         SELECT
@@ -163,7 +182,7 @@ def _compute_platform_block(agg: dict, platform: str) -> dict:
     }
 
 
-def compute_pl(db: Session, store_id: str, year: int, period: str) -> dict:
+def compute_pl(db: Session, store_id: str, year: int, period: str, brand_slug: str | None = None) -> dict:
     """Computa el P&L estructurado para un store + período (mes 'MM' o 'YTD')."""
     start, end, label, month = _period_bounds(year, period)
     combo_map = _build_combo_map(db, store_id)
@@ -217,6 +236,8 @@ def compute_pl(db: Session, store_id: str, year: int, period: str) -> dict:
 
     return {
         "store_id":     store_id,
+        "brand_slug":   brand_slug,
+        "brand_id":     _brand_id_from_slug(db, store_id, brand_slug),
         "period_label": label,
         "period_type":  "ytd" if period.upper() == "YTD" else "month",
         "year":         year,

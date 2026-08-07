@@ -49,6 +49,8 @@ class CustomLinesReplaceRequest(BaseModel):
 class PLResponse(BaseModel):
     """Respuesta del endpoint /api/finance/pl"""
     store_id:      str
+    brand_slug:    Optional[str] = None
+    brand_id:      Optional[str] = None
     period_label:  str   # "Mayo 2026" o "YTD 2026"
     period_type:   str   # "month" | "ytd"
     year:          int
