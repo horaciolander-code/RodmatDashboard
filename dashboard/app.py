@@ -325,6 +325,11 @@ def render_platform_selector(page_key: str) -> str | None:
 # ================================================================== #
 def page_overview():
     st.header("Resumen General")
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    if _bs:
+        _bn = next((b["display_name"] for b in (_u.get("available_brands") or []) if b["slug"] == _bs), _bs)
+        st.info(f"ℹ️ Filtro marca activo: **{_bn}**. Los KPIs de esta página son agregados globales del store (Avon + LuxPerfumes) — el filtro brand aún no se aplica en Overview.")
     _platform = render_platform_selector("ov")
 
     if _platform != "amazon":
@@ -662,6 +667,11 @@ def page_restock_analysis():
 # ================================================================== #
 def page_afiliados():
     st.header("Detalle de Afiliados")
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    if _bs:
+        _bn = next((b["display_name"] for b in (_u.get("available_brands") or []) if b["slug"] == _bs), _bs)
+        st.info(f"ℹ️ Filtro marca activo: **{_bn}**. Las métricas de creators/afiliados son agregadas del store (los creators pueden generar ventas cross-brand).")
     _platform = render_platform_selector("afl")
     if _platform == "amazon":
         st.warning("Los afiliados y creadores son exclusivos de TikTok Shop. No hay datos de creadores en Amazon. Selecciona **Todos** o **TikTok** para ver esta sección.")
@@ -830,7 +840,9 @@ def page_afiliados():
 def page_finances():
     st.header("Finances")
     render_platform_selector("fin")
-    data = fetch_finances()
+    _raw = fetch_finances()
+    # Brand filter: si el dict tiene sku, filtrar; sino passthrough
+    data = apply_brand_filter_records(_raw, sku_key="sku") if _raw and _raw[0].get("sku") else _raw
     if not data:
         st.warning("Sin datos.")
         return
@@ -918,6 +930,11 @@ def page_ordenes_check():
 # ================================================================== #
 def page_cupones():
     st.header("Analisis Cupones")
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    if _bs:
+        _bn = next((b["display_name"] for b in (_u.get("available_brands") or []) if b["slug"] == _bs), _bs)
+        st.info(f"ℹ️ Filtro marca activo: **{_bn}**. Los frequent buyers son agregados del store.")
     _platform = render_platform_selector("cup")
     if _platform == "amazon":
         st.warning("Los compradores frecuentes y cupones son exclusivos de TikTok Shop. Selecciona **Todos** o **TikTok** para ver esta sección.")
@@ -997,7 +1014,8 @@ def page_full_detail():
         return
 
     orders = result.get("orders", [])
-    total = result.get("total", 0)
+    orders = apply_brand_filter_records(orders, sku_key="sku") if orders else orders
+    total = len(orders)
     st.metric("Records", f"{total:,}")
 
     if orders:
@@ -1592,6 +1610,11 @@ def page_finance_pl():
     import pandas as _pd
 
     st.header("P&L Operacional")
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    if _bs:
+        _bn = next((b["display_name"] for b in (_u.get("available_brands") or []) if b["slug"] == _bs), _bs)
+        st.warning(f"⚠️ Filtro marca **{_bn}** activo pero el P&L de esta página es global del store todavía. F6 (P&L per-brand) queda pendiente para semana próxima.")
 
     # --- Selector año + botones mes / YTD ---
     today = _dt.date.today()
