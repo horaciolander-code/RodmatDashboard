@@ -18,6 +18,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     store_id: Mapped[str] = mapped_column(String(36), ForeignKey("stores.id"), nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="viewer")
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     store = relationship("Store", back_populates="users")

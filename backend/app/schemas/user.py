@@ -48,5 +48,10 @@ class UserResponse(BaseModel):
     created_at: datetime
     modules_enabled: dict | None = None
     platforms_enabled: list | None = None
+    brand_id: str | None = None
+    brand_slug: str | None = None
+    brand_display_name: str | None = None
+    brands_enabled: bool = False
+    available_brands: list | None = None
 
     model_config = {"from_attributes": True}

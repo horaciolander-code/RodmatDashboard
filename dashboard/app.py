@@ -142,6 +142,16 @@ def fetch_sku_maps(platform: str = "all"):
 @st.cache_data(ttl=300)
 def fetch_products():
     return api_get("/products") or []
+@st.cache_data(ttl=300)
+def fetch_brands():
+    """Lista brands activas del store del user."""
+    return api_get("/brands") or []
+
+@st.cache_data(ttl=300)
+def fetch_product_brand_map():
+    """SKU -> brand_slug map (para filtrado client-side)."""
+    return api_get("/brands/product-map") or {}
+
 
 @st.cache_data(ttl=300)
 def fetch_combo_sales(date_from=None, date_to=None):
@@ -168,6 +178,46 @@ def fetch_creator_own_orders():
 def fetch_pallet_orders():
     return api_get("/analytics/pallet-orders") or []
 
+
+
+
+# ================================================================== #
+#  BRAND helpers (multi-brand support LuxPerfumes vs Avon)
+# ================================================================== #
+def get_current_brand_slug() -> str | None:
+    """Return brand slug active for the current session.
+    - If user has forced brand_id: return that slug (locked).
+    - Else return session_state selection (or None = 'All').
+    """
+    user = st.session_state.get("cached_user") or {}
+    if user.get("brand_slug"):
+        return user["brand_slug"]  # locked by user record
+    sel = st.session_state.get("selected_brand_slug")
+    return sel if sel and sel != "__ALL__" else None
+
+def filter_df_by_brand(df, sku_col: str = "sku"):
+    """Filter a DataFrame client-side by the active brand.
+    - No brand active OR no user OR brands_enabled=False -> pass-through.
+    - Uses fetch_product_brand_map() for SKU -> brand_slug lookup.
+    - Rows with SKU not in the map are DROPPED when brand filter active (safe default: never leak unknown SKUs).
+    """
+    import pandas as _pd
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return df
+    user = st.session_state.get("cached_user") or {}
+    if not user.get("brands_enabled"):
+        return df
+    brand = get_current_brand_slug()
+    if not brand:
+        return df  # 'All' — no filter
+    if sku_col not in df.columns:
+        return df
+    try:
+        bmap = fetch_product_brand_map() or {}
+    except Exception:
+        return df
+    mask = df[sku_col].astype(str).map(lambda s: bmap.get(s) == brand)
+    return df[mask].reset_index(drop=True)
 
 
 # ================================================================== #
@@ -1917,7 +1967,9 @@ def main():
     # st.cache_data es un cache global compartido entre sesiones/usuarios de la
     # misma instancia Streamlit. Sin este check, un user de Nokal vería datos
     # cacheados de Rodmat cuando otro dev había entrado antes con Rodmat.
-    _uid_marker = f"{user.get('email','')}:{user.get('store_id','')}"
+    # Brand marker included (multi-brand: cache MUST reset when brand changes)
+    _brand_marker = st.session_state.get("selected_brand_slug", "__ALL__") if user.get("brands_enabled") else "-"
+    _uid_marker = f"{user.get('email','')}:{user.get('store_id','')}:{user.get('brand_slug') or _brand_marker}"
     if st.session_state.get("_last_uid_marker") != _uid_marker:
         st.cache_data.clear()
         st.session_state["_last_uid_marker"] = _uid_marker
@@ -1929,6 +1981,34 @@ def main():
         st.write(f"**{user.get('email', '')}**")
         store_name = user.get("store_name", user.get("store_id", "")[:8])
         st.caption(f"Tienda: {store_name}")
+
+        # ─── Selector de MARCA (solo si multi-brand activo para el store) ───
+        if user.get("brands_enabled"):
+            _av_brands = user.get("available_brands") or fetch_brands() or []
+            _user_brand_slug = user.get("brand_slug")
+            if _user_brand_slug:
+                # Locked to a specific brand (usuario asociada a una marca)
+                _b_disp = next((b["display_name"] for b in _av_brands if b["slug"] == _user_brand_slug), _user_brand_slug)
+                _b_col = next((b.get("brand_color") for b in _av_brands if b["slug"] == _user_brand_slug), "#8B4A9C")
+                st.markdown(
+                    f"<div style='background:{_b_col};color:#fff;padding:6px 10px;border-radius:6px;"
+                    f"font-weight:600;text-align:center;margin:8px 0;'>🏷 {_b_disp}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.session_state["selected_brand_slug"] = _user_brand_slug
+            else:
+                # Admin can pick any brand
+                _labels = ["Todas"] + [b["display_name"] for b in _av_brands]
+                _slugs  = ["__ALL__"] + [b["slug"] for b in _av_brands]
+                _current = st.session_state.get("selected_brand_slug") or "__ALL__"
+                _idx = _slugs.index(_current) if _current in _slugs else 0
+                _sel = st.selectbox("🏷 Marca", _labels, index=_idx, key="_brand_select_widget")
+                _new_slug = _slugs[_labels.index(_sel)]
+                if _new_slug != st.session_state.get("selected_brand_slug"):
+                    st.session_state["selected_brand_slug"] = _new_slug
+                    st.cache_data.clear()
+                    st.rerun()
+
         if st.button("Actualizar Datos"):
             api_post("/analytics/clear-cache")
             st.cache_data.clear()
