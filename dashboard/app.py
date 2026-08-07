@@ -220,6 +220,28 @@ def filter_df_by_brand(df, sku_col: str = "sku"):
     return df[mask].reset_index(drop=True)
 
 
+def apply_brand_filter_records(records, sku_key: str = "sku"):
+    """Igual que filter_df_by_brand pero para lista de dicts (records) del API.
+    - No filtra si brands_enabled=False o brand activa = 'Todas'.
+    - Si brand activa: keep solo los records cuyo SKU mapee a esa brand.
+    - Records con SKU no en product-map son DROPPED (safe default).
+    """
+    if not records:
+        return records
+    user = st.session_state.get("cached_user") or {}
+    if not user.get("brands_enabled"):
+        return records
+    brand = get_current_brand_slug()
+    if not brand:
+        return records
+    try:
+        bmap = fetch_product_brand_map() or {}
+    except Exception:
+        return records
+    return [r for r in records if bmap.get(str(r.get(sku_key, ""))) == brand]
+
+
+
 # ================================================================== #
 #  Per-tenant enabled platforms (defaults to all if not configured)
 # ================================================================== #
@@ -525,7 +547,7 @@ def page_restock_analysis():
     with col_s1:
         coverage = st.number_input("Días de cobertura objetivo", min_value=7, max_value=180, value=30, key="ra_cov")
     with col_s2:
-        data_all = fetch_stock_detail(30)
+        data_all = apply_brand_filter_records(fetch_stock_detail(30))
         tipo_opts = ["Todos"]
         if data_all:
             df_all = pd.DataFrame(data_all)
@@ -533,7 +555,7 @@ def page_restock_analysis():
                 tipo_opts += sorted(df_all["Tipo"].dropna().unique().tolist())
         tipo_filter = st.selectbox("Tipo de Producto", tipo_opts, key="ra_tipo")
 
-    data = fetch_stock_detail(coverage)
+    data = apply_brand_filter_records(fetch_stock_detail(coverage))
     if not data:
         st.warning("Sin datos de stock.")
         return
@@ -886,7 +908,7 @@ def page_ordenes_check():
 
     st.markdown("---")
     st.subheader("Listado Top Combos")
-    combos = fetch_top_combos(20)
+    combos = apply_brand_filter_records(fetch_top_combos(20), sku_key="combo_sku")
     if combos:
         st.dataframe(pd.DataFrame(combos), use_container_width=True, height=400)
 
