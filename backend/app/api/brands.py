@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models import User, Brand
 from app.dependencies import get_current_user
 
-router = APIRouter(prefix="/brands", tags=["brands"])
+router = APIRouter(prefix="/api/brands", tags=["brands"])
 
 
 @router.get("")
