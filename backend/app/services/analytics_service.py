@@ -213,11 +213,34 @@ def get_sales_by_day(db: Session, store_id: str,
     return daily.to_dict(orient="records")
 
 
-def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30) -> list:
-    cached = _get_cached(store_id, f"stock_{coverage_days}")
+
+
+def _filter_stock_df_by_brand(db: Session, store_id: str, stock, brand_slug):
+    """Filtra un stock DataFrame (con columna 'ProductoNombre' = product name) por brand.
+    Uses product name→brand lookup."""
+    if not brand_slug or stock is None or stock.empty:
+        return stock
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT p.name FROM products p
+        JOIN brands b ON b.id = p.brand_id
+        WHERE p.store_id = :sid AND b.slug = :slug
+    """), {"sid": store_id, "slug": brand_slug}).fetchall()
+    names = {r[0] for r in rows}
+    if not names:
+        return stock.iloc[0:0]
+    if "ProductoNombre" in stock.columns:
+        return stock[stock["ProductoNombre"].astype(str).isin(names)].reset_index(drop=True)
+    return stock
+
+
+def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None) -> list:
+    _ck = f"stock_{coverage_days}:{brand_slug or 'ALL'}"
+    cached = _get_cached(store_id, _ck)
     if cached:
         return cached
     stock = _get_stock_df(db, store_id, coverage_days)
+    stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
@@ -227,12 +250,13 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30) -> li
             "Coste", "PRECIO", "ValorInventario"]
     available = [c for c in cols if c in stock.columns]
     result = stock[available].fillna(0).to_dict(orient="records")
-    _set_cache(store_id, f"stock_{coverage_days}", result)
+    _set_cache(store_id, _ck, result)
     return result
 
 
-def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30) -> list:
+def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None) -> list:
     stock = _get_stock_df(db, store_id, coverage_days)
+    stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
@@ -246,8 +270,9 @@ def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30) -> lis
     return stock[available].fillna(0).to_dict(orient="records")
 
 
-def get_reorder_list(db: Session, store_id: str, coverage_days: int = 30) -> list:
+def get_reorder_list(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None) -> list:
     stock = _get_stock_df(db, store_id, coverage_days)
+    stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
     if stock.empty:
         return []
     reorder = stock[stock["Unid_a_comprar"] > 0].copy()
@@ -318,8 +343,18 @@ def get_filtered_orders(db: Session, store_id: str,
                         limit: int = 500, offset: int = 0,
                         seller_sku: Optional[str] = None, cancel_type: Optional[str] = None,
                         city: Optional[str] = None, recipient: Optional[str] = None,
-                        platform: Optional[str] = None) -> dict:
+                        platform: Optional[str] = None,
+                        brand_slug: str | None = None) -> dict:
     q = db.query(SalesOrder).filter(SalesOrder.store_id == store_id)
+    if brand_slug:
+        from sqlalchemy import text
+        bid_row = db.execute(text("SELECT id FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
+                              {"sid": store_id, "slug": brand_slug}).fetchone()
+        if bid_row:
+            q = q.filter(SalesOrder.brand_id == bid_row[0])
+        else:
+            # Brand no existe → resultado vacío
+            q = q.filter(SalesOrder.id == "__NO_MATCH__")
     if platform:
         q = q.filter(SalesOrder.platform == platform)
     if date_from:

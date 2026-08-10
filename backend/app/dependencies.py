@@ -74,3 +74,27 @@ def require_finance_enabled(
             detail="Finance module is not enabled for this store",
         )
     return user
+
+
+def get_user_brand_id(user: User, db: Session, brand_slug: str | None = None) -> str | None:
+    """Resolve effective brand_id for a request.
+    - If user.brand_id set → force user's brand (locked, viewer socia).
+    - Else if brand_slug provided in query → resolve to brand_id.
+    - Else → None (no filter).
+    Endpoints server-side should use this to scope queries."""
+    if user.brand_id:
+        return user.brand_id
+    if brand_slug:
+        from app.models import Brand
+        b = db.query(Brand).filter(Brand.store_id == user.store_id, Brand.slug == brand_slug).first()
+        return b.id if b else None
+    return None
+
+
+def get_user_brand_sku_subquery(user: User, db: Session, brand_slug: str | None = None):
+    """Return SQL subquery text or None. If a brand filter is active, returns
+    ' AND sku IN (SELECT sku FROM products WHERE brand_id = :brand_id)'.
+    None otherwise. Convenience for services doing raw SQL."""
+    bid = get_user_brand_id(user, db, brand_slug)
+    return bid  # caller uses this to build WHERE clauses
+

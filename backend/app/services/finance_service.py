@@ -89,8 +89,11 @@ def _build_amazon_map(db: Session, store_id: str):
 
 
 def _aggregate_sales(db: Session, store_id: str, platform: str, start: date, end: date, brand_id: str | None = None):
-    """Agrega columnas raw de sales_orders para una plataforma + ventana."""
-    row = db.execute(text("""
+    """Agrega columnas raw de sales_orders para una plataforma + ventana. Optional brand filter."""
+    brand_clause = " AND brand_id = :brand_id " if brand_id else ""
+    params = {"sid": store_id, "start": start, "end": end, "plat": platform}
+    if brand_id: params["brand_id"] = brand_id
+    row = db.execute(text(f"""
         SELECT
             COALESCE(SUM(CAST(sku_subtotal_after_discount AS NUMERIC)
                         + CAST(sku_seller_discount AS NUMERIC)
@@ -107,7 +110,8 @@ def _aggregate_sales(db: Session, store_id: str, platform: str, start: date, end
           AND order_date >= :start AND order_date < :end
           AND platform = :plat
           AND status NOT ILIKE '%%cancel%%'
-    """), {"sid": store_id, "start": start, "end": end, "plat": platform}).fetchone()
+          {brand_clause}
+    """), params).fetchone()
     return {
         "gross_subtotal":   float(row.gross),
         "seller_discount":  float(row.sd),
@@ -121,16 +125,21 @@ def _aggregate_sales(db: Session, store_id: str, platform: str, start: date, end
 
 
 def _cogs_for_platform(db: Session, store_id: str, platform: str, start: date, end: date,
-                       combo_map, products_by_id, products_by_name, amazon_map) -> float:
-    """COGS = sum(units × price_cost), expandiendo combos y mapping Amazon."""
-    rows = db.execute(text("""
+                       combo_map, products_by_id, products_by_name, amazon_map,
+                       brand_id: str | None = None) -> float:
+    """COGS = sum(units × price_cost), expandiendo combos y mapping Amazon. Optional brand filter."""
+    brand_clause = " AND brand_id = :brand_id " if brand_id else ""
+    params = {"sid": store_id, "start": start, "end": end, "plat": platform}
+    if brand_id: params["brand_id"] = brand_id
+    rows = db.execute(text(f"""
         SELECT seller_sku, sku, product_name, quantity
         FROM sales_orders
         WHERE store_id = :sid
           AND order_date >= :start AND order_date < :end
           AND platform = :plat
           AND status NOT ILIKE '%%cancel%%'
-    """), {"sid": store_id, "start": start, "end": end, "plat": platform}).fetchall()
+          {brand_clause}
+    """), params).fetchall()
     total = 0.0
     for r in rows:
         sku = (r.seller_sku or "").strip()
@@ -149,13 +158,24 @@ def _cogs_for_platform(db: Session, store_id: str, platform: str, start: date, e
     return total
 
 
-def _creators_commission(db: Session, store_id: str, start: date, end: date) -> float:
-    row = db.execute(text("""
-        SELECT COALESCE(SUM(CAST(commission AS NUMERIC)), 0) AS c
-        FROM affiliate_sales
-        WHERE store_id = :sid
-          AND time_created >= :start AND time_created < :end
-    """), {"sid": store_id, "start": start, "end": end}).fetchone()
+def _creators_commission(db: Session, store_id: str, start: date, end: date, brand_id: str | None = None) -> float:
+    """Creators commission. Si brand_id: JOIN via order_id → sales_orders para filtrar por brand."""
+    if brand_id:
+        row = db.execute(text("""
+            SELECT COALESCE(SUM(CAST(af.commission AS NUMERIC)), 0) AS c
+            FROM affiliate_sales af
+            JOIN sales_orders so ON so.tiktok_order_id = af.order_id AND so.store_id = af.store_id
+            WHERE af.store_id = :sid
+              AND af.time_created >= :start AND af.time_created < :end
+              AND so.brand_id = :brand_id
+        """), {"sid": store_id, "start": start, "end": end, "brand_id": brand_id}).fetchone()
+    else:
+        row = db.execute(text("""
+            SELECT COALESCE(SUM(CAST(commission AS NUMERIC)), 0) AS c
+            FROM affiliate_sales
+            WHERE store_id = :sid
+              AND time_created >= :start AND time_created < :end
+        """), {"sid": store_id, "start": start, "end": end}).fetchone()
     return float(row.c)
 
 
@@ -189,11 +209,13 @@ def compute_pl(db: Session, store_id: str, year: int, period: str, brand_slug: s
     products_by_id, products_by_name = _build_product_maps(db, store_id)
     amazon_map = _build_amazon_map(db, store_id)
 
+    _brand_id_effective = _brand_id_from_slug(db, store_id, brand_slug)
     blocks = {}
     for plat in ("tiktok", "amazon"):
-        agg = _aggregate_sales(db, store_id, plat, start, end)
+        agg = _aggregate_sales(db, store_id, plat, start, end, brand_id=_brand_id_effective)
         cogs = _cogs_for_platform(db, store_id, plat, start, end,
-                                  combo_map, products_by_id, products_by_name, amazon_map)
+                                  combo_map, products_by_id, products_by_name, amazon_map,
+                                  brand_id=_brand_id_effective)
         block = _compute_platform_block(agg, plat)
         block["cogs"] = cogs
         blocks[plat] = block
@@ -203,7 +225,7 @@ def compute_pl(db: Session, store_id: str, year: int, period: str, brand_slug: s
     for plat_block in blocks.values():
         for k, v in plat_block.items():
             total[k] += v
-    total["creators_commission"] = _creators_commission(db, store_id, start, end)
+    total["creators_commission"] = _creators_commission(db, store_id, start, end, brand_id=_brand_id_effective)
 
     # Resumen
     shipping_net = total["shipping_carrier"] - total["shipping_buyer"]
@@ -216,18 +238,25 @@ def compute_pl(db: Session, store_id: str, year: int, period: str, brand_slug: s
         - total["refunds"]
     )
 
-    # Custom lines del período
+    # Custom lines del período — con brand filter (si brand_slug: solo esa brand + comunes NULL)
+    from sqlalchemy import or_
     if period.upper() == "YTD":
-        lines = db.query(FinanceCustomLine).filter(
+        q = db.query(FinanceCustomLine).filter(
             FinanceCustomLine.store_id == store_id,
             FinanceCustomLine.year_month.like(f"{year}-%"),
-        ).order_by(FinanceCustomLine.year_month, FinanceCustomLine.sort_order, FinanceCustomLine.id).all()
+        )
+        if _brand_id_effective:
+            q = q.filter(or_(FinanceCustomLine.brand_id == _brand_id_effective, FinanceCustomLine.brand_id.is_(None)))
+        lines = q.order_by(FinanceCustomLine.year_month, FinanceCustomLine.sort_order, FinanceCustomLine.id).all()
     else:
         ym = f"{year}-{month:02d}"
-        lines = db.query(FinanceCustomLine).filter(
+        q = db.query(FinanceCustomLine).filter(
             FinanceCustomLine.store_id == store_id,
             FinanceCustomLine.year_month == ym,
-        ).order_by(FinanceCustomLine.sort_order, FinanceCustomLine.id).all()
+        )
+        if _brand_id_effective:
+            q = q.filter(or_(FinanceCustomLine.brand_id == _brand_id_effective, FinanceCustomLine.brand_id.is_(None)))
+        lines = q.order_by(FinanceCustomLine.sort_order, FinanceCustomLine.id).all()
 
     custom_income  = sum(float(l.amount) for l in lines if float(l.amount) > 0)
     custom_expense = sum(float(l.amount) for l in lines if float(l.amount) < 0)  # negativo

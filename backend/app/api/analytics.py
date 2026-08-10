@@ -78,28 +78,34 @@ def platform_summary(
 @router.get("/stock-summary")
 def stock_summary(
     coverage_days: int = 30,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_stock_summary(db, user.store_id, coverage_days)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_stock_summary(db, user.store_id, coverage_days, brand_slug=_bs)
 
 
 @router.get("/stock-detail")
 def stock_detail(
     coverage_days: int = 30,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_stock_detail(db, user.store_id, coverage_days)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_stock_detail(db, user.store_id, coverage_days, brand_slug=_bs)
 
 
 @router.get("/reorder-list")
 def reorder_list(
     coverage_days: int = 30,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_reorder_list(db, user.store_id, coverage_days)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_reorder_list(db, user.store_id, coverage_days, brand_slug=_bs)
 
 
 @router.get("/creators/top")
@@ -144,14 +150,16 @@ def filtered_orders(
     platform: Optional[str] = None,
     limit: int = Query(500, le=5000),
     offset: int = 0,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _bs = _resolve_brand_slug(user, db, brand_slug)
     return svc.get_filtered_orders(
         db, user.store_id, date_from, date_to, status, sku,
         buyer, fulfillment, order_id, product_name, limit, offset,
         seller_sku=seller_sku, cancel_type=cancel_type, city=city, recipient=recipient,
-        platform=platform,
+        platform=platform, brand_slug=_bs,
     )
 
 

@@ -25,10 +25,17 @@ def create_product(
 
 @router.get("", response_model=list[ProductResponse])
 def list_products(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(Product).filter(Product.store_id == user.store_id).all()
+    q = db.query(Product).filter(Product.store_id == user.store_id)
+    # Brand-scope: user locked (brand_id) → force; else honor query brand_slug
+    from app.dependencies import get_user_brand_id
+    bid = get_user_brand_id(user, db, brand_slug)
+    if bid:
+        q = q.filter(Product.brand_id == bid)
+    return q.all()
 
 
 @router.get("/{product_id}", response_model=ProductResponse)

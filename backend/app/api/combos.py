@@ -49,10 +49,16 @@ def create_combo(
 
 @router.get("", response_model=list[ComboResponse])
 def list_combos(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    combos = db.query(Combo).filter(Combo.store_id == user.store_id).all()
+    q = db.query(Combo).filter(Combo.store_id == user.store_id)
+    from app.dependencies import get_user_brand_id
+    bid = get_user_brand_id(user, db, brand_slug)
+    if bid:
+        q = q.filter(Combo.brand_id == bid)
+    combos = q.all()
     product_ids = {item.product_id for combo in combos for item in combo.items}
     pmap = {p.id: p.name for p in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
     result = []

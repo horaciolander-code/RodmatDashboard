@@ -77,11 +77,12 @@ def run_faraway(
     background_tasks: BackgroundTasks,
     force: bool = False,
     test_email: str | None = None,
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
 ):
     """Queues FARAWAY in background. test_email overrides recipients (for testing, solo a ti)."""
     background_tasks.add_task(_run_agent_bg, "faraway", user.store_id, force, test_email, brand_slug)
-    return {"status": "queued", "agent": "FARAWAY", "store": user.store_id[:8], "test_email": test_email}
+    return {"status": "queued", "agent": "FARAWAY", "store": user.store_id[:8], "test_email": test_email, "brand_slug": brand_slug}
 
 
 @router.post("/mesmerize")
@@ -100,11 +101,12 @@ def run_timeless(
     background_tasks: BackgroundTasks,
     force: bool = False,
     test_email: str | None = None,
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
 ):
     """Queues TIMELESS in background. test_email overrides recipients (solo a ti)."""
     background_tasks.add_task(_run_agent_bg, "timeless", user.store_id, force, test_email, brand_slug)
-    return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8], "test_email": test_email}
+    return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8], "test_email": test_email, "brand_slug": brand_slug}
 
 
 @router.post("/test-run/{agent_name}")
