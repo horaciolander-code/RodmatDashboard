@@ -18,6 +18,55 @@ from app.models.combo import Combo, ComboItem
 from app.models.inventory import InitialInventory, IncomingStock
 
 
+
+# ─── BRAND resolution helper (multi-brand LuxPerfumes support) ───────────────
+_BRAND_MAP_CACHE: dict[str, tuple[dict, dict]] = {}  # store_id → (sku_to_brand, prefix_to_brand)
+
+def _get_brand_maps(db, store_id: str):
+    """Return (sku_to_brand_id, prefix_to_brand_id) for the store.
+    Cached per-call to avoid N queries during bulk import.
+    Empty dicts if brands_enabled=False for the store."""
+    if store_id in _BRAND_MAP_CACHE:
+        return _BRAND_MAP_CACHE[store_id]
+    from sqlalchemy import text as _t
+    # SKU → brand_id map (source of truth via products.brand_id)
+    rows = db.execute(_t("""
+        SELECT p.sku, p.brand_id
+        FROM products p
+        WHERE p.store_id = :sid AND p.brand_id IS NOT NULL
+    """), {"sid": store_id}).fetchall()
+    sku_map = {r[0]: r[1] for r in rows if r[0]}
+    # Prefix fallback: build from brands.sku_prefixes_note (comma-separated prefixes like 'AV-*, LAT-*')
+    prefix_map: dict[str, str] = {}
+    brand_rows = db.execute(_t("""
+        SELECT id, sku_prefixes_note FROM brands WHERE store_id = :sid AND is_active = TRUE
+    """), {"sid": store_id}).fetchall()
+    for bid, note in brand_rows:
+        if not note: continue
+        # Extract prefixes like "AV", "AT", "LAT" from "AV-*" or "AT-*, LAT-*"
+        import re as _re
+        for prefix in _re.findall(r"([A-Z]{2,5})-\*", note.upper()):
+            prefix_map[prefix] = bid
+    _BRAND_MAP_CACHE[store_id] = (sku_map, prefix_map)
+    return sku_map, prefix_map
+
+
+def _resolve_brand_id(sku: str | None, sku_map: dict, prefix_map: dict) -> str | None:
+    """Resolve brand_id for a SKU:
+    1) Exact SKU match in products → use products.brand_id (source of truth)
+    2) Prefix match (AV-*, AT-*, LAT-*) → fallback for combos/variants no dados de alta
+    3) None → row stays NULL (log-worthy)"""
+    if not sku:
+        return None
+    if sku in sku_map:
+        return sku_map[sku]
+    # Prefix fallback: extraer "AV" de "AV-RG" o "AV-RPG/2"
+    import re as _re
+    m = _re.match(r"^([A-Z]{2,5})-", sku.upper())
+    if m and m.group(1) in prefix_map:
+        return prefix_map[m.group(1)]
+    return None
+
 def _detect_separator(content: bytes) -> str:
     first_line = content.split(b'\n')[0].decode('utf-8-sig', errors='replace')
     return '\t' if first_line.count('\t') > first_line.count(',') else ','
@@ -62,10 +111,15 @@ def _safe_datetime(val, dayfirst: bool = False) -> datetime | None:
 
 
 def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
-    """Parse TikTok orders CSV (AllBBDD format). Replaces TikTok orders only (keeps Amazon)."""
+    """Parse TikTok orders CSV (AllBBDD format). Replaces TikTok orders only (keeps Amazon).
+    Multi-brand aware: resuelve brand_id por SKU (product.brand_id) o fallback por prefijo."""
     import uuid as _uuid
     import pandas as pd
     from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    # Brand map (fresh per import — invalidate cache in case products/brands cambiaron)
+    _BRAND_MAP_CACHE.pop(store_id, None)
+    _sku_map, _prefix_map = _get_brand_maps(db, store_id)
 
     sep = _detect_separator(content)
     df = pd.read_csv(
@@ -119,6 +173,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str |
                 platform='tiktok',
                 import_batch_id=batch_id,
                 raw_data=None,
+                brand_id=_resolve_brand_id(_safe_str(row.get('Seller SKU')) or sku_id, _sku_map, _prefix_map),
             ))
         except Exception:
             errors += 1
@@ -131,6 +186,7 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str |
         'shipping_fee_after_discount', 'original_shipping_fee', 'sku_seller_discount',
         'sku_platform_discount', 'cancelation_return_type', 'fulfillment_type',
         'buyer_username', 'variation', 'recipient', 'city', 'state', 'import_batch_id',
+        'brand_id',
     ]
 
     BATCH = 500   # micro-batches: evita statement_timeout Supabase Micro
@@ -438,14 +494,15 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
 
 def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
     """Parse Amazon order report TXT (tab-separated). UPSERTS Amazon orders — never deletes history.
-
-    Quantity is expanded by units_per_sale from amazon_sku_map (AV-ID/5 with qty=1 → quantity=5).
-    product_name is set to the DB product name so stock_calculator deducts from unified inventory.
-    """
+    Multi-brand aware: resuelve brand_id por SKU o prefijo."""
     import uuid as _uuid
     import pandas as pd
     from sqlalchemy import text as _text
     from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    # Brand map refresh
+    _BRAND_MAP_CACHE.pop(store_id, None)
+    _sku_map_brands, _prefix_map = _get_brand_maps(db, store_id)
 
     # Load SKU map for this store
     sku_rows = db.execute(_text("""
@@ -531,6 +588,7 @@ def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str |
                 platform='amazon',
                 import_batch_id=batch_id,
                 raw_data=None,
+                brand_id=_resolve_brand_id(amazon_sku, _sku_map_brands, _prefix_map),
             ))
         except Exception:
             errors += 1
@@ -541,7 +599,7 @@ def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str |
         'product_name', 'quantity', 'status', 'substatus', 'price',
         'sku_subtotal_after_discount', 'order_amount', 'order_refund_amount',
         'shipping_fee_after_discount', 'original_shipping_fee', 'sku_platform_discount',
-        'city', 'state', 'import_batch_id',
+        'city', 'state', 'import_batch_id', 'brand_id',
     ]
 
     BATCH = 500   # micro-batches: evita statement_timeout Supabase Micro
@@ -642,21 +700,17 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
 
 def parse_walmart_xlsx(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
     """Parse Walmart Seller PO Data export (.xlsx). UPSERTS by Order# + SKU — never deletes history.
-
-    Walmart genera DOS archivos por export:
-    - Seller Fulfilled (Fulfillment Entity = 'SellerFulfilled')
-    - WFS Fulfilled    (Fulfillment Entity = 'WFSFulfilled', Walmart's FBA-equivalent)
-    Ambos se procesan IGUAL — stock se descuenta independientemente.
-
-    Quantity se expande por units_per_sale del walmart_sku_map. Ej: SKU AV-MD12
-    con qty=1 + units_per_sale=12 → quantity=12 (descuenta 12 unidades del producto base).
-    """
+    Multi-brand aware: resuelve brand_id por SKU o prefijo."""
     import uuid as _uuid
     import openpyxl
     import io as _io
     from sqlalchemy import text as _text
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     from datetime import datetime
+
+    # Brand map fresh
+    _BRAND_MAP_CACHE.pop(store_id, None)
+    _sku_map_brands, _prefix_map = _get_brand_maps(db, store_id)
 
     # Load Walmart SKU map
     sku_rows = db.execute(_text("""
@@ -757,6 +811,7 @@ def parse_walmart_xlsx(content: bytes, store_id: str, db: Session, batch_id: str
                 platform="walmart",
                 import_batch_id=batch_id,
                 raw_data=None,
+                brand_id=_resolve_brand_id(walmart_sku, _sku_map_brands, _prefix_map),
             ))
         except Exception:
             errors += 1
