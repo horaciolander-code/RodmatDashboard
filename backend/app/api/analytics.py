@@ -9,18 +9,32 @@ from app.services import analytics_service as svc
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
+def _resolve_brand_slug(user: User, db: Session, brand_slug: Optional[str]) -> Optional[str]:
+    """Return effective brand_slug for the request.
+    - If user has brand_id set → force his brand (viewer socia only sees LuxPerfumes).
+    - Else → use query param brand_slug as-is (admin control).
+    """
+    if user.brand_id:
+        from app.models import Brand
+        b = db.query(Brand).filter(Brand.id == user.brand_id).first()
+        return b.slug if b else None
+    return brand_slug or None
+
+
 
 @router.get("/overview")
 def overview(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     platform: Optional[str] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _bs = _resolve_brand_slug(user, db, brand_slug)
     if date_from or date_to or platform:
-        return svc.get_overview_metrics_filtered(db, user.store_id, date_from, date_to, platform)
-    return svc.get_overview_metrics(db, user.store_id)
+        return svc.get_overview_metrics_filtered(db, user.store_id, date_from, date_to, platform, brand_slug=_bs)
+    return svc.get_overview_metrics(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/sales-by-month")
@@ -28,10 +42,12 @@ def sales_by_month(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     platform: Optional[str] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_sales_by_month(db, user.store_id, date_from, date_to, platform)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_sales_by_month(db, user.store_id, date_from, date_to, platform, brand_slug=_bs)
 
 
 @router.get("/sales-by-day")
@@ -39,20 +55,24 @@ def sales_by_day(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     platform: Optional[str] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_sales_by_day(db, user.store_id, date_from, date_to, platform)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_sales_by_day(db, user.store_id, date_from, date_to, platform, brand_slug=_bs)
 
 
 @router.get("/platform-summary")
 def platform_summary(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_platform_summary(db, user.store_id, date_from, date_to)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_platform_summary(db, user.store_id, date_from, date_to, brand_slug=_bs)
 
 
 @router.get("/stock-summary")

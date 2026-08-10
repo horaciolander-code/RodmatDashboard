@@ -61,13 +61,49 @@ def _get_stock_df(db: Session, store_id: str, coverage_days: int = 30):
     return df
 
 
-def get_overview_metrics(db: Session, store_id: str) -> dict:
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  BRAND filter helper — filtra un DataFrame de orders por brand_slug
+# ═════════════════════════════════════════════════════════════════════════════
+def _filter_df_by_brand(db: Session, store_id: str, df, brand_slug):
+    """Filtra un DataFrame de orders (con columnas Seller SKU/SKU ID) por brand.
+    - brand_slug None o vacío → passthrough
+    - brand_slug X → keep rows cuyo SKU pertenezca a la brand (via products.brand_id)
+    Rows con SKU no mapeado a ningún product de la brand son eliminadas."""
+    if not brand_slug or df is None or df.empty:
+        return df
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT p.sku FROM products p
+        JOIN brands b ON b.id = p.brand_id
+        WHERE p.store_id = :sid AND b.slug = :slug
+    """), {"sid": store_id, "slug": brand_slug}).fetchall()
+    skus = {r[0] for r in rows}
+    if not skus:
+        # Brand sin productos → resultado vacío
+        return df.iloc[0:0]
+    # Buscar columna SKU
+    sku_col = None
+    for c in ("SKU_ID_Clean", "Seller SKU", "SKU ID", "sku"):
+        if c in df.columns:
+            sku_col = c
+            break
+    if not sku_col:
+        return df  # no way to filter
+    return df[df[sku_col].astype(str).isin(skus)].reset_index(drop=True)
+
+
+def get_overview_metrics(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
     import pandas as pd
-    cached = _get_cached(store_id, "overview")
+    # Cache key incluye brand para no mezclar
+    _ck = f"overview:{brand_slug or 'ALL'}"
+    cached = _get_cached(store_id, _ck)
     if cached:
         return cached
 
     df = _load_orders_df(db, store_id)
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
         return {}
 
@@ -126,9 +162,11 @@ def get_overview_metrics(db: Session, store_id: str) -> dict:
 
 def get_sales_by_month(db: Session, store_id: str,
                        date_from: Optional[str] = None, date_to: Optional[str] = None,
-                       platform: Optional[str] = None) -> list:
+                       platform: Optional[str] = None,
+                        brand_slug: str | None = None) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
         return []
     if platform and "Platform" in df.columns:
@@ -148,9 +186,11 @@ def get_sales_by_month(db: Session, store_id: str,
 
 def get_sales_by_day(db: Session, store_id: str,
                      date_from: Optional[str] = None, date_to: Optional[str] = None,
-                     platform: Optional[str] = None) -> list:
+                     platform: Optional[str] = None,
+                        brand_slug: str | None = None) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
         return []
     if platform and "Platform" in df.columns:
@@ -542,10 +582,12 @@ def get_creator_own_orders(db: Session, store_id: str) -> list:
 
 def get_platform_summary(db: Session, store_id: str,
                           date_from: Optional[str] = None,
-                          date_to: Optional[str] = None) -> dict:
+                          date_to: Optional[str] = None,
+                        brand_slug: str | None = None) -> dict:
     """Side-by-side TikTok vs Amazon revenue and order counts."""
     import pandas as pd
     df = _load_orders_df(db, store_id)
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
         return {"tiktok": {}, "amazon": {}, "combined": {}}
     if date_from:
@@ -596,10 +638,12 @@ def get_pallet_orders(db: Session, store_id: str) -> list:
 def get_overview_metrics_filtered(db: Session, store_id: str,
                                    date_from: Optional[str] = None,
                                    date_to: Optional[str] = None,
-                                   platform: Optional[str] = None) -> dict:
+                                   platform: Optional[str] = None,
+                                   brand_slug: str | None = None) -> dict:
     """Overview metrics with optional date range and platform filter."""
     import pandas as pd
     df = _load_orders_df(db, store_id)
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
         return {}
 

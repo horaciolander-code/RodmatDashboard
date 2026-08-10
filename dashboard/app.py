@@ -55,34 +55,38 @@ st.markdown("""
 #  CACHED API CALLS
 # ================================================================== #
 @st.cache_data(ttl=300)
-def fetch_overview(date_from=None, date_to=None, platform=None):
+def fetch_overview(date_from=None, date_to=None, platform=None, brand_slug=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
     if platform: params["platform"] = platform
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/overview", params) or {}
 
 @st.cache_data(ttl=300)
-def fetch_sales_by_month(date_from=None, date_to=None, platform=None):
+def fetch_sales_by_month(date_from=None, date_to=None, platform=None, brand_slug=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
     if platform: params["platform"] = platform
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/sales-by-month", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_sales_by_day(date_from=None, date_to=None, platform=None):
+def fetch_sales_by_day(date_from=None, date_to=None, platform=None, brand_slug=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
     if platform: params["platform"] = platform
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/sales-by-day", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_platform_summary(date_from=None, date_to=None):
+def fetch_platform_summary(date_from=None, date_to=None, brand_slug=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/platform-summary", params) or {}
 
 @st.cache_data(ttl=300)
@@ -329,7 +333,8 @@ def page_overview():
     _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
     if _bs:
         _bn = next((b["display_name"] for b in (_u.get("available_brands") or []) if b["slug"] == _bs), _bs)
-        st.info(f"ℹ️ Filtro marca activo: **{_bn}**. Los KPIs de esta página son agregados globales del store (Avon + LuxPerfumes) — el filtro brand aún no se aplica en Overview.")
+        _bc = next((b.get("brand_color") for b in (_u.get("available_brands") or []) if b["slug"] == _bs), "#8B4A9C")
+        st.markdown(f"<div style='background:{_bc};color:#fff;padding:6px 12px;border-radius:6px;display:inline-block;font-weight:600;'>🏷 Filtrado: {_bn}</div>", unsafe_allow_html=True)
     _platform = render_platform_selector("ov")
 
     if _platform != "amazon":
@@ -339,7 +344,7 @@ def page_overview():
 
     # Platform breakdown only for multi-platform tenants and when no filter set
     if _platform is None and len(get_enabled_platforms()) > 1:
-        ps = fetch_platform_summary()
+        ps = fetch_platform_summary(brand_slug=_bs)
         if ps and (ps.get("amazon", {}).get("orders", 0) > 0):
             with st.expander("Resumen por Plataforma", expanded=True):
                 pc1, pc2, pc3 = st.columns(3)
@@ -368,7 +373,7 @@ def page_overview():
     date_from = str(date_range[0]) if len(date_range) >= 1 else None
     date_to = str(date_range[1]) if len(date_range) == 2 else (str(date_range[0]) if len(date_range) == 1 else None)
 
-    m = fetch_overview(date_from, date_to, platform=_platform)
+    m = fetch_overview(date_from, date_to, platform=_platform, brand_slug=_bs)
     if not m or m.get("totalOrders", 0) == 0:
         if _platform == "amazon":
             st.info("No hay pedidos Amazon en la base de datos aún. Importa el archivo .txt desde el panel de administración → Data Import → paso 7.")
@@ -402,7 +407,7 @@ def page_overview():
 
     st.markdown("---")
 
-    monthly = fetch_sales_by_month(date_from, date_to, platform=_platform)
+    monthly = fetch_sales_by_month(date_from, date_to, platform=_platform, brand_slug=_bs)
     st.subheader("GMV por Mes")
     if monthly:
         df_m = pd.DataFrame(monthly)
@@ -428,7 +433,7 @@ def page_overview():
     else:
         selected_month = "All"
 
-    daily_raw = fetch_sales_by_day(date_from, date_to, platform=_platform)
+    daily_raw = fetch_sales_by_day(date_from, date_to, platform=_platform, brand_slug=_bs)
     if daily_raw:
         df_d = pd.DataFrame(daily_raw)
         if selected_month != "All" and not df_d.empty:
