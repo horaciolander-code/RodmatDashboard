@@ -105,7 +105,12 @@ def get_overview_metrics(db: Session, store_id: str, brand_slug: str | None = No
     df = _load_orders_df(db, store_id)
     df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
-        return {}
+        # Zeros para que Streamlit muestre 0 en lugar de None (mejor UX cuando brand=luxperfumes sin orders)
+        z = {"netOrder":0,"totalOrders":0,"TITKOKGMVOrderAmount":0.0,"NetOrderAmount":0.0,
+             "ShippingFees":0.0,"netOrderWOUshipping":0.0,"SellerDiscount":0.0,"PlatformDiscount":0.0,
+             "CreatorCommission":0.0,"CreatorPayment":0.0,"creatorOrderCount":0,"PctVsPrevMonth":0.0,
+             "ReferralFees":0.0,"ShippingDiscount":0.0}
+        return z
 
     active_mask = ~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)
     net_orders = df.loc[active_mask, "Order ID"].nunique()
@@ -645,7 +650,10 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
     df = _load_orders_df(db, store_id)
     df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df.empty:
-        return {}
+        return {"netOrder":0,"totalOrders":0,"TITKOKGMVOrderAmount":0.0,"NetOrderAmount":0.0,
+                "ShippingFees":0.0,"netOrderWOUshipping":0.0,"SellerDiscount":0.0,"PlatformDiscount":0.0,
+                "CreatorCommission":0.0,"CreatorPayment":0.0,"creatorOrderCount":0,"PctVsPrevMonth":0.0,
+                "ReferralFees":0.0,"ShippingDiscount":0.0}
 
     if platform and "Platform" in df.columns:
         df = df[df["Platform"] == platform]
