@@ -2149,7 +2149,168 @@ def main():
         if not _finance_enabled:
             st.warning("El modulo Finance no esta habilitado para esta tienda.")
         else:
-            page_finance_pl()
+            _tiktok_stmt_enabled = bool(_modules.get("tiktok_statements", False))
+            if _tiktok_stmt_enabled:
+                tab_f1, tab_f2 = st.tabs(["P&L Operacional", "⚡ TikTok Statements"])
+                with tab_f1: page_finance_pl()
+                with tab_f2: page_finance_tiktok_statements()
+            else:
+                page_finance_pl()
+
+
+
+# ============================================================================
+#  FINANCE → TikTok Statements (nueva hoja, paleta futurista)
+#  Gate: user.modules_enabled.tiktok_statements=true
+# ============================================================================
+def page_finance_tiktok_statements():
+    """Página Finance TikTok Statements — dark futurista con datos reales de BD."""
+    import pandas as _pd
+
+    # ------- CSS custom paleta futurista -------
+    st.markdown("""
+    <style>
+    .stt-h1{font-size:22px;font-weight:700;background:linear-gradient(90deg,#00D4FF,#7B61FF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:8px 0 4px;}
+    .stt-sub{color:#8892b0;font-size:13px;margin-bottom:16px;}
+    .stt-card{background:linear-gradient(135deg,rgba(15,20,47,.9),rgba(20,26,61,.9));border:1px solid rgba(123,97,255,.15);border-radius:12px;padding:16px;margin-bottom:12px;}
+    .stt-card h3{color:#8892b0;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;font-weight:700;}
+    .stt-kpi{background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,.15);border-radius:12px;padding:14px;position:relative;overflow:hidden;text-align:left;}
+    .stt-kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent,#00D4FF),transparent);opacity:.7;}
+    .stt-kpi-l{color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+    .stt-kpi-v{color:#fff;font-size:22px;font-weight:700;margin-top:4px;line-height:1.1;}
+    .stt-kpi-s{color:#8892b0;font-size:11px;margin-top:4px;}
+    .stt-cyan{--accent:#00D4FF}.stt-green{--accent:#00FF88}.stt-orange{--accent:#FF9F45}.stt-purple{--accent:#7B61FF}
+    .stt-c-cyan{color:#00D4FF!important}.stt-c-green{color:#00FF88!important}.stt-c-orange{color:#FF9F45!important}.stt-c-purple{color:#7B61FF!important}
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="stt-h1">⚡ Finance → TikTok Statements</div>', unsafe_allow_html=True)
+    st.markdown('<div class="stt-sub">Ventas facturadas vs cobradas al banco · Waterfall con COGS real · Data del Merchant Statement TikTok</div>', unsafe_allow_html=True)
+
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    _q = f"?brand_slug={_bs}" if _bs else ""
+
+    # KPIs
+    kpis = api_get(f"/tiktok-statements/kpis{_q}") or {}
+    if not kpis or kpis.get("orders", 0) == 0:
+        st.warning("Sin datos aún. Sube el TikTok Merchant Statement desde panel.rodmatcenter.com → Importación → Step 9.")
+        return
+
+    # 4 KPI cards
+    fmt = lambda v: f"${v:,.0f}" if v else "$0"
+    c1, c2, c3, c4 = st.columns(4)
+    for col, cls, ck, ct in [
+        (c1, "stt-cyan", "stt-c-cyan", "Total Facturado"),
+        (c2, "stt-green", "stt-c-green", "Cobrado (settled)"),
+        (c3, "stt-orange", "stt-c-orange", "Pending Payment"),
+        (c4, "stt-purple", "stt-c-purple", "Margen NETO REAL"),
+    ]:
+        pass  # se rellenan abajo
+
+    _revenue = kpis.get("revenue", 0)
+    _settled = kpis.get("settled", 0)
+    _pending = kpis.get("pending", 0)
+    _net_real = kpis.get("net_margin_real", 0)
+    _net_pct = kpis.get("net_margin_pct", 0)
+    _sett_pct = kpis.get("settlement_pct", 0)
+    _cogs = kpis.get("cogs_real", 0)
+    _fees = kpis.get("fees_total", 0)
+    _affiliate = kpis.get("affiliate", 0)
+    _orders = kpis.get("orders", 0)
+    _stmts = kpis.get("statements", 0)
+
+    c1.markdown(f'<div class="stt-kpi stt-cyan"><div class="stt-kpi-l">Total Facturado</div><div class="stt-kpi-v">{fmt(_revenue)}</div><div class="stt-kpi-s">{_orders} órdenes · {_stmts} statements</div></div>', unsafe_allow_html=True)
+    c2.markdown(f'<div class="stt-kpi stt-green"><div class="stt-kpi-l">Cobrado (banco)</div><div class="stt-kpi-v" style="color:#00FF88">{fmt(_settled)}</div><div class="stt-kpi-s">{_sett_pct:.1f}% del facturado</div></div>', unsafe_allow_html=True)
+    c3.markdown(f'<div class="stt-kpi stt-orange"><div class="stt-kpi-l">Pending Payment</div><div class="stt-kpi-v" style="color:#FF9F45">{fmt(_pending)}</div><div class="stt-kpi-s">pendiente banco</div></div>', unsafe_allow_html=True)
+    c4.markdown(f'<div class="stt-kpi stt-purple"><div class="stt-kpi-l">Margen NETO REAL</div><div class="stt-kpi-v" style="color:#00FF88">{fmt(_net_real)}</div><div class="stt-kpi-s">{_net_pct:.1f}% sobre revenue</div></div>', unsafe_allow_html=True)
+
+    st.markdown("<br/>", unsafe_allow_html=True)
+
+    # WATERFALL con Plotly
+    import plotly.graph_objects as go
+    labels = ["Income", "Fees TT", "Affiliate", "COGS mercancía", "Margen NETO"]
+    values = [_revenue, -_fees, -_affiliate, -_cogs, _net_real]
+    colors = ["#00FF88", "#FF6B35", "#FF6B35", "#FF3D6B", "#00FF88"]
+    fig = go.Figure(data=[go.Bar(
+        x=labels, y=[abs(v) for v in values],
+        marker=dict(color=colors, line=dict(color=colors, width=0)),
+        text=[f"${v:,.0f}" if v >= 0 else f"-${abs(v):,.0f}" for v in values],
+        textposition="outside", textfont=dict(color=colors, size=14, family="Menlo"),
+    )])
+    fig.update_layout(
+        title=dict(text=f"🌊 Cascada Income → Margen NETO REAL   ·   {_net_pct:.1f}% margen s/revenue",
+                   font=dict(color="#8892b0", size=14)),
+        plot_bgcolor="rgba(15,20,47,0.5)", paper_bgcolor="rgba(15,20,47,0)",
+        font=dict(color="#e4e9ff"), showlegend=False,
+        xaxis=dict(showgrid=False, color="#8892b0"),
+        yaxis=dict(showgrid=True, gridcolor="rgba(123,97,255,0.1)", color="#8892b0", tickformat="$,.0f"),
+        margin=dict(l=20, r=20, t=50, b=20), height=380,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Weekly bars + Top productos
+    col_w, col_top = st.columns([2, 1])
+
+    weekly = api_get(f"/tiktok-statements/weekly{_q}") or []
+    if weekly:
+        df_w = _pd.DataFrame(weekly)
+        fig_w = go.Figure()
+        fig_w.add_trace(go.Bar(name="Cobrado", x=df_w["week"], y=df_w["settled"],
+            marker=dict(color="#00D4FF", line=dict(color="#00D4FF")),
+            text=[f"${v:,.0f}" for v in df_w["settled"]], textposition="outside", textfont=dict(color="#00D4FF")))
+        fig_w.add_trace(go.Bar(name="Pending", x=df_w["week"], y=df_w["pending"],
+            marker=dict(color="#FF9F45", line=dict(color="#FF9F45"))))
+        fig_w.update_layout(
+            title=dict(text="📊 Semana × semana — Cobrado vs Pending", font=dict(color="#8892b0", size=14)),
+            plot_bgcolor="rgba(15,20,47,0.5)", paper_bgcolor="rgba(15,20,47,0)",
+            font=dict(color="#e4e9ff"), barmode="stack", height=340,
+            xaxis=dict(showgrid=False, color="#8892b0"),
+            yaxis=dict(showgrid=True, gridcolor="rgba(123,97,255,0.1)", color="#8892b0", tickformat="$,.0f"),
+            legend=dict(orientation="h", yanchor="top", y=-0.1, x=0.4, bgcolor="rgba(0,0,0,0)"),
+            margin=dict(l=20, r=20, t=50, b=20),
+        )
+        col_w.plotly_chart(fig_w, use_container_width=True)
+
+    top = api_get(f"/tiktok-statements/top-products{_q}&n=5" if _q else "/tiktok-statements/top-products?n=5") or []
+    if top:
+        top_html = '<div class="stt-card"><h3>🏆 Top 5 productos por margen</h3>'
+        for i, p in enumerate(top[:5], 1):
+            nm = (p.get("product_name") or "")[:45]
+            top_html += f'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(123,97,255,.08)"><div style="font-size:12px;font-weight:700;color:#7B61FF;background:rgba(123,97,255,.1);width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center">{i}</div><div style="flex:1;font-size:12px;color:#e4e9ff">{nm}</div><div style="color:#00FF88;font-family:Menlo,monospace;font-weight:600;font-size:11px">+${p.get("margin",0):,.0f}</div></div>'
+        top_html += '</div>'
+        col_top.markdown(top_html, unsafe_allow_html=True)
+
+    # Fees breakdown donut
+    fees = api_get(f"/tiktok-statements/fees-breakdown{_q}") or {}
+    if fees:
+        fees_labels = ["Shipping (FBT+TT)", "Referral fee", "Affiliate", "Smart Promo", "Managed service"]
+        fees_values = [fees.get("shipping", 0), fees.get("referral", 0), fees.get("affiliate", 0),
+                       fees.get("smart_promo", 0), fees.get("managed", 0)]
+        fees_colors = ["#00D4FF", "#7B61FF", "#FF9F45", "#00FF88", "#FF3D6B"]
+        fig_d = go.Figure(data=[go.Pie(
+            labels=fees_labels, values=fees_values, hole=0.55,
+            marker=dict(colors=fees_colors, line=dict(color="#0a0e27", width=2)),
+            textinfo="percent", textfont=dict(color="#fff", size=11),
+            hovertemplate="<b>%{label}</b>: $%{value:,.0f} (%{percent})<extra></extra>",
+        )])
+        fig_d.update_layout(
+            title=dict(text=f"💸 Desglose fees TikTok — Total: ${sum(fees_values):,.0f}", font=dict(color="#8892b0", size=14)),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(15,20,47,0)",
+            font=dict(color="#e4e9ff"), showlegend=True,
+            legend=dict(orientation="v", x=1.02, y=0.5, font=dict(color="#e4e9ff", size=11), bgcolor="rgba(0,0,0,0)"),
+            margin=dict(l=20, r=20, t=50, b=20), height=340,
+        )
+        st.plotly_chart(fig_d, use_container_width=True)
+
+    # Statements list
+    stmts = api_get(f"/tiktok-statements/statements{_q}") or []
+    if stmts:
+        st.markdown(f'<div class="stt-card"><h3>💰 {len(stmts)} statements / payouts al banco</h3></div>', unsafe_allow_html=True)
+        df_s = _pd.DataFrame(stmts)
+        df_s = df_s[["settled_date", "period_start", "period_end", "total_orders", "total_income", "total_margin", "total_fees", "statement_id"]]
+        df_s.columns = ["Settled Date", "Desde", "Hasta", "Órdenes", "Income", "Margin TT", "Fees", "Statement ID"]
+        st.dataframe(df_s, use_container_width=True, height=380, hide_index=True)
 
 
 

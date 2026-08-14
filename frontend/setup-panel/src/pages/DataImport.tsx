@@ -41,6 +41,7 @@ const EXTERNAL_STEPS: ExternalStep[] = [
   { key: 'affiliates',label: '6. Afiliadas',       endpoint: '/import/affiliates', accept: '.csv',           desc: 'CSV de afiliadas (TikTok Creator Center)', platform: 'tiktok' },
   { key: 'amazon',    label: '7. Amazon Orders',   endpoint: '/import/amazon',     accept: '.txt,.tsv,.csv', desc: 'Amazon order report .txt (Seller Central → Reports → Order Reports → All Orders)', platform: 'amazon' },
   { key: 'walmart',   label: '8. Walmart Orders',  endpoint: '/import/walmart',    accept: '.xlsx,.xls',     desc: 'Walmart Seller Center PO Data export (.xlsx). Sube SellerFulfilled y WFSFulfilled por separado.', platform: 'walmart' },
+  { key: 'tiktok_stmt',label: '9. TikTok Merchant Statement', endpoint: '/import/tiktok-statement', accept: '.xlsx', desc: 'TikTok Seller Center → Finance → Merchant Statement (Profit & Loss) → Export XLSX. Dedup automático por order_id+sku_id.', platform: 'tiktok' },
 ];
 
 export default function DataImport() {
