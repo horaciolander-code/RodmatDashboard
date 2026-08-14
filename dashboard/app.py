@@ -8,6 +8,45 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# 🎨 Plotly Template Global — paleta futurista aplicada a TODAS las gráficas
+# ══════════════════════════════════════════════════════════════════════════
+import plotly.io as _pio
+_pio.templates["rodmat_neon"] = go.layout.Template(
+    layout=go.Layout(
+        colorway=["#00D4FF", "#00FF88", "#FF9F45", "#7B61FF", "#FF3D6B", "#FF6B35",
+                  "#4A9EFF", "#B47CFF", "#00CC66", "#FFB84D"],
+        paper_bgcolor="rgba(15,20,47,0)",
+        plot_bgcolor="rgba(15,20,47,0.4)",
+        font=dict(family="-apple-system, 'Segoe UI', system-ui, sans-serif",
+                  color="#e4e9ff", size=12),
+        title=dict(font=dict(color="#e4e9ff", size=15, family="-apple-system, sans-serif"), x=0.02),
+        xaxis=dict(gridcolor="rgba(123,97,255,0.08)", zerolinecolor="rgba(123,97,255,0.2)",
+                   linecolor="rgba(123,97,255,0.2)", tickcolor="rgba(123,97,255,0.2)",
+                   tickfont=dict(color="#8892b0", size=11),
+                   title=dict(font=dict(color="#8892b0", size=12))),
+        yaxis=dict(gridcolor="rgba(123,97,255,0.08)", zerolinecolor="rgba(123,97,255,0.2)",
+                   linecolor="rgba(123,97,255,0.2)", tickcolor="rgba(123,97,255,0.2)",
+                   tickfont=dict(color="#8892b0", size=11),
+                   title=dict(font=dict(color="#8892b0", size=12))),
+        legend=dict(bgcolor="rgba(15,20,47,0.5)", bordercolor="rgba(123,97,255,0.2)",
+                    borderwidth=1, font=dict(color="#e4e9ff", size=11)),
+        hoverlabel=dict(bgcolor="#0f142f", bordercolor="#00D4FF",
+                        font=dict(color="#e4e9ff", size=12, family="Menlo, monospace")),
+        margin=dict(l=40, r=20, t=50, b=40),
+    )
+)
+_pio.templates.default = "rodmat_neon"
+# Colores default para plotly.express (matplotlib fallback)
+try:
+    import plotly.express as _px_theme
+    _px_theme.defaults.color_discrete_sequence = ["#00D4FF", "#00FF88", "#FF9F45", "#7B61FF", "#FF3D6B", "#FF6B35"]
+    _px_theme.defaults.template = "rodmat_neon"
+except Exception:
+    pass
+
+
 from api_client import api_get, api_post, api_put, api_patch, api_delete, login, register
 
 st.set_page_config(
@@ -128,6 +167,74 @@ st.markdown("""
 
     /* Plotly charts — fondo transparente para que se integre */
     [data-testid="stPlotlyChart"] { background: rgba(15,20,47,0.4); border-radius: 12px; padding: 8px; }
+
+    /* Plotly wrapper con glow y padding premium */
+    [data-testid="stPlotlyChart"] {
+        background: linear-gradient(135deg, rgba(15,20,47,0.9), rgba(20,26,61,0.9)) !important;
+        border: 1px solid rgba(0,212,255,0.15) !important;
+        border-radius: 14px !important;
+        padding: 14px !important;
+        box-shadow: 0 4px 20px rgba(0,212,255,0.08), inset 0 0 20px rgba(123,97,255,0.03) !important;
+        margin-bottom: 12px !important;
+        transition: box-shadow 0.3s ease;
+    }
+    [data-testid="stPlotlyChart"]:hover {
+        box-shadow: 0 4px 24px rgba(0,212,255,0.18), inset 0 0 24px rgba(123,97,255,0.05) !important;
+    }
+
+    /* DataFrame — look premium con glow suave */
+    [data-testid="stDataFrame"], [data-testid="stDataFrameResizable"], .stDataFrame {
+        background: linear-gradient(135deg, rgba(15,20,47,0.9), rgba(20,26,61,0.9)) !important;
+        border: 1px solid rgba(0,212,255,0.15) !important;
+        border-radius: 12px !important;
+        padding: 8px !important;
+        box-shadow: 0 4px 16px rgba(0,212,255,0.06) !important;
+    }
+    .stDataFrame [data-testid="stTable"], .stDataFrame table {
+        background: transparent !important;
+        color: #e4e9ff !important;
+        border-radius: 8px;
+    }
+    .stDataFrame thead tr th, .stDataFrame [role="columnheader"] {
+        background: linear-gradient(180deg, rgba(0,212,255,0.12), rgba(0,212,255,0.04)) !important;
+        color: #00D4FF !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        font-size: 11px !important;
+        border-bottom: 1px solid rgba(0,212,255,0.2) !important;
+    }
+    .stDataFrame tbody tr td, .stDataFrame [role="cell"] {
+        color: #e4e9ff !important;
+        border-bottom: 1px solid rgba(123,97,255,0.06) !important;
+        background: rgba(15,20,47,0.3) !important;
+    }
+    .stDataFrame tbody tr:nth-child(even) td { background: rgba(15,20,47,0.5) !important; }
+    .stDataFrame tbody tr:hover td { background: rgba(0,212,255,0.06) !important; }
+
+    /* data_editor mismo look */
+    [data-testid="stDataEditor"] {
+        background: linear-gradient(135deg, rgba(15,20,47,0.9), rgba(20,26,61,0.9)) !important;
+        border: 1px solid rgba(0,212,255,0.15) !important;
+        border-radius: 12px !important;
+        padding: 8px !important;
+        box-shadow: 0 4px 16px rgba(0,212,255,0.06) !important;
+    }
+    [data-testid="stDataEditor"] .glide-cell-header {
+        background: rgba(0,212,255,0.1) !important;
+        color: #00D4FF !important;
+    }
+
+    /* Text captions y small */
+    [data-testid="stCaptionContainer"] { color: #8892b0 !important; }
+    small { color: #8892b0 !important; }
+
+    /* Section dividers */
+    [data-testid="stMarkdownContainer"] h2, [data-testid="stMarkdownContainer"] h3 {
+        border-bottom: 1px solid rgba(0,212,255,0.15);
+        padding-bottom: 6px;
+        margin-top: 12px;
+    }
 
     /* Responsive mobile */
     @media (max-width: 768px) {
