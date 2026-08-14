@@ -796,26 +796,57 @@ def page_restock_analysis():
                   "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "SellThroughRate"]
     available = [c for c in table_cols if c in df.columns]
 
+    # Cast enteros donde aplica (evita .000000)
+    _int_cols = ["Stock_Warehouse", "Stock_FBT", "QtyShipped", "StockActualizado",
+                 "StockConPedidos", "Inv_deseado_custom", "Unid_a_comprar_custom",
+                 "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"]
+    for _c in _int_cols:
+        if _c in df.columns:
+            df[_c] = pd.to_numeric(df[_c], errors="coerce").fillna(0).astype(int)
+
     def color_coverage(val):
         if not isinstance(val, (int, float)):
             return ""
         if val <= -999:
-            return "background-color: #d0d0d0; color: #555555"
+            return "background-color: rgba(120,130,150,0.15); color: #8892b0"
         elif val < 0:
-            return "background-color: #ff6666; color: #5c0000"
+            return "background-color: rgba(255,107,53,0.25); color: #FF6B35"
         elif val < 7:
-            return "background-color: #ffcccc; color: #8b0000"
+            return "background-color: rgba(255,61,107,0.2); color: #FF3D6B"
         elif val < 14:
-            return "background-color: #ffffcc; color: #8b6914"
+            return "background-color: rgba(255,159,69,0.2); color: #FF9F45"
         elif val >= 365:
-            return "background-color: #e8e8ff; color: #333388"
+            return "background-color: rgba(123,97,255,0.15); color: #B47CFF"
         else:
-            return "background-color: #ccffcc; color: #006400"
+            return "background-color: rgba(0,255,136,0.15); color: #00FF88"
 
     cov_cols = [c for c in ["Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"] if c in available]
     styled = df[available].style.map(color_coverage, subset=cov_cols) if cov_cols else df[available].style
-    st.dataframe(styled, use_container_width=True, height=500,
-                 column_config={"ProductoNombre": st.column_config.TextColumn("ProductoNombre", pinned=True)})
+    # Format sin decimales para columnas numéricas + 2 decimales para ratios
+    _fmt = {c: "{:,.0f}" for c in _int_cols if c in available}
+    if "WeeklyAvg_30d" in available: _fmt["WeeklyAvg_30d"] = "{:,.1f}"
+    if "WeeklyAvg_60d" in available: _fmt["WeeklyAvg_60d"] = "{:,.1f}"
+    if "SellThroughRate" in available: _fmt["SellThroughRate"] = "{:,.1f}%"
+    styled = styled.format(_fmt)
+
+    st.dataframe(styled, use_container_width=True, height=380,
+                 column_config={
+                     "ProductoNombre": st.column_config.TextColumn("Producto", pinned=True, width="medium"),
+                     "Tipo": st.column_config.TextColumn("Tipo", width="small"),
+                     "Stock_Warehouse": st.column_config.NumberColumn("Stock WH", width="small"),
+                     "Stock_FBT": st.column_config.NumberColumn("FBT", width="small"),
+                     "QtyShipped": st.column_config.NumberColumn("Shipped", width="small"),
+                     "StockActualizado": st.column_config.NumberColumn("Stock Act.", width="small"),
+                     "StockConPedidos": st.column_config.NumberColumn("+Pedidos", width="small"),
+                     "WeeklyAvg_30d": st.column_config.NumberColumn("Sem 30d", width="small"),
+                     "WeeklyAvg_60d": st.column_config.NumberColumn("Sem 60d", width="small"),
+                     "Inv_deseado_custom": st.column_config.NumberColumn("Deseado", width="small"),
+                     "Unid_a_comprar_custom": st.column_config.NumberColumn("A comprar", width="small"),
+                     "Days_Coverage": st.column_config.NumberColumn("Días cob.", width="small"),
+                     "Days_Cov_WH": st.column_config.NumberColumn("Cob. WH", width="small"),
+                     "Days_Cov_FBT": st.column_config.NumberColumn("Cob. FBT", width="small"),
+                     "SellThroughRate": st.column_config.NumberColumn("STR", width="small"),
+                 })
 
     st.markdown("---")
     st.subheader("Ventas Mensuales por Producto")
