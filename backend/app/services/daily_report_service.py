@@ -47,8 +47,9 @@ def _viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5
 
 
 def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
-    """Bloque compacto al inicio del daily con dinero settled (banco) últimos 7 días
-    desglosado por brand (Avon / LuxPerfumes). Solo si el store tiene tiktok_statements habilitado."""
+    """Bloque compacto al inicio del daily con dinero settled del ÚLTIMO DÍA disponible
+    (típicamente ayer, se actualiza al subir el statement). Desglose por brand
+    Avon / LuxPerfumes. Solo si el store tiene tiktok_statements habilitado."""
     from sqlalchemy import text as _t
     from app.models import Store
     store = db.query(Store).filter(Store.id == store_id).first()
@@ -57,24 +58,27 @@ def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
     settings = store.settings or {}
     if not (settings.get("modules_enabled") or {}).get("tiktok_statements"):
         return ""
-    # Últimos 7 días (7d natural)
     try:
-        row = db.execute(_t("""
-          WITH last7 AS (
-            SELECT tl.brand_id, tl.order_income, tl.order_settled_date
-            FROM tiktok_statement_lines tl
-            WHERE tl.store_id = :sid
-              AND tl.order_settled_date >= CURRENT_DATE - INTERVAL '7 days'
-              AND tl.order_settled_date IS NOT NULL
-          )
-          SELECT 
-            COALESCE(SUM(CASE WHEN b.slug = 'avon' THEN l.order_income ELSE 0 END), 0) AS avon,
-            COALESCE(SUM(CASE WHEN b.slug = 'luxperfumes' THEN l.order_income ELSE 0 END), 0) AS lux,
-            COALESCE(SUM(l.order_income), 0) AS total,
-            COUNT(*) AS n_orders
-          FROM last7 l
-          LEFT JOIN brands b ON b.id = l.brand_id
+        # Encuentra el ÚLTIMO order_settled_date disponible del store
+        last_row = db.execute(_t("""
+          SELECT MAX(order_settled_date) AS d
+          FROM tiktok_statement_lines
+          WHERE store_id = :sid AND order_settled_date IS NOT NULL
         """), {"sid": store_id}).fetchone()
+        if not last_row or not last_row.d:
+            return ""
+        last_date = last_row.d
+        # Agregar por brand solo para esa fecha
+        row = db.execute(_t("""
+          SELECT
+            COALESCE(SUM(CASE WHEN b.slug = 'avon' THEN tl.order_income ELSE 0 END), 0) AS avon,
+            COALESCE(SUM(CASE WHEN b.slug = 'luxperfumes' THEN tl.order_income ELSE 0 END), 0) AS lux,
+            COALESCE(SUM(tl.order_income), 0) AS total,
+            COUNT(*) AS n_orders
+          FROM tiktok_statement_lines tl
+          LEFT JOIN brands b ON b.id = tl.brand_id
+          WHERE tl.store_id = :sid AND tl.order_settled_date = :d
+        """), {"sid": store_id, "d": last_date}).fetchone()
     except Exception:
         return ""
     if not row or float(row.total or 0) == 0:
@@ -83,10 +87,19 @@ def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
     lux = float(row.lux or 0)
     total = float(row.total or 0)
     n = int(row.n_orders or 0)
+    # Etiqueta legible: "ayer" si es CURRENT_DATE-1, si no fecha
+    from datetime import date as _date, timedelta as _td
+    today = _date.today()
+    if last_date == today - _td(days=1):
+        label = f"AYER · {last_date.strftime('%d %b')}"
+    elif last_date == today:
+        label = f"HOY · {last_date.strftime('%d %b')}"
+    else:
+        label = f"último día settled · {last_date.strftime('%d %b %Y')}"
     return f"""
     <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(0,212,255,0.3);border-radius:10px;padding:16px 20px;margin-bottom:16px;color:#e4e9ff;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:13px;font-weight:700;color:#00D4FF;text-transform:uppercase;letter-spacing:1px;">💰 Ingresado en banco · últimos 7 días</div>
+        <div style="font-size:13px;font-weight:700;color:#00D4FF;text-transform:uppercase;letter-spacing:1px;">💰 Ingresado en banco · {label}</div>
         <div style="font-size:11px;color:#8892b0;">{n} órdenes settled</div>
       </div>
       <table style="width:100%;border-collapse:collapse;">
@@ -109,7 +122,7 @@ def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
           <td style="padding:8px 4px 0;text-align:right;font-family:'SF Mono',Menlo,monospace;color:#00D4FF;font-weight:700;font-size:18px;">${total:,.2f}</td>
         </tr>
       </table>
-      <div style="margin-top:8px;font-size:10px;color:#576177;text-align:right;">📊 Detalle completo: Finance → ⚡ TikTok Statements en el dashboard</div>
+      <div style="margin-top:8px;font-size:10px;color:#576177;text-align:right;">📊 Semanal detalle → KHAMRAH lunes · Dashboard: Finance → ⚡ TikTok Statements</div>
     </div>"""
 
 def build_report(db: Session, store_id: str) -> tuple[str, str]:
