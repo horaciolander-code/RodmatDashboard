@@ -44,6 +44,74 @@ def _viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5
     return agg[agg["Unidades"] >= threshold].sort_values("Unidades", ascending=False)
 
 
+
+
+def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
+    """Bloque compacto al inicio del daily con dinero settled (banco) últimos 7 días
+    desglosado por brand (Avon / LuxPerfumes). Solo si el store tiene tiktok_statements habilitado."""
+    from sqlalchemy import text as _t
+    from app.models import Store
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if not store:
+        return ""
+    settings = store.settings or {}
+    if not (settings.get("modules_enabled") or {}).get("tiktok_statements"):
+        return ""
+    # Últimos 7 días (7d natural)
+    try:
+        row = db.execute(_t("""
+          WITH last7 AS (
+            SELECT tl.brand_id, tl.order_income, tl.order_settled_date
+            FROM tiktok_statement_lines tl
+            WHERE tl.store_id = :sid
+              AND tl.order_settled_date >= CURRENT_DATE - INTERVAL '7 days'
+              AND tl.order_settled_date IS NOT NULL
+          )
+          SELECT 
+            COALESCE(SUM(CASE WHEN b.slug = 'avon' THEN l.order_income ELSE 0 END), 0) AS avon,
+            COALESCE(SUM(CASE WHEN b.slug = 'luxperfumes' THEN l.order_income ELSE 0 END), 0) AS lux,
+            COALESCE(SUM(l.order_income), 0) AS total,
+            COUNT(*) AS n_orders
+          FROM last7 l
+          LEFT JOIN brands b ON b.id = l.brand_id
+        """), {"sid": store_id}).fetchone()
+    except Exception:
+        return ""
+    if not row or float(row.total or 0) == 0:
+        return ""
+    avon = float(row.avon or 0)
+    lux = float(row.lux or 0)
+    total = float(row.total or 0)
+    n = int(row.n_orders or 0)
+    return f"""
+    <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(0,212,255,0.3);border-radius:10px;padding:16px 20px;margin-bottom:16px;color:#e4e9ff;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:#00D4FF;text-transform:uppercase;letter-spacing:1px;">💰 Ingresado en banco · últimos 7 días</div>
+        <div style="font-size:11px;color:#8892b0;">{n} órdenes settled</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:6px 4px;color:#e4e9ff;">
+            <span style="display:inline-block;width:10px;height:10px;background:#E31837;border-radius:2px;margin-right:6px;"></span>
+            <strong>Avon</strong>
+          </td>
+          <td style="padding:6px 4px;text-align:right;font-family:'SF Mono',Menlo,monospace;color:#00FF88;font-weight:700;font-size:16px;">${avon:,.2f}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 4px;color:#e4e9ff;">
+            <span style="display:inline-block;width:10px;height:10px;background:#8B4A9C;border-radius:2px;margin-right:6px;"></span>
+            <strong>LuxPerfumes</strong> <span style="color:#8892b0;font-size:11px;">(Atralia + Lattafa)</span>
+          </td>
+          <td style="padding:6px 4px;text-align:right;font-family:'SF Mono',Menlo,monospace;color:#00FF88;font-weight:700;font-size:16px;">${lux:,.2f}</td>
+        </tr>
+        <tr style="border-top:1px solid rgba(123,97,255,0.2);">
+          <td style="padding:8px 4px 0;color:#e4e9ff;font-weight:700;">TOTAL banco</td>
+          <td style="padding:8px 4px 0;text-align:right;font-family:'SF Mono',Menlo,monospace;color:#00D4FF;font-weight:700;font-size:18px;">${total:,.2f}</td>
+        </tr>
+      </table>
+      <div style="margin-top:8px;font-size:10px;color:#576177;text-align:right;">📊 Detalle completo: Finance → ⚡ TikTok Statements en el dashboard</div>
+    </div>"""
+
 def build_report(db: Session, store_id: str) -> tuple[str, str]:
     """Build full HTML report. Returns (html, subject)."""
     today     = pd.Timestamp.now().normalize()
@@ -382,6 +450,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
         <h1 style="margin:0;font-size:24px;">{store_name} - Daily Report</h1>
         <p style="margin:8px 0 0;font-size:14px;opacity:0.9;">{now.strftime('%A %d de %B, %Y')}</p>
       </div>
+      {_bank_deposit_summary_html(db, store_id)}
       {"".join(sections)}
       <div style="text-align:center;padding:20px;color:#999;font-size:11px;">
         Generado automaticamente por {store_name} Dashboard<br>
