@@ -2244,6 +2244,10 @@ def main():
     _prev_section = st.session_state.get("_last_section")
     _default_idx = _sections.index(_prev_section) if _prev_section in _sections else 0
     section = st.sidebar.radio("Sección", _sections, index=_default_idx, key="_section_radio")
+    # FIX: force rerun cuando section cambia — evita DOM stale de hoja anterior
+    if _prev_section and _prev_section != section:
+        st.session_state["_last_section"] = section
+        st.rerun()
     st.session_state["_last_section"] = section
 
     if section == "Dashboard":
