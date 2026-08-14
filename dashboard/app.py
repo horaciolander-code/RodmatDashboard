@@ -2235,23 +2235,29 @@ def page_finance_tiktok_statements():
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
-    # WATERFALL con Plotly — desglose granular real
+    # WATERFALL con Plotly — cuadra matemáticamente (Income - fees_totales - COGS = Net)
     import plotly.graph_objects as go
-    # Traer desglose completo del backend
     fees_full = api_get(f"/tiktok-statements/fees-breakdown{_q}") or {}
     _referral = fees_full.get("referral", 0)
-    _smart_promo_full = fees_full.get("smart_promo", 0)   # incluye smart_promo_fee + smart_promo_camp_fee
+    _smart_promo_full = fees_full.get("smart_promo", 0)
     _managed = fees_full.get("managed", 0)
-    _shipping_full = fees_full.get("shipping", 0)          # fbt_ship + tt_ship
+    _shipping_full = fees_full.get("shipping", 0)
     _affiliate_full = fees_full.get("affiliate", 0)
 
-    # Construir waterfall solo con las categorías con valor > 0
+    # Suma de desglose que SÍ conocemos
+    _known_fees = _referral + _smart_promo_full + _managed + _shipping_full + _affiliate_full
+    # tt_cost (Order Cost total del statement) incluye TODOS los fees + shipping + affiliate
+    _tt_cost_abs = abs(kpis.get("tt_cost", 0))
+    _otros = max(0, _tt_cost_abs - _known_fees)  # taxes + refund fees + otros pequeños
+
+    # Solo mostrar barras con valor > 0
     _bars = [("Income (neto)", _revenue, "#00FF88", "up")]
-    if _referral > 0:      _bars.append(("Referral fee", _referral, "#FF6B35", "down"))
+    if _referral > 0:         _bars.append(("Referral fee", _referral, "#FF6B35", "down"))
     if _smart_promo_full > 0: _bars.append(("Smart Promo", _smart_promo_full, "#FF6B35", "down"))
-    if _managed > 0:       _bars.append(("Managed Service", _managed, "#FF6B35", "down"))
-    if _shipping_full > 0: _bars.append(("Shipping (FBT+TT)", _shipping_full, "#FF6B35", "down"))
-    if _affiliate_full > 0: _bars.append(("Affiliate", _affiliate_full, "#FF6B35", "down"))
+    if _managed > 0:          _bars.append(("Managed Service", _managed, "#FF6B35", "down"))
+    if _shipping_full > 0:    _bars.append(("Shipping (FBT+TT)", _shipping_full, "#FF6B35", "down"))
+    if _affiliate_full > 0:   _bars.append(("Affiliate", _affiliate_full, "#FF6B35", "down"))
+    if _otros > 0.5:          _bars.append(("Otros fees TT", _otros, "#FF6B35", "down"))
     _bars.append(("COGS mercancía", _cogs, "#FF3D6B", "down"))
     _bars.append(("Margen NETO", _net_real, "#00FF88", "up"))
 
@@ -2265,13 +2271,13 @@ def page_finance_tiktok_statements():
         hovertemplate="<b>%{x}</b><br>$%{y:,.2f}<extra></extra>",
     )])
     fig.update_layout(
-        title=dict(text=f"🌊 Cascada Income → Margen NETO REAL   ·   {_net_pct:.1f}% margen s/revenue",
+        title=dict(text=f"🌊 Cascada Income → Margen NETO REAL   ·   {_net_pct:.1f}% margen s/revenue   ·   ✓ cuadra",
                    font=dict(color="#8892b0", size=14)),
         plot_bgcolor="rgba(15,20,47,0.5)", paper_bgcolor="rgba(15,20,47,0)",
         font=dict(color="#e4e9ff"), showlegend=False,
         xaxis=dict(showgrid=False, color="#8892b0", tickangle=-15),
         yaxis=dict(showgrid=True, gridcolor="rgba(123,97,255,0.1)", color="#8892b0", tickformat="$,.0f"),
-        margin=dict(l=20, r=20, t=60, b=60), height=420,
+        margin=dict(l=20, r=20, t=60, b=80), height=440,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -2330,8 +2336,14 @@ def page_finance_tiktok_statements():
         fig_d = go.Figure(data=[go.Pie(
             labels=fees_labels, values=fees_values, hole=0.55,
             marker=dict(colors=fees_colors, line=dict(color="#0a0e27", width=2)),
-            textinfo="percent", textfont=dict(color="#fff", size=11),
-            hovertemplate="<b>%{label}</b>: $%{value:,.0f} (%{percent})<extra></extra>",
+            text=[f"${v:,.0f}" for v in fees_values],
+            texttemplate="%{text}<br>%{percent}",
+            textinfo="text+percent",
+            textposition="outside",
+            textfont=dict(color="#e4e9ff", size=11),
+            insidetextorientation="radial",
+            hovertemplate="<b>%{label}</b><br>$%{value:,.2f} (%{percent})<extra></extra>",
+            pull=[0.02] * len(fees_labels),
         )])
         fig_d.update_layout(
             title=dict(text=f"💸 Desglose fees TikTok — Total: ${sum(fees_values):,.0f}", font=dict(color="#8892b0", size=14)),
