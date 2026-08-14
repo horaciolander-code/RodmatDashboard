@@ -845,3 +845,236 @@ def parse_walmart_xlsx(content: bytes, store_id: str, db: Session, batch_id: str
     db.commit()
     wb.close()
     return {"total_rows": len(rows), "inserted": total_processed, "updated": 0, "errors": errors}
+
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  TikTok MERCHANT STATEMENT (Profit & Loss) — settlement + payments
+#  Fuente: TikTok Seller Center → Finance → Merchant Statement → P&L
+#  UPSERT por (store_id, order_id, sku_id) → subir "last month" no duplica
+# ═════════════════════════════════════════════════════════════════════════════
+def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
+    """Parse TikTok Merchant Statement XLSX (2 sheets: Orders + Order payment info).
+    - JOIN por order_id con sales_orders → resuelve brand_id automáticamente
+    - UPSERT en tiktok_statement_lines + agrega cabecera en tiktok_statements
+    - Idempotente: re-subir mismo mes solo actualiza status/settled_date"""
+    import uuid as _uuid
+    import openpyxl as _xl
+    import io as _io
+    from datetime import datetime, date
+    from sqlalchemy import text as _text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.models.tiktok_statement import TiktokStatement, TiktokStatementLine
+
+    def _to_date(v):
+        if not v: return None
+        try:
+            s = str(int(v))  # 20260718 → "20260718"
+            if len(s) == 8:
+                return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+        except Exception:
+            pass
+        if isinstance(v, datetime): return v.date()
+        if isinstance(v, date): return v
+        return None
+
+    def _num(v):
+        try: return float(v) if v not in (None, "") else 0.0
+        except Exception: return 0.0
+
+    wb = _xl.load_workbook(_io.BytesIO(content), data_only=True)
+    if "Orders" not in wb.sheetnames or "Order payment info" not in wb.sheetnames:
+        raise ValueError("Excel must have 'Orders' and 'Order payment info' sheets")
+
+    # Sheet 1: Orders (headers row 6, data row 7+)
+    ws1 = wb["Orders"]
+    h1 = [c for c in next(ws1.iter_rows(min_row=6, max_row=6, values_only=True))]
+    idx = {name: i for i, name in enumerate(h1) if name}
+    def g1(row, name): return row[idx[name]] if name in idx else None
+
+    # Sheet 2: Order payment info (headers row 1, data row 2+)
+    ws2 = wb["Order payment info"]
+    h2 = [c for c in next(ws2.iter_rows(min_row=1, max_row=1, values_only=True))]
+    idx2 = {name: i for i, name in enumerate(h2) if name}
+    def g2(row, name): return row[idx2[name]] if name in idx2 else None
+
+    # Build payment info map keyed by (order_id, sku_id)
+    pay_map = {}
+    for row in ws2.iter_rows(min_row=2, values_only=True):
+        oid = row[idx2["Order ID"]] if "Order ID" in idx2 else None
+        sid = row[idx2["SKU ID"]] if "SKU ID" in idx2 else None
+        if not oid: continue
+        pay_map[(str(oid), str(sid) if sid else None)] = row
+
+    # Cargar brand map (SKU→brand_id) para resolver via sales_orders JOIN
+    from sqlalchemy import text
+    brand_by_order = {}
+    order_ids = list(set(str(r[idx["Order ID"]]) for r in ws1.iter_rows(min_row=7, values_only=True) if r[idx["Order ID"]]))
+    if order_ids:
+        BATCH_SIZE = 500
+        for i in range(0, len(order_ids), BATCH_SIZE):
+            batch = order_ids[i:i+BATCH_SIZE]
+            placeholders = ",".join([f":o{j}" for j in range(len(batch))])
+            params = {"sid": store_id, **{f"o{j}": v for j, v in enumerate(batch)}}
+            rows = db.execute(text(f"""
+                SELECT DISTINCT tiktok_order_id, brand_id
+                FROM sales_orders
+                WHERE store_id = :sid AND tiktok_order_id IN ({placeholders})
+                  AND brand_id IS NOT NULL
+            """), params).fetchall()
+            for tk_oid, bid in rows:
+                brand_by_order[str(tk_oid)] = bid
+
+    # Build lines
+    lines = []
+    stmt_agg = {}  # statement_id → aggregates
+    for row in ws1.iter_rows(min_row=7, values_only=True):
+        oid = row[idx["Order ID"]] if "Order ID" in idx else None
+        if not oid: continue
+        oid = str(oid)
+        sid = str(row[idx["SKU ID"]]) if "SKU ID" in idx and row[idx["SKU ID"]] else None
+        stmt = str(row[idx["linked statement id"]]) if "linked statement id" in idx and row[idx["linked statement id"]] else None
+        payout = str(row[idx["linked payout id"]]) if "linked payout id" in idx and row[idx["linked payout id"]] else None
+
+        pay = pay_map.get((oid, sid), [None]*len(h2))
+
+        income = _num(g1(row, "Order Income"))
+        cost = _num(g1(row, "Order Cost"))
+        margin = _num(g1(row, "Net Order Margin"))
+        # Fees (guardamos como positivos, TikTok los da negativos)
+        referral = abs(_num(g1(row, "Referral fee")))
+        smart_promo = abs(_num(g1(row, "Smart Promotion fee")))
+        smart_camp = abs(_num(g1(row, "Campaign resource fee")))
+        managed_svc = abs(_num(g1(row, "Managed service plan (Per order fee)")))
+        tt_ship = abs(_num(g1(row, "TikTok Shop shipping fee")))
+        fbt_ship = abs(_num(g1(row, "Fulfilled by TikTok Shop shipping fee")))
+        tt_incentive = abs(_num(g1(row, "TikTok Shop shipping incentive")))
+        aff_comm = abs(_num(g1(row, "Affiliate Commission"))) + abs(_num(g1(row, "Affiliate partner commission")))
+
+        line = dict(
+            id=str(_uuid.uuid4()),
+            store_id=store_id,
+            statement_id=stmt,
+            payout_id=payout,
+            order_id=oid,
+            sku_id=sid,
+            product_name=str(g1(row, "Product name") or "")[:500],
+            order_income=income,
+            order_cost=cost,
+            net_order_margin=margin,
+            sold_quantity=int(g1(row, "Sold Quantity") or 0),
+            order_paid_date=_to_date(g1(row, "Order paid date")),
+            order_shipment_date=_to_date(g1(row, "Order shipment date")),
+            order_delivery_date=_to_date(g1(row, "Order delivery date")),
+            order_settled_date=_to_date(g1(row, "Order settled date")),
+            order_status=str(g1(row, "Order status") or "")[:30],
+            unsettled_reason=str(g1(row, "unsettled reasons") or "")[:200],
+            gross_sales=_num(g1(row, "Gross sales")),
+            seller_discount=_num(g1(row, "Seller discount")),
+            gross_sales_refund=_num(g1(row, "Gross sales refund")),
+            referral_fee=referral,
+            smart_promo_fee=smart_promo,
+            smart_promo_camp_fee=smart_camp,
+            managed_service_fee=managed_svc,
+            tiktok_shipping_fee=tt_ship,
+            fbt_shipping_fee=fbt_ship,
+            tiktok_ship_incentive=tt_incentive,
+            affiliate_commission=aff_comm,
+            customer_paid_ship=_num(g1(row, "Customer-paid shipping fee")),
+            sku_subtotal_before=_num(g2(pay, "SKU Subtotal Before Discount")),
+            sku_subtotal_after=_num(g2(pay, "SKU Subtotal After Discount")),
+            order_amount=_num(g2(pay, "Order Amount")),
+            taxes=_num(g2(pay, "Taxes")),
+            brand_id=brand_by_order.get(oid),
+            import_batch_id=batch_id,
+        )
+        lines.append(line)
+
+        # Agregar por statement
+        if stmt:
+            agg = stmt_agg.setdefault(stmt, {
+                "statement_id": stmt, "payout_id": payout,
+                "total_income": 0, "total_cost": 0, "total_margin": 0,
+                "total_fees": 0, "total_orders": set(),
+                "period_start": None, "period_end": None, "settled_date": None,
+            })
+            agg["total_income"] += income
+            agg["total_cost"] += cost
+            agg["total_margin"] += margin
+            agg["total_fees"] += referral + smart_promo + smart_camp + managed_svc + fbt_ship + tt_ship
+            agg["total_orders"].add(oid)
+            pd = line["order_paid_date"]
+            sd = line["order_settled_date"]
+            if pd:
+                if agg["period_start"] is None or pd < agg["period_start"]: agg["period_start"] = pd
+                if agg["period_end"] is None or pd > agg["period_end"]: agg["period_end"] = pd
+            if sd:
+                if agg["settled_date"] is None or sd > agg["settled_date"]: agg["settled_date"] = sd
+
+    # UPSERT lines
+    line_update_cols = [
+        "statement_id", "payout_id", "product_name", "order_income", "order_cost",
+        "net_order_margin", "sold_quantity", "order_paid_date", "order_shipment_date",
+        "order_delivery_date", "order_settled_date", "order_status", "unsettled_reason",
+        "gross_sales", "seller_discount", "gross_sales_refund", "referral_fee",
+        "smart_promo_fee", "smart_promo_camp_fee", "managed_service_fee",
+        "tiktok_shipping_fee", "fbt_shipping_fee", "tiktok_ship_incentive",
+        "affiliate_commission", "customer_paid_ship", "sku_subtotal_before",
+        "sku_subtotal_after", "order_amount", "taxes", "brand_id", "import_batch_id",
+    ]
+    BATCH = 500
+    upserted_lines = 0
+    for i in range(0, len(lines), BATCH):
+        batch = lines[i:i+BATCH]
+        stmt_sql = pg_insert(TiktokStatementLine).values(batch)
+        stmt_sql = stmt_sql.on_conflict_do_update(
+            constraint="uq_tt_line",
+            set_={col: getattr(stmt_sql.excluded, col) for col in line_update_cols},
+        )
+        db.execute(stmt_sql)
+        db.flush()
+        upserted_lines += len(batch)
+
+    # UPSERT statement headers
+    stmt_headers = []
+    for sid, agg in stmt_agg.items():
+        stmt_headers.append(dict(
+            id=str(_uuid.uuid4()),
+            store_id=store_id,
+            statement_id=sid,
+            payout_id=agg["payout_id"],
+            total_income=agg["total_income"],
+            total_cost=agg["total_cost"],
+            total_margin=agg["total_margin"],
+            total_fees=agg["total_fees"],
+            total_orders=len(agg["total_orders"]),
+            period_start=agg["period_start"],
+            period_end=agg["period_end"],
+            settled_date=agg["settled_date"],
+            import_batch_id=batch_id,
+        ))
+    hdr_update_cols = ["payout_id", "total_income", "total_cost", "total_margin",
+                       "total_fees", "total_orders", "period_start", "period_end",
+                       "settled_date", "import_batch_id"]
+    upserted_stmts = 0
+    for i in range(0, len(stmt_headers), 100):
+        batch = stmt_headers[i:i+100]
+        if not batch: continue
+        stmt_sql = pg_insert(TiktokStatement).values(batch)
+        stmt_sql = stmt_sql.on_conflict_do_update(
+            constraint="uq_tt_stmt",
+            set_={col: getattr(stmt_sql.excluded, col) for col in hdr_update_cols},
+        )
+        db.execute(stmt_sql)
+        db.flush()
+        upserted_stmts += len(batch)
+
+    db.commit()
+    matched = sum(1 for l in lines if l["brand_id"])
+    return {
+        "total_lines": len(lines),
+        "upserted_lines": upserted_lines,
+        "statements": upserted_stmts,
+        "matched_to_orders": matched,
+        "unmatched": len(lines) - matched,
+    }

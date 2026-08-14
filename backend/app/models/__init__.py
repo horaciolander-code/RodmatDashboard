@@ -11,10 +11,11 @@ from app.models.amazon_sku_map import AmazonSkuMap
 from app.models.walmart_sku_map import WalmartSkuMap
 from app.models.import_history import ImportHistory
 from app.models.agent_run import AgentRun
+from app.models.tiktok_statement import TiktokStatement, TiktokStatementLine
 
 __all__ = [
     "Store", "Brand", "User", "Product", "Combo", "ComboItem",
     "InitialInventory", "IncomingStock", "FBTInventory",
     "SalesOrder", "AffiliateSale", "ReportLog", "FinanceCustomLine",
-    "AmazonSkuMap", "WalmartSkuMap", "ImportHistory", "AgentRun",
+    "AmazonSkuMap", "WalmartSkuMap", "ImportHistory", "AgentRun", "TiktokStatement", "TiktokStatementLine",
 ]

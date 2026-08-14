@@ -21,6 +21,7 @@ from app.services.import_service import (
     parse_pending_inventory_excel,
     parse_amazon_txt,
     parse_walmart_xlsx,
+    parse_tiktok_statement_xlsx,
 )
 
 logger = logging.getLogger("rodmat.imports")
@@ -344,3 +345,35 @@ async def download_template(template_name: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{tmpl["filename"]}"'},
     )
+
+
+@router.post("/tiktok-statement", response_model=ImportResult)
+async def import_tiktok_statement(
+    file: UploadFile = File(...),
+    store_id: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Import TikTok Merchant Statement (Profit & Loss) XLSX.
+    Deduplicación por (store_id, order_id, sku_id). Re-subir "last month" solo actualiza."""
+    _require_module_enabled(user, "tiktok_statements")
+    content = await file.read()
+    _validate_upload(file, content, ".xlsx")
+    target = _target_store(user, store_id)
+    batch_id = str(uuid.uuid4())
+    try:
+        result = parse_tiktok_statement_xlsx(content, target, db, batch_id=batch_id)
+        _log_import(db, target, "tiktok_statement", file.filename, batch_id, result)
+        return ImportResult(**{
+            "status": "success",
+            "total_rows": result.get("total_lines", 0),
+            "inserted": result.get("upserted_lines", 0),
+            "updated": 0,
+            "errors": 0,
+            "message": f"{result.get('statements')} statements, {result.get('matched_to_orders')} orders matched to brand",
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("TikTok statement import failed")
+        raise HTTPException(status_code=500, detail=str(e))
