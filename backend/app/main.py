@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.config import APP_VERSION, CORS_ORIGINS, ENVIRONMENT
 from app.database import engine, Base, SessionLocal
-from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps, brands
+from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps, brands, tiktok_statements
 
 import app.models  # noqa: F401
 
@@ -52,6 +52,7 @@ app.include_router(agents.router)
 app.include_router(finance.router)
 app.include_router(self_check.router)
 app.include_router(brands.router)
+app.include_router(tiktok_statements.router)
 
 
 def _start_scheduler():

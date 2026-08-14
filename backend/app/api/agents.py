@@ -109,6 +109,21 @@ def run_timeless(
     return {"status": "queued", "agent": "TIMELESS", "store": user.store_id[:8], "test_email": test_email, "brand_slug": brand_slug}
 
 
+
+
+@router.post("/khamrah")
+def run_khamrah(
+    background_tasks: BackgroundTasks,
+    force: bool = False,
+    test_email: str | None = None,
+    brand_slug: str | None = None,
+    user: User = Depends(get_current_user),
+):
+    """Queues KHAMRAH (weekly TikTok statement report — every Monday)."""
+    background_tasks.add_task(_run_agent_bg, "khamrah", user.store_id, force, test_email, brand_slug)
+    return {"status": "queued", "agent": "KHAMRAH", "store": user.store_id[:8], "test_email": test_email, "brand_slug": brand_slug}
+
+
 @router.post("/test-run/{agent_name}")
 def test_run_any(
     agent_name: str,

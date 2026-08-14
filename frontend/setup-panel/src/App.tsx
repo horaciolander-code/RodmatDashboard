@@ -8,6 +8,7 @@ import Combos from './pages/Combos';
 import Inventory from './pages/Inventory';
 import DataImport from './pages/DataImport';
 import Settings from './pages/Settings';
+import TikTokStatements from './pages/TikTokStatements';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, loading, isWarehouse } = useAuth();
@@ -93,6 +94,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               <Link to="/combos"    className="text-sm text-gray-600 hover:text-gray-900">Combos</Link>
               <Link to="/inventory" className="text-sm text-gray-600 hover:text-gray-900">Inventario</Link>
               <Link to="/import"    className="text-sm text-gray-600 hover:text-gray-900">Importación</Link>
+              <Link to="/finance/tiktok-statements" className="text-sm text-gray-600 hover:text-gray-900">Finance TT</Link>
               <Link to="/settings"  className="text-sm text-gray-600 hover:text-gray-900">Ajustes</Link>
             </>
           )}
@@ -148,6 +150,9 @@ export default function App() {
 
           {/* Fallback: warehouse va a /inventory, resto a / */}
           <Route path="*" element={<RootRedirect />} />
+        <Route path="/finance/tiktok-statements" element={
+            <ProtectedRoute roles={NO_WAREHOUSE}><Layout><TikTokStatements /></Layout></ProtectedRoute>
+          } />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
