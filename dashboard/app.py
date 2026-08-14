@@ -1198,6 +1198,8 @@ def page_listado_productos():
     if "units_per_box" in df.columns:
         df["units_per_box"] = pd.to_numeric(df["units_per_box"], errors="coerce").fillna(1).astype(int)
 
+    # column_config con "id": None a veces PIERDE los IDs en edited.iterrows.
+    # Ahora mantenemos id oculto pero conservado, y sacamos brand_id/created_at/updated_at con column_order.
     edited = st.data_editor(
         df, num_rows="dynamic",
         column_config={
@@ -1205,12 +1207,8 @@ def page_listado_productos():
             "price_sale": st.column_config.NumberColumn("Precio", min_value=0, format="$%.2f"),
             "units_per_box": st.column_config.NumberColumn("Unid/Caja", min_value=0),
             "status": st.column_config.SelectboxColumn("Status", options=["active", "inactive"], default="active"),
-            "id": None,
-            "store_id": None,
-            "created_at": None,
-            "updated_at": None,
         },
-        disabled=["id", "store_id", "created_at", "updated_at"],
+        disabled=["id", "store_id", "created_at", "updated_at", "brand_id"],
         column_order=["sku", "name", "category", "price_cost", "price_sale",
                       "units_per_box", "supplier", "status"],
         use_container_width=True,
@@ -1221,15 +1219,29 @@ def page_listado_productos():
     col_save, col_info = st.columns([1, 3])
     with col_save:
         if st.button("Guardar productos", type="primary", key="save_productos"):
-            saved, created, errors = 0, 0, 0
+            saved, created, errors, skipped_no_id = 0, 0, 0, 0
+            error_msgs = []
+            # Detectar solo filas modificadas comparando contra original
+            orig_by_id = {p["id"]: p for p in (products or []) if p.get("id")}
             for _, row in edited.iterrows():
                 product_id = row.get("id")
                 if product_id and pd.notna(product_id) and str(product_id).strip():
+                    # UPDATE — solo enviar campos que cambiaron respecto al original
+                    orig = orig_by_id.get(str(product_id), {})
                     update_data = {}
                     for field in ["name", "category", "price_cost", "price_sale",
                                   "units_per_box", "supplier", "status"]:
                         val = row.get(field)
-                        if val is not None and pd.notna(val):
+                        if val is None or (isinstance(val, float) and pd.isna(val)):
+                            continue
+                        # Cast a tipos JSON-safe (numpy → python)
+                        if field in ("price_cost", "price_sale"):
+                            val = float(val)
+                        elif field == "units_per_box":
+                            val = int(val)
+                        else:
+                            val = str(val).strip() if not isinstance(val, str) else val.strip()
+                        if orig.get(field) != val:  # solo campos cambiados
                             update_data[field] = val
                     if update_data:
                         result = api_put(f"/products/{product_id}", update_data)
@@ -1237,6 +1249,7 @@ def page_listado_productos():
                             saved += 1
                         else:
                             errors += 1
+                            error_msgs.append(f"❌ PUT falló: sku={row.get('sku')} data={update_data}")
                 else:
                     sku = row.get("sku")
                     name = row.get("name")
@@ -1244,22 +1257,34 @@ def page_listado_productos():
                         new_data = {
                             "sku": str(sku).strip(),
                             "name": str(name).strip(),
-                            "category": row.get("category") if pd.notna(row.get("category", None)) else None,
+                            "category": (str(row.get("category")).strip() if pd.notna(row.get("category", None)) else None),
                             "price_cost": float(row["price_cost"]) if pd.notna(row.get("price_cost")) else None,
                             "price_sale": float(row["price_sale"]) if pd.notna(row.get("price_sale")) else None,
                             "units_per_box": int(row["units_per_box"]) if pd.notna(row.get("units_per_box")) else None,
-                            "supplier": row.get("supplier") if pd.notna(row.get("supplier", None)) else None,
+                            "supplier": (str(row.get("supplier")).strip() if pd.notna(row.get("supplier", None)) else None),
                         }
                         result = api_post("/products", new_data)
                         if result:
                             created += 1
                         else:
                             errors += 1
-            st.success(f"Guardado: {saved} actualizados, {created} creados.")
+                            error_msgs.append(f"❌ POST falló: sku={sku}")
+                    else:
+                        skipped_no_id += 1
+            # Mostrar resumen detallado
+            if saved or created:
+                st.success(f"✅ {saved} actualizados · {created} creados")
+            else:
+                st.info("ℹ️ Sin cambios detectados (nada que guardar). Modifica alguna celda y vuelve a pulsar.")
             if errors:
-                st.warning(f"{errors} errores.")
+                st.error(f"⚠️ {errors} errores:")
+                for m in error_msgs[:5]:
+                    st.error(m)
+            if skipped_no_id:
+                st.warning(f"{skipped_no_id} filas sin SKU/nombre — no guardadas.")
             st.cache_data.clear()
-            st.rerun()
+            if saved or created:
+                st.rerun()
     with col_info:
         st.info(f"Total productos: {len(edited)}")
 
