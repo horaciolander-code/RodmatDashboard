@@ -19,33 +19,128 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .block-container {padding-top: 1rem; padding-bottom: 1rem;}
+    /* ══════════════════════════════════════════════════════════════════
+       🎨 PALETA FUTURISTA GLOBAL — Rodmat Dashboard
+       Base #0a0e27 · Cyan #00D4FF · Green #00FF88 · Orange #FF9F45
+       Red #FF6B35 · Crimson #FF3D6B · Purple #7B61FF
+       ══════════════════════════════════════════════════════════════════ */
+
+    /* Fondo global oscuro */
+    .stApp { background: #0a0e27 !important; color: #e4e9ff; }
+    [data-testid="stAppViewContainer"] { background: #0a0e27 !important; }
+    [data-testid="stHeader"] { background: transparent !important; }
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 100% !important; }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] { background: #0f142f !important; border-right: 1px solid rgba(123,97,255,0.15); }
+    [data-testid="stSidebar"] * { color: #e4e9ff !important; }
+    [data-testid="stSidebar"] .stButton button {
+        background: linear-gradient(135deg, #0f142f, #141a3d) !important;
+        border: 1px solid rgba(0,212,255,0.3) !important; color: #00D4FF !important;
+    }
+    [data-testid="stSidebar"] .stButton button:hover {
+        border-color: #00D4FF !important; box-shadow: 0 0 12px rgba(0,212,255,0.4);
+    }
+
+    /* Títulos gradientes */
+    h1, h2 {
+        background: linear-gradient(90deg, #00D4FF, #7B61FF);
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        background-clip: text !important;
+    }
+    h3, h4, h5, h6 { color: #e4e9ff !important; }
+    p, div, span, label, li { color: #e4e9ff; }
+
+    /* Métricas Streamlit (st.metric) → cards con glow */
     [data-testid="stMetric"] {
-        background-color: #f0f2f6; padding: 0.75rem;
-        border-radius: 0.5rem; border-left: 4px solid #1f77b4;
+        background: linear-gradient(135deg, rgba(15,20,47,0.9), rgba(20,26,61,0.9)) !important;
+        padding: 14px !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(123,97,255,0.15) !important;
+        border-left: 3px solid #00D4FF !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
-    [data-testid="stMetricLabel"] p { color: #31333F !important; font-weight: 600; }
-    [data-testid="stMetricValue"] { color: #0e1117 !important; font-size: 1.3rem; }
-    [data-testid="stMetricDelta"] { color: #31333F !important; }
-    @media (prefers-color-scheme: dark) {
-        [data-testid="stMetric"] { background-color: #262730; border-left: 4px solid #4da6ff; }
-        [data-testid="stMetricLabel"] p { color: #fafafa !important; }
-        [data-testid="stMetricValue"] { color: #ffffff !important; }
-        [data-testid="stMetricDelta"] { color: #c0c0c0 !important; }
+    [data-testid="stMetricLabel"] p {
+        color: #8892b0 !important; font-weight: 600 !important;
+        font-size: 0.75rem !important; text-transform: uppercase; letter-spacing: 0.6px;
     }
+    [data-testid="stMetricValue"] { color: #ffffff !important; font-size: 1.5rem !important; font-weight: 700 !important; }
+    [data-testid="stMetricDelta"] { color: #00FF88 !important; font-size: 0.75rem !important; }
+
+    /* Botones */
+    .stButton > button {
+        background: linear-gradient(135deg, #0f142f, #141a3d);
+        border: 1px solid rgba(0,212,255,0.3); color: #00D4FF;
+        font-weight: 600; border-radius: 8px; transition: all 0.2s;
+    }
+    .stButton > button:hover {
+        border-color: #00D4FF; color: #ffffff;
+        box-shadow: 0 0 12px rgba(0,212,255,0.4); transform: translateY(-1px);
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(90deg, #00D4FF, #7B61FF); color: #0a0e27;
+        border: none; box-shadow: 0 0 14px rgba(0,212,255,0.35);
+    }
+
+    /* Tabs */
+    button[data-baseweb="tab"] {
+        color: #8892b0 !important; background: transparent !important;
+        border-bottom: 2px solid transparent !important; font-weight: 600;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #00D4FF !important; border-bottom-color: #00D4FF !important;
+    }
+
+    /* Radio (usado como tabs también) */
+    [data-testid="stRadio"] label { color: #e4e9ff !important; }
+    [data-testid="stRadio"] > div > label { color: #8892b0 !important; }
+
+    /* Inputs / Selectbox */
+    .stTextInput input, .stNumberInput input, .stDateInput input, .stSelectbox > div {
+        background: rgba(15,20,47,0.6) !important; color: #e4e9ff !important;
+        border: 1px solid rgba(123,97,255,0.2) !important;
+    }
+    .stTextInput label, .stNumberInput label, .stDateInput label, .stSelectbox label,
+    .stMultiSelect label, .stTextArea label { color: #8892b0 !important; font-weight: 600 !important; }
+
+    /* DataFrame / data_editor */
+    [data-testid="stDataFrame"], [data-testid="stDataFrameResizable"] { background: rgba(15,20,47,0.5) !important; border-radius: 8px; }
+    .stDataFrame table { color: #e4e9ff !important; }
+    .stDataFrame thead th { background: rgba(0,212,255,0.1) !important; color: #00D4FF !important; }
+
+    /* Alerts / info / warning / success */
+    .stAlert { background: rgba(15,20,47,0.7) !important; border-radius: 8px; }
+    [data-testid="stAlertContainer"] { background: rgba(15,20,47,0.7) !important; }
+    div[data-baseweb="notification"][kind="info"] { border-left: 3px solid #00D4FF; }
+    div[data-baseweb="notification"][kind="success"] { border-left: 3px solid #00FF88; }
+    div[data-baseweb="notification"][kind="warning"] { border-left: 3px solid #FF9F45; }
+    div[data-baseweb="notification"][kind="error"] { border-left: 3px solid #FF6B35; }
+
+    /* Expander */
+    [data-testid="stExpander"] {
+        background: linear-gradient(135deg, rgba(15,20,47,0.9), rgba(20,26,61,0.9)) !important;
+        border: 1px solid rgba(123,97,255,0.15) !important; border-radius: 10px !important;
+    }
+
+    /* Dividers */
+    hr { border-color: rgba(123,97,255,0.15) !important; }
+
+    /* Plotly charts — fondo transparente para que se integre */
+    [data-testid="stPlotlyChart"] { background: rgba(15,20,47,0.4); border-radius: 12px; padding: 8px; }
+
+    /* Responsive mobile */
     @media (max-width: 768px) {
         [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
         [data-testid="stHorizontalBlock"] > div { flex: 1 1 45% !important; min-width: 45% !important; }
-        [data-testid="stMetric"] { padding: 0.5rem; margin-bottom: 0.25rem; }
-        [data-testid="stMetricValue"] { font-size: 1rem; }
-        [data-testid="stMetricLabel"] p { font-size: 0.75rem !important; }
-        .block-container { padding-left: 0.5rem; padding-right: 0.5rem; padding-top: 0.5rem; }
-        [data-testid="stDataFrame"] { overflow-x: auto !important; }
+        [data-testid="stMetric"] { padding: 10px !important; margin-bottom: 0.25rem; }
+        [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+        .block-container { padding-left: 0.5rem; padding-right: 0.5rem; }
         button[data-baseweb="tab"] { font-size: 0.75rem !important; padding: 0.4rem 0.5rem !important; }
     }
     @media (max-width: 480px) {
         [data-testid="stHorizontalBlock"] > div { flex: 1 1 100% !important; min-width: 100% !important; }
-        [data-testid="stMetricValue"] { font-size: 0.9rem; }
+        [data-testid="stMetricValue"] { font-size: 1rem !important; }
     }
 </style>
 """, unsafe_allow_html=True)
