@@ -428,7 +428,7 @@ def get_frequent_buyers(db: Session, store_id: str, n: int = 50) -> list:
     return buyers.sort_values("OrderCount", ascending=False).head(n).to_dict(orient="records")
 
 
-def get_top_combos(db: Session, store_id: str, n: int = 15) -> list:
+def get_top_combos(db: Session, store_id: str, n: int = 15, brand_slug: str | None = None) -> list:
     df = _load_orders_df(db, store_id)
     if df.empty:
         return []
@@ -447,7 +447,7 @@ def get_top_combos(db: Session, store_id: str, n: int = 15) -> list:
     return combos.to_dict(orient="records")
 
 
-def get_finances(db: Session, store_id: str) -> list:
+def get_finances(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     stock = _get_stock_df(db, store_id)
     if stock.empty:
         return []

@@ -292,12 +292,16 @@ def fetch_platform_summary(date_from=None, date_to=None, brand_slug=None):
     return api_get("/analytics/platform-summary", params) or {}
 
 @st.cache_data(ttl=300)
-def fetch_stock_summary(coverage_days=30):
-    return api_get("/analytics/stock-summary", {"coverage_days": coverage_days}) or []
+def fetch_stock_summary(coverage_days=30, brand_slug=None):
+    params = {"coverage_days": coverage_days}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/stock-summary", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_stock_detail(coverage_days=30):
-    return api_get("/analytics/stock-detail", {"coverage_days": coverage_days}) or []
+def fetch_stock_detail(coverage_days=30, brand_slug=None):
+    params = {"coverage_days": coverage_days}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/stock-detail", params) or []
 
 @st.cache_data(ttl=300)
 def fetch_top_creators(n=20):
@@ -316,16 +320,22 @@ def fetch_frequent_buyers():
     return api_get("/analytics/frequent-buyers") or []
 
 @st.cache_data(ttl=300)
-def fetch_top_combos(n=15):
-    return api_get("/analytics/top-combos", {"n": n}) or []
+def fetch_top_combos(n=15, brand_slug=None):
+    params = {"n": n}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/top-combos", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_finances():
-    return api_get("/analytics/finances") or []
+def fetch_finances(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/finances", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_incoming_stock():
-    return api_get("/inventory/incoming") or []
+def fetch_incoming_stock(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/inventory/incoming", params) or []
 
 @st.cache_data(ttl=300)
 def fetch_fbt_inventory():
@@ -336,8 +346,10 @@ def fetch_unknown_combos():
     return api_get("/analytics/unknown-combos") or []
 
 @st.cache_data(ttl=300)
-def fetch_combos():
-    return api_get("/combos") or []
+def fetch_combos(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/combos", params) or []
 
 
 @st.cache_data(ttl=60)
@@ -346,8 +358,10 @@ def fetch_sku_maps(platform: str = "all"):
     return api_get("/sku-maps", {"platform": platform}) or []
 
 @st.cache_data(ttl=300)
-def fetch_products():
-    return api_get("/products") or []
+def fetch_products(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/products", params) or []
 @st.cache_data(ttl=300)
 def fetch_brands():
     """Lista brands activas del store del user."""
@@ -360,10 +374,11 @@ def fetch_product_brand_map():
 
 
 @st.cache_data(ttl=300)
-def fetch_combo_sales(date_from=None, date_to=None):
+def fetch_combo_sales(date_from=None, date_to=None, brand_slug=None):
     params = {}
     if date_from: params["date_from"] = str(date_from)
     if date_to: params["date_to"] = str(date_to)
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/combo-sales", params) or []
 
 @st.cache_data(ttl=300)
@@ -677,7 +692,9 @@ def page_overview():
 def page_inventario_summary():
     st.header("Resumen de Inventario")
 
-    data = fetch_stock_summary()
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    data = fetch_stock_summary(brand_slug=_bs)
     if not data:
         st.warning("Sin datos de inventario.")
         return
@@ -759,7 +776,9 @@ def page_restock_analysis():
     with col_s1:
         coverage = st.number_input("Días de cobertura objetivo", min_value=7, max_value=180, value=30, key="ra_cov")
     with col_s2:
-        data_all = apply_brand_filter_records(fetch_stock_detail(30))
+        _u = st.session_state.get("cached_user") or {}
+        _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+        data_all = fetch_stock_detail(30, brand_slug=_bs)
         tipo_opts = ["Todos"]
         if data_all:
             df_all = pd.DataFrame(data_all)
@@ -767,7 +786,7 @@ def page_restock_analysis():
                 tipo_opts += sorted(df_all["Tipo"].dropna().unique().tolist())
         tipo_filter = st.selectbox("Tipo de Producto", tipo_opts, key="ra_tipo")
 
-    data = apply_brand_filter_records(fetch_stock_detail(coverage))
+    data = fetch_stock_detail(coverage, brand_slug=_bs)
     if not data:
         st.warning("Sin datos de stock.")
         return
@@ -1078,7 +1097,9 @@ def page_afiliados():
 def page_finances():
     st.header("Finances")
     render_platform_selector("fin")
-    _raw = fetch_finances()
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    _raw = fetch_finances(brand_slug=_bs)
     # Brand filter: si el dict tiene sku, filtrar; sino passthrough
     data = apply_brand_filter_records(_raw, sku_key="sku") if _raw and _raw[0].get("sku") else _raw
     if not data:
@@ -1158,7 +1179,9 @@ def page_ordenes_check():
 
     st.markdown("---")
     st.subheader("Listado Top Combos")
-    combos = apply_brand_filter_records(fetch_top_combos(20), sku_key="combo_sku")
+    _u2 = st.session_state.get("cached_user") or {}
+    _bs2 = get_current_brand_slug() if _u2.get("brands_enabled") else None
+    combos = fetch_top_combos(20, brand_slug=_bs2)
     if combos:
         st.dataframe(pd.DataFrame(combos), use_container_width=True, height=400)
 
@@ -1271,7 +1294,9 @@ def page_gestion_inventario():
     st.header("Gestion Inventario Pendiente")
     st.caption("Edita, agrega o elimina pedidos pendientes.")
 
-    data = fetch_incoming_stock()
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    data = fetch_incoming_stock(brand_slug=_bs)
     if data:
         df = pd.DataFrame(data)
     else:
@@ -1414,7 +1439,9 @@ def page_listado_productos():
     st.header("Listado de Productos")
     st.caption("Catálogo de productos. Edita o agrega productos.")
 
-    products = fetch_products()
+    _u = st.session_state.get("cached_user") or {}
+    _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
+    products = fetch_products(brand_slug=_bs)
     if products:
         df = pd.DataFrame(products)
     else:
@@ -1530,9 +1557,11 @@ def page_gestion_combos():
     st.caption("Editor unificado de combos TikTok, mapeos Walmart y Amazon. Todos los SKUs con multiplicador N × producto base.")
 
     # ─── Cargar datos comunes ───
-    combos = fetch_combos()
+    combos = fetch_combos(brand_slug=_bs_gc)
     sku_maps = fetch_sku_maps("all")
-    products_data = fetch_products()
+    _u_gc = st.session_state.get('cached_user') or {}
+    _bs_gc = get_current_brand_slug() if _u_gc.get('brands_enabled') else None
+    products_data = fetch_products(brand_slug=_bs_gc)
     product_names = sorted([p["name"] for p in products_data]) if products_data else []
     product_map = {p["name"]: p["id"] for p in products_data} if products_data else {}
 

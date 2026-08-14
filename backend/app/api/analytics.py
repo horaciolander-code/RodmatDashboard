@@ -175,18 +175,22 @@ def frequent_buyers(
 @router.get("/top-combos")
 def top_combos(
     n: int = 15,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_top_combos(db, user.store_id, n)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_top_combos(db, user.store_id, n, brand_slug=_bs)
 
 
 @router.get("/finances")
 def finances(
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_finances(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_finances(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/unknown-combos")

@@ -55,10 +55,15 @@ def create_incoming_stock(
 
 @router.get("/incoming", response_model=list[IncomingStockResponse])
 def list_incoming_stock(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    records = db.query(IncomingStock).filter(IncomingStock.store_id == user.store_id).all()
+    from app.dependencies import get_user_brand_id
+    q = db.query(IncomingStock).filter(IncomingStock.store_id == user.store_id)
+    bid = get_user_brand_id(user, db, brand_slug)
+    if bid: q = q.filter(IncomingStock.brand_id == bid)
+    records = q.all()
     product_ids = {r.product_id for r in records}
     pmap = {p.id: p.name for p in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
     result = []
