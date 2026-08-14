@@ -2120,7 +2120,11 @@ def main():
         _sections = ["Gestion"]
     else:
         _sections = ["Dashboard", "Gestion"]
-    section = st.sidebar.radio("Sección", _sections, index=0)
+    # Preservar section elegido a través de reruns (ej: cambio de brand)
+    _prev_section = st.session_state.get("_last_section")
+    _default_idx = _sections.index(_prev_section) if _prev_section in _sections else 0
+    section = st.sidebar.radio("Sección", _sections, index=_default_idx, key="_section_radio")
+    st.session_state["_last_section"] = section
 
     if section == "Dashboard":
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -2151,9 +2155,13 @@ def main():
         else:
             _tiktok_stmt_enabled = bool(_modules.get("tiktok_statements", False))
             if _tiktok_stmt_enabled:
-                tab_f1, tab_f2 = st.tabs(["P&L Operacional", "⚡ TikTok Statements"])
-                with tab_f1: page_finance_pl()
-                with tab_f2: page_finance_tiktok_statements()
+                _fin_view = st.radio("Vista Finance", ["P&L Operacional", "⚡ TikTok Statements"],
+                                     horizontal=True, key="_fin_view_radio")
+                st.markdown("---")
+                if _fin_view == "P&L Operacional":
+                    page_finance_pl()
+                else:
+                    page_finance_tiktok_statements()
             else:
                 page_finance_pl()
 
@@ -2227,25 +2235,43 @@ def page_finance_tiktok_statements():
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
-    # WATERFALL con Plotly
+    # WATERFALL con Plotly — desglose granular real
     import plotly.graph_objects as go
-    labels = ["Income", "Fees TT", "Affiliate", "COGS mercancía", "Margen NETO"]
-    values = [_revenue, -_fees, -_affiliate, -_cogs, _net_real]
-    colors = ["#00FF88", "#FF6B35", "#FF6B35", "#FF3D6B", "#00FF88"]
+    # Traer desglose completo del backend
+    fees_full = api_get(f"/tiktok-statements/fees-breakdown{_q}") or {}
+    _referral = fees_full.get("referral", 0)
+    _smart_promo_full = fees_full.get("smart_promo", 0)   # incluye smart_promo_fee + smart_promo_camp_fee
+    _managed = fees_full.get("managed", 0)
+    _shipping_full = fees_full.get("shipping", 0)          # fbt_ship + tt_ship
+    _affiliate_full = fees_full.get("affiliate", 0)
+
+    # Construir waterfall solo con las categorías con valor > 0
+    _bars = [("Income (neto)", _revenue, "#00FF88", "up")]
+    if _referral > 0:      _bars.append(("Referral fee", _referral, "#FF6B35", "down"))
+    if _smart_promo_full > 0: _bars.append(("Smart Promo", _smart_promo_full, "#FF6B35", "down"))
+    if _managed > 0:       _bars.append(("Managed Service", _managed, "#FF6B35", "down"))
+    if _shipping_full > 0: _bars.append(("Shipping (FBT+TT)", _shipping_full, "#FF6B35", "down"))
+    if _affiliate_full > 0: _bars.append(("Affiliate", _affiliate_full, "#FF6B35", "down"))
+    _bars.append(("COGS mercancía", _cogs, "#FF3D6B", "down"))
+    _bars.append(("Margen NETO", _net_real, "#00FF88", "up"))
+
     fig = go.Figure(data=[go.Bar(
-        x=labels, y=[abs(v) for v in values],
-        marker=dict(color=colors, line=dict(color=colors, width=0)),
-        text=[f"${v:,.0f}" if v >= 0 else f"-${abs(v):,.0f}" for v in values],
-        textposition="outside", textfont=dict(color=colors, size=14, family="Menlo"),
+        x=[b[0] for b in _bars],
+        y=[b[1] for b in _bars],
+        marker=dict(color=[b[2] for b in _bars]),
+        text=[f"${b[1]:,.0f}" if b[3]=="up" else f"-${b[1]:,.0f}" for b in _bars],
+        textposition="outside",
+        textfont=dict(color=[b[2] for b in _bars], size=13, family="Menlo"),
+        hovertemplate="<b>%{x}</b><br>$%{y:,.2f}<extra></extra>",
     )])
     fig.update_layout(
         title=dict(text=f"🌊 Cascada Income → Margen NETO REAL   ·   {_net_pct:.1f}% margen s/revenue",
                    font=dict(color="#8892b0", size=14)),
         plot_bgcolor="rgba(15,20,47,0.5)", paper_bgcolor="rgba(15,20,47,0)",
         font=dict(color="#e4e9ff"), showlegend=False,
-        xaxis=dict(showgrid=False, color="#8892b0"),
+        xaxis=dict(showgrid=False, color="#8892b0", tickangle=-15),
         yaxis=dict(showgrid=True, gridcolor="rgba(123,97,255,0.1)", color="#8892b0", tickformat="$,.0f"),
-        margin=dict(l=20, r=20, t=50, b=20), height=380,
+        margin=dict(l=20, r=20, t=60, b=60), height=420,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -2256,18 +2282,31 @@ def page_finance_tiktok_statements():
     if weekly:
         df_w = _pd.DataFrame(weekly)
         fig_w = go.Figure()
+        # Cobrado (dentro de la barra si hay espacio, arriba si no)
         fig_w.add_trace(go.Bar(name="Cobrado", x=df_w["week"], y=df_w["settled"],
-            marker=dict(color="#00D4FF", line=dict(color="#00D4FF")),
-            text=[f"${v:,.0f}" for v in df_w["settled"]], textposition="outside", textfont=dict(color="#00D4FF")))
+            marker=dict(color="#00D4FF"),
+            text=[f"${v:,.0f}" for v in df_w["settled"]],
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color="#0a0e27", size=12, family="Menlo")))
         fig_w.add_trace(go.Bar(name="Pending", x=df_w["week"], y=df_w["pending"],
-            marker=dict(color="#FF9F45", line=dict(color="#FF9F45"))))
+            marker=dict(color="#FF9F45"),
+            text=[f"${v:,.0f}" if v > 100 else "" for v in df_w["pending"]],
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color="#0a0e27", size=11, family="Menlo")))
+        # Total encima de cada stack
+        totals = [s + p for s, p in zip(df_w["settled"], df_w["pending"])]
+        fig_w.add_trace(go.Scatter(x=df_w["week"], y=totals, mode="text",
+            text=[f"${t:,.0f}" for t in totals],
+            textposition="top center", textfont=dict(color="#e4e9ff", size=11, family="Menlo"),
+            showlegend=False, hoverinfo="skip"))
+
         fig_w.update_layout(
             title=dict(text="📊 Semana × semana — Cobrado vs Pending", font=dict(color="#8892b0", size=14)),
             plot_bgcolor="rgba(15,20,47,0.5)", paper_bgcolor="rgba(15,20,47,0)",
-            font=dict(color="#e4e9ff"), barmode="stack", height=340,
+            font=dict(color="#e4e9ff"), barmode="stack", height=360,
             xaxis=dict(showgrid=False, color="#8892b0"),
             yaxis=dict(showgrid=True, gridcolor="rgba(123,97,255,0.1)", color="#8892b0", tickformat="$,.0f"),
-            legend=dict(orientation="h", yanchor="top", y=-0.1, x=0.4, bgcolor="rgba(0,0,0,0)"),
+            legend=dict(orientation="h", yanchor="top", y=-0.1, x=0.35, bgcolor="rgba(0,0,0,0)"),
             margin=dict(l=20, r=20, t=50, b=20),
         )
         col_w.plotly_chart(fig_w, use_container_width=True)
