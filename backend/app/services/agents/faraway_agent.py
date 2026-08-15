@@ -208,12 +208,24 @@ def _parse_sections(text: str) -> dict:
     return sections
 
 
-def _card(title, content, border="#3498db", bg="#fff"):
-    content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:{bg};border:1px solid #e0e0e0;border-left:4px solid {border};'
-            f'border-radius:8px;padding:20px;margin-bottom:16px;">'
-            f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:14px;text-transform:uppercase;">{title}</h3>'
-            f'<div style="color:#444;font-size:13px;line-height:1.8;">{content}</div></div>')
+def _card(title, content, accent="#00D4FF", bg=None):
+    """Gmail-safe dark card with left accent."""
+    import re as _re
+    content = _re.sub(r'\*\*(.+?)\*\*', rf'<span style="color:{accent};font-weight:700;">\1</span>', content or "—")
+    content = content.replace("\n", "<br>")
+    _open = (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        f'bgcolor="#141a3d" style="background-color:#141a3d;border-radius:10px;'
+        f'margin-bottom:12px;border-left:4px solid {accent};">'
+        f'<tr><td bgcolor="#141a3d" style="background-color:#141a3d;padding:18px 20px;'
+        f'border-radius:10px;border-left:4px solid {accent};">'
+    )
+    _inner = (
+        f'<h3 style="color:{accent};margin:0 0 10px;font-size:12px;'
+        f'text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">{title}</h3>'
+        f'<div style="color:#c5cdd6;font-size:13px;line-height:1.7;">{content}</div>'
+    )
+    return _open + _inner + '</td></tr></table>'
 
 
 def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Store") -> str:
@@ -224,14 +236,14 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     pct_str   = f"{gmv_pct:+.1f}%" if gmv_pct is not None else "N/A"
 
     top_prod_rows = "".join(
-        f"<tr><td style='padding:6px 10px;border-bottom:1px solid #f5f5f5;font-size:12px;'>{p['name']}</td>"
+        f"<tr><td style='padding:6px 10px;border-bottom:1px solid #2a2f5c;font-size:12px;'>{p['name']}</td>"
         f"<td style='padding:6px 10px;text-align:right;font-weight:bold;font-size:12px;'>${p['gmv']:,.0f}</td>"
         f"<td style='padding:6px 10px;text-align:center;font-size:12px;'>{p['units']}</td></tr>"
         for p in snapshot["top_products"])
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:'Segoe UI',Arial,sans-serif;max-width:860px;margin:0 auto;padding:20px;background:#f5f6fa;">
-  <div style="background:linear-gradient(135deg,#134e5e,#71b280);color:#fff;padding:28px;border-radius:12px;margin-bottom:22px;">
+<body style="margin:0;padding:0;background-color:#0a0e27;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0e27" style="background-color:#0a0e27;margin:0;padding:0;"><tr><td align="center" bgcolor="#0a0e27" style="background-color:#0a0e27;padding:20px 10px;"><table role="presentation" width="860" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0e27" style="max-width:860px;background-color:#0a0e27;color:#e4e9ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;"><tr><td bgcolor="#0a0e27" style="background-color:#0a0e27;padding:0;">
+  <div style="background-color:#0f142f;color:#fff;padding:28px;border-radius:12px;margin-bottom:22px;">
     <table width="100%"><tr>
       <td><div style="font-size:10px;letter-spacing:4px;opacity:0.7;text-transform:uppercase;">{store_name} Operations</div>
         <div style="font-size:30px;font-weight:700;letter-spacing:3px;margin:4px 0;">{AGENT_NAME}</div>
@@ -239,49 +251,49 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
       <td style="text-align:right;vertical-align:top;">
         <div style="font-size:14px;font-weight:bold;">Weekly Close Report</div>
         <div style="font-size:12px;opacity:0.8;">{snapshot['week_start']} → {snapshot['week_end']}</div>
-        <div style="margin-top:8px;background:rgba(255,255,255,0.2);padding:4px 14px;border-radius:20px;font-size:18px;font-weight:bold;display:inline-block;color:{pct_color if False else '#fff'};">{pct_str} vs prev week</div>
+        <div style="margin-top:8px;background-color:#1a2050;padding:4px 14px;border-radius:20px;font-size:18px;font-weight:bold;display:inline-block;color:{pct_color if False else '#fff'};">{pct_str} vs prev week</div>
       </td>
     </tr></table>
   </div>
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;border-collapse:collapse;"><tr>
     <td width="33%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">GMV Semana</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['gmv_cur']:,.0f}</div>
+      <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:14px;text-align:center;">
+        <div style="font-size:11px;color:#8892b0;text-transform:uppercase;">GMV Semana</div>
+        <div style="font-size:22px;font-weight:800;color:#00D4FF;">${snapshot['gmv_cur']:,.0f}</div>
         <div style="font-size:12px;color:{pct_color};">{pct_str} vs anterior</div>
       </div></td>
     <td width="33%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">GMV MTD</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['gmv_mtd']:,.0f}</div>
-        <div style="font-size:12px;color:#aaa;">Proy: ${snapshot['gmv_projected']:,.0f}</div>
+      <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:14px;text-align:center;">
+        <div style="font-size:11px;color:#8892b0;text-transform:uppercase;">GMV MTD</div>
+        <div style="font-size:22px;font-weight:800;color:#00D4FF;">${snapshot['gmv_mtd']:,.0f}</div>
+        <div style="font-size:12px;color:#8892b0;">Proy: ${snapshot['gmv_projected']:,.0f}</div>
       </div></td>
     <td width="33%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">Afiliados GMV</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['aff_gmv_cur']:,.0f}</div>
-        <div style="font-size:12px;color:#aaa;">{snapshot['aff_orders_cur']} órdenes</div>
+      <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:14px;text-align:center;">
+        <div style="font-size:11px;color:#8892b0;text-transform:uppercase;">Afiliados GMV</div>
+        <div style="font-size:22px;font-weight:800;color:#00D4FF;">${snapshot['aff_gmv_cur']:,.0f}</div>
+        <div style="font-size:12px;color:#8892b0;">{snapshot['aff_orders_cur']} órdenes</div>
       </div></td>
   </tr></table>
   {_card("Performance de la Semana", sections.get("performance","—"), "#3498db")}
   {_card("Canal de Afiliados", sections.get("afiliados","—"), "#9b59b6")}
   {_card("Alertas de Inventario", sections.get("inventario","—"), "#e74c3c", "#fffafa")}
   {_card("Prioridades Semana que Viene", sections.get("prioridades","—"), "#27ae60")}
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;margin-bottom:16px;">
-    <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top Productos Semana</h3>
+  <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:18px;margin-bottom:16px;">
+    <h3 style="color:#00D4FF;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top Productos Semana</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:#2c3e50;color:#fff;">
+      <thead><tr style="background-color:#1a2050;color:#fff;">
         <th style="padding:7px 10px;text-align:left;">Producto</th>
         <th style="padding:7px 10px;text-align:right;">GMV</th>
         <th style="padding:7px 10px;text-align:center;">Uds</th></tr></thead>
       <tbody>{top_prod_rows}</tbody>
     </table>
   </div>
-  <div style="text-align:center;padding:14px;color:#aaa;font-size:10px;border-top:1px solid #e0e0e0;">
-    <strong style="color:#888;">{AGENT_NAME}</strong> · {store_name} · {AGENT_SUBTITLE}<br>
+  <div style="text-align:center;padding:14px;color:#8892b0;font-size:10px;border-top:1px solid #2a2f5c;">
+    <strong style="color:#8892b0;">{AGENT_NAME}</strong> · {store_name} · {AGENT_SUBTITLE}<br>
     {today.strftime('%Y-%m-%d %H:%M')}
   </div>
-</body></html>"""
+</td></tr></table></td></tr></table></body></html>"""
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

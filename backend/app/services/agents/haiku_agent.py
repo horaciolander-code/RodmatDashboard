@@ -241,19 +241,42 @@ def _parse_sections(text: str) -> dict:
     return sections
 
 
-def _section(title, content, border="#3498db"):
-    content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:#fff;border:1px solid #e0e0e0;border-left:4px solid {border};'
-            f'border-radius:8px;padding:20px;margin-bottom:18px;">'
-            f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:15px;text-transform:uppercase;">{title}</h3>'
-            f'<div style="color:#444;font-size:14px;line-height:1.7;">{content}</div></div>')
+def _card(title, content, accent="#00D4FF", bg=None):
+    """Gmail-safe dark card with left accent."""
+    import re as _re
+    content = _re.sub(r'\*\*(.+?)\*\*', rf'<span style="color:{accent};font-weight:700;">\1</span>', content or "—")
+    content = content.replace("\n", "<br>")
+    _open = (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        f'bgcolor="#141a3d" style="background-color:#141a3d;border-radius:10px;'
+        f'margin-bottom:12px;border-left:4px solid {accent};">'
+        f'<tr><td bgcolor="#141a3d" style="background-color:#141a3d;padding:18px 20px;'
+        f'border-radius:10px;border-left:4px solid {accent};">'
+    )
+    _inner = (
+        f'<h3 style="color:{accent};margin:0 0 10px;font-size:12px;'
+        f'text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">{title}</h3>'
+        f'<div style="color:#c5cdd6;font-size:13px;line-height:1.7;">{content}</div>'
+    )
+    return _open + _inner + '</td></tr></table>'
+
+
+def _section(title, content, accent="#00D4FF"):
+    """Gmail-safe dark section helper (alias de _card)."""
+    return _card(title, content, accent)
 
 
 def _coverage_badge(days):
-    if days < 14:   return f"<span style='background:#e74c3c;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;'>{days:.0f}d 🔴</span>"
-    if days < 30:   return f"<span style='background:#f39c12;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;'>{days:.0f}d 🟠</span>"
-    if days < 9000: return f"<span style='background:#27ae60;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;'>{days:.0f}d ✅</span>"
-    return "<span style='color:#ccc;font-size:11px;'>—</span>"
+    if days < 14:
+        return (f"<span style='background-color:#3a0e1e;color:#FF3D6B;border:1px solid #7a1e3e;"
+                f"padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;'>{days:.0f}d</span>")
+    if days < 30:
+        return (f"<span style='background-color:#3d2810;color:#FF9F45;border:1px solid #7a5218;"
+                f"padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;'>{days:.0f}d</span>")
+    if days < 9000:
+        return (f"<span style='background-color:#0e3520;color:#00FF88;border:1px solid #1e6d40;"
+                f"padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;'>{days:.0f}d</span>")
+    return "<span style='color:#576177;font-size:11px;'>—</span>"
 
 
 def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Store") -> str:
@@ -269,7 +292,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     v_color = "#e74c3c" if "PEDIR YA" in vup else ("#8e44ad" if "NO PEDIR" in vup else "#f39c12")
 
     sales_rows = "".join(
-        f"<tr><td style='padding:7px 12px;border-bottom:1px solid #f0f0f0;'>{m['month']}</td>"
+        f"<tr><td style='padding:7px 12px;border-bottom:1px solid #2a2f5c;'>{m['month']}</td>"
         f"<td style='padding:7px 12px;text-align:right;font-weight:bold;'>${m['gmv']:,.0f}</td>"
         f"<td style='padding:7px 12px;text-align:center;'>{m['orders']}</td>"
         f"<td style='padding:7px 12px;text-align:center;'>{m['units']}</td></tr>"
@@ -279,20 +302,20 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
                   key=lambda x: x["coverage_days"] if x["coverage_days"] < 9000 else 9999)
     stock_rows = ""
     for r in show:
-        pend_str = (f"<span style='color:#3498db;font-weight:bold;'>+{r['stock_pending']}</span>"
-                    if r["stock_pending"] > 0 else "<span style='color:#ccc;'>—</span>")
+        pend_str = (f"<span style='color:#00D4FF;font-weight:bold;'>+{r['stock_pending']}</span>"
+                    if r["stock_pending"] > 0 else "<span style='color:#576177;'>—</span>")
         bg = "#fff0f0" if r.get("stockout_before_pending") else ("#fffbf0" if r.get("stockout_before_new_order") else "#fff")
         cov_now  = r.get("coverage_now", r["coverage_days"])
         cov_full = r["coverage_days"]
         cov_cell = (f"{_coverage_badge(cov_now)} → {_coverage_badge(cov_full)}"
                     if r["stock_pending"] > 0 else _coverage_badge(cov_full))
         flags = ""
-        if r.get("stockout_before_pending"):    flags += "<span style='color:#e74c3c;font-size:10px;font-weight:bold;'> ⚠️sin pend</span>"
-        if r.get("stockout_before_new_order"):  flags += "<span style='color:#8e44ad;font-size:10px;font-weight:bold;'> 🔴pedir</span>"
+        if r.get("stockout_before_pending"):    flags += "<span style='color:#FF3D6B;font-size:10px;font-weight:bold;'> ⚠️sin pend</span>"
+        if r.get("stockout_before_new_order"):  flags += "<span style='color:#7B61FF;font-size:10px;font-weight:bold;'> 🔴pedir</span>"
         stock_rows += (
             f"<tr style='background:{bg};'>"
             f"<td style='padding:6px 10px;font-size:12px;'>{r['name']}{flags}</td>"
-            f"<td style='padding:6px 10px;text-align:center;font-size:11px;color:#888;'>{r['tipo']}</td>"
+            f"<td style='padding:6px 10px;text-align:center;font-size:11px;color:#8892b0;'>{r['tipo']}</td>"
             f"<td style='padding:6px 10px;text-align:center;font-weight:bold;'>{r['stock_current']}</td>"
             f"<td style='padding:6px 10px;text-align:center;'>{pend_str}</td>"
             f"<td style='padding:6px 10px;text-align:center;font-size:11px;'>{r['daily_vel']:.1f}/d</td>"
@@ -302,8 +325,8 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     pend_total = sum(p["value"] for p in snapshot["pending_orders"])
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:'Segoe UI',Arial,sans-serif;max-width:860px;margin:0 auto;padding:20px;background:#f5f6fa;">
-  <div style="background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:#fff;padding:28px;border-radius:12px;margin-bottom:22px;">
+<body style="margin:0;padding:0;background-color:#0a0e27;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0e27" style="background-color:#0a0e27;margin:0;padding:0;"><tr><td align="center" bgcolor="#0a0e27" style="background-color:#0a0e27;padding:20px 10px;"><table role="presentation" width="860" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0e27" style="max-width:860px;background-color:#0a0e27;color:#e4e9ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;"><tr><td bgcolor="#0a0e27" style="background-color:#0a0e27;padding:0;">
+  <div style="background-color:#0f142f;color:#fff;padding:28px;border-radius:12px;margin-bottom:22px;">
     <table width="100%"><tr>
       <td><div style="font-size:10px;letter-spacing:4px;opacity:0.6;text-transform:uppercase;">{store_name} Operations</div>
         <div style="font-size:30px;font-weight:700;letter-spacing:3px;margin:4px 0;">{AGENT_NAME}</div>
@@ -317,26 +340,26 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
   </div>
   {_section("Resumen Ejecutivo", sections.get("resumen","—"), "#2ecc71")}
   {_section("Tendencia de Ventas", sections.get("ventas","—"), "#3498db")}
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:18px;">
-    <h3 style="color:#2c3e50;margin:0 0 12px;font-size:15px;text-transform:uppercase;">Datos de Ventas</h3>
+  <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:20px;margin-bottom:18px;">
+    <h3 style="color:#00D4FF;margin:0 0 12px;font-size:15px;text-transform:uppercase;">Datos de Ventas</h3>
     <table width="100%" style="border-collapse:collapse;font-size:13px;">
-      <thead><tr style="background:#2c3e50;color:#fff;">
+      <thead><tr style="background-color:#1a2050;color:#fff;">
         <th style="padding:9px 12px;">Mes</th><th style="padding:9px 12px;text-align:right;">GMV</th>
         <th style="padding:9px 12px;text-align:center;">Órdenes</th><th style="padding:9px 12px;text-align:center;">Uds</th></tr></thead>
       <tbody>{sales_rows}</tbody>
     </table>
-    <div style="margin-top:12px;padding:10px 14px;background:#eaf2f8;border-radius:6px;font-size:13px;">
+    <div style="margin-top:12px;padding:10px 14px;background-color:#0e2836;border-radius:6px;font-size:13px;">
       <strong>{today.strftime('%B')} MTD ({snapshot['mtd_days_elapsed']}d):</strong>
       ${snapshot['mtd_revenue']:,.0f} → <strong>Proy: ${snapshot['mtd_projected']:,.0f}</strong>
     </div>
   </div>
   {_section("Estado de Inventario", sections.get("inventario","—"), "#e67e22")}
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:18px;">
-    <h3 style="color:#2c3e50;margin:0 0 6px;font-size:15px;text-transform:uppercase;">Stock — Productos Activos</h3>
+  <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:20px;margin-bottom:18px;">
+    <h3 style="color:#00D4FF;margin:0 0 6px;font-size:15px;text-transform:uppercase;">Stock — Productos Activos</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:#34495e;color:#fff;">
+      <thead><tr style="background-color:#1a2050;color:#fff;">
         <th style="padding:8px 10px;text-align:left;">Producto</th><th style="padding:8px 10px;text-align:center;">Tipo</th>
-        <th style="padding:8px 10px;text-align:center;">Stock</th><th style="padding:8px 10px;text-align:center;color:#85c1e9;">+Pend.</th>
+        <th style="padding:8px 10px;text-align:center;">Stock</th><th style="padding:8px 10px;text-align:center;color:#00D4FF;">+Pend.</th>
         <th style="padding:8px 10px;text-align:center;">Vel./día</th><th style="padding:8px 10px;text-align:center;">Cobertura</th></tr></thead>
       <tbody>{stock_rows}</tbody>
     </table>
@@ -345,11 +368,11 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
             sections.get("orden","—") + f"<br><br>💰 Valor total: <strong>${pend_total:,.0f}</strong>",
             "#e74c3c" if overdue > 0 else "#27ae60")}
   {_section("Decisión de Compra", sections.get("decision","—"), v_color)}
-  <div style="text-align:center;padding:16px;color:#aaa;font-size:11px;border-top:1px solid #e8e8e8;">
-    <strong style="color:#888;">{AGENT_NAME}</strong> · {store_name} · {AGENT_SUBTITLE}<br>
+  <div style="text-align:center;padding:16px;color:#8892b0;font-size:11px;border-top:1px solid #2a2f5c;">
+    <strong style="color:#8892b0;">{AGENT_NAME}</strong> · {store_name} · {AGENT_SUBTITLE}<br>
     {today.strftime('%Y-%m-%d %H:%M')}
   </div>
-</body></html>"""
+</td></tr></table></td></tr></table></body></html>"""
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
