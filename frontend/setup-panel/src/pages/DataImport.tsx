@@ -2,6 +2,23 @@ import { useState } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+
+// Amplía el accept con MIME types — iOS/iPad Safari NO reconoce archivos por extensión sola.
+function expandAccept(ext: string): string {
+  const parts = ext.split(',').map(s => s.trim());
+  const mimes: string[] = [];
+  const seen = new Set(parts);
+  for (const p of parts) {
+    if (p === '.xlsx') { mimes.push('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); }
+    if (p === '.xls')  { mimes.push('application/vnd.ms-excel'); }
+    if (p === '.csv')  { mimes.push('text/csv', 'application/csv', 'application/vnd.ms-excel'); }
+    if (p === '.txt')  { mimes.push('text/plain', 'text/tab-separated-values'); }
+    if (p === '.tsv')  { mimes.push('text/tab-separated-values', 'text/plain'); }
+  }
+  for (const m of mimes) if (!seen.has(m)) { seen.add(m); parts.push(m); }
+  return parts.join(',');
+}
+
 interface StepResult {
   total_rows: number;
   inserted: number;
@@ -117,8 +134,8 @@ export default function DataImport() {
         {isLoading ? 'Subiendo...' : 'Subir'}
         <input
           type="file"
-          accept={step.accept}
-          className="hidden"
+          accept={expandAccept(step.accept)}
+          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}
           disabled={isLoading}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(step, f); e.target.value = ''; }}
         />
