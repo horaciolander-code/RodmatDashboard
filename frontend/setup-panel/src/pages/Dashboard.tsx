@@ -4,10 +4,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 interface ImportStatus {
-  orders: number;
-  products: number;
-  combos: number;
-  affiliates: number;
+  orders: number; products: number; combos: number; affiliates: number;
 }
 
 export default function Dashboard() {
@@ -26,46 +23,45 @@ export default function Dashboard() {
   }, []);
 
   const cards = [
-    { label: 'Orders', count: status.orders, color: 'bg-blue-500' },
-    { label: 'Products', count: status.products, color: 'bg-green-500' },
-    { label: 'Combos', count: status.combos, color: 'bg-purple-500' },
-    { label: 'Affiliates', count: status.affiliates, color: 'bg-orange-500' },
+    { label: 'Órdenes', count: status.orders, color: 'var(--rdmt-cyan)' },
+    { label: 'Productos', count: status.products, color: 'var(--rdmt-green)' },
+    { label: 'Combos', count: status.combos, color: 'var(--rdmt-purple)' },
+    { label: 'Afiliados', count: status.affiliates, color: 'var(--rdmt-orange)' },
+  ];
+
+  const links = [
+    { to: '/import', title: 'Importar Datos', desc: 'Sube CSV/Excel de tu tienda', icon: '📤' },
+    { to: '/products', title: 'Productos', desc: 'Catálogo de productos', icon: '📦' },
+    { to: '/combos', title: 'Combos', desc: 'Configura combos SKU', icon: '🎁' },
+    { to: '/inventory', title: 'Inventario', desc: 'Stock inicial + pendiente', icon: '🏭' },
+    { to: '/settings', title: 'Ajustes', desc: 'Configuración de tu tienda', icon: '⚙️' },
   ];
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">{user?.store_name ?? 'Rodmat'} Dashboard</h1>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <h1 className="text-3xl rdmt-title mb-6">{user?.store_name ?? 'Rodmat'} · Panel</h1>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
         {cards.map((c) => (
-          <div key={c.label} className={`${c.color} text-white rounded-lg p-6`}>
-            <p className="text-3xl font-bold">{c.count.toLocaleString()}</p>
-            <p className="text-sm opacity-80">{c.label}</p>
+          <div key={c.label} className="rdmt-card p-5">
+            <p className="text-3xl font-bold" style={{color: c.color, fontFamily: "'SF Mono', Menlo, monospace"}}>
+              {c.count.toLocaleString()}
+            </p>
+            <p className="text-xs uppercase tracking-wider mt-2" style={{color: 'var(--rdmt-text-mut)'}}>{c.label}</p>
           </div>
         ))}
       </div>
 
-      <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+      <h2 className="text-lg font-semibold mb-4 uppercase tracking-wider"
+          style={{color: 'var(--rdmt-text-mut)'}}>Accesos Rápidos</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Link to="/import" className="block p-4 bg-white border rounded-lg hover:shadow-md transition">
-          <h3 className="font-semibold">Import Data</h3>
-          <p className="text-sm text-gray-500">Upload CSV/Excel files</p>
-        </Link>
-        <Link to="/products" className="block p-4 bg-white border rounded-lg hover:shadow-md transition">
-          <h3 className="font-semibold">Products</h3>
-          <p className="text-sm text-gray-500">Manage product catalog</p>
-        </Link>
-        <Link to="/combos" className="block p-4 bg-white border rounded-lg hover:shadow-md transition">
-          <h3 className="font-semibold">Combos</h3>
-          <p className="text-sm text-gray-500">Configure combo SKUs</p>
-        </Link>
-        <Link to="/inventory" className="block p-4 bg-white border rounded-lg hover:shadow-md transition">
-          <h3 className="font-semibold">Inventory</h3>
-          <p className="text-sm text-gray-500">Initial + incoming stock</p>
-        </Link>
-        <Link to="/settings" className="block p-4 bg-white border rounded-lg hover:shadow-md transition">
-          <h3 className="font-semibold">Settings</h3>
-          <p className="text-sm text-gray-500">Store configuration</p>
-        </Link>
+        {links.map(l => (
+          <Link key={l.to} to={l.to} className="rdmt-card p-5 block no-underline">
+            <div className="text-2xl mb-2">{l.icon}</div>
+            <h3 className="font-semibold" style={{color: 'var(--rdmt-cyan)'}}>{l.title}</h3>
+            <p className="text-sm mt-1" style={{color: 'var(--rdmt-text-mut)'}}>{l.desc}</p>
+          </Link>
+        ))}
       </div>
     </div>
   );
