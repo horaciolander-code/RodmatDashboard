@@ -12,6 +12,7 @@ from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
+    load_orders_df_branded, load_kpis_branded, load_creator_df_branded,
 )
 
 AGENT_NAME     = "MESMERIZE"
@@ -70,10 +71,10 @@ MARKET_INTEL = {
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
-def extract_snapshot(db: Session, store_id: str) -> dict:
-    kpis       = load_kpis(db, store_id)
-    orders_df  = load_orders_df(db, store_id)
-    creator_df = load_creator_df(db, store_id)
+def extract_snapshot(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
+    kpis       = load_kpis_branded(db, store_id, brand_slug)
+    orders_df  = load_orders_df_branded(db, store_id, brand_slug)
+    creator_df = load_creator_df_branded(db, store_id, brand_slug)
     today      = pd.Timestamp.now()
 
     # Velocity by category
@@ -348,7 +349,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
         print(f"[MESMERIZE] brand-scoped: {brand_info['display_name']}")
 
     print(f"[MESMERIZE] Extracting snapshot for {store_name}...")
-    snapshot = extract_snapshot(db, store_id)
+    snapshot = extract_snapshot(db, store_id, brand_slug)
 
     print("[MESMERIZE] Calling Groq...")
     business_context = get_business_context(store)

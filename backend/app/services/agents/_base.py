@@ -280,6 +280,44 @@ def load_orders_df_branded(db: Session, store_id: str, brand_slug: str | None = 
     return df[mask].reset_index(drop=True)
 
 
+def load_kpis_branded(db: Session, store_id: str, brand_slug: str | None = None) -> pd.DataFrame:
+    """Wrapper: filtra KPIs stock por brand cuando brand_slug != None."""
+    df = load_kpis(db, store_id)
+    if not brand_slug or df is None or df.empty:
+        return df
+    from app.models import Product, Brand
+    rows = db.query(Product.sku, Brand.slug).select_from(Product).outerjoin(
+        Brand, Brand.id == Product.brand_id
+    ).filter(Product.store_id == store_id).all()
+    bmap = {r[0]: r[1] for r in rows}
+    sku_col = None
+    for candidate in ("SKU", "sku", "Seller SKU", "SKU_ID"):
+        if candidate in df.columns:
+            sku_col = candidate; break
+    if not sku_col:
+        return df
+    mask = df[sku_col].astype(str).map(lambda s: bmap.get(s) == brand_slug)
+    return df[mask].reset_index(drop=True)
+
+
+def load_creator_df_branded(db: Session, store_id: str, brand_slug: str | None = None):
+    """Wrapper: filtra affiliate_sales por brand cuando brand_slug != None.
+    Filtra por product_name (los affiliate_sales no tienen brand_id directo)
+    matching con products.name where products.brand_id = brand."""
+    df = load_creator_df(db, store_id)
+    if not brand_slug or df is None or df.empty:
+        return df
+    from app.models import Product, Brand
+    rows = db.query(Product.name, Brand.slug).select_from(Product).outerjoin(
+        Brand, Brand.id == Product.brand_id
+    ).filter(Product.store_id == store_id).all()
+    brand_products = {r[0].strip().lower() for r in rows if r[1] == brand_slug}
+    if not brand_products or "Product Name" not in df.columns:
+        return df
+    mask = df["Product Name"].astype(str).str.strip().str.lower().isin(brand_products)
+    return df[mask].reset_index(drop=True)
+
+
 def send_email_branded(html: str, subject: str, recipients: list[str], brand=None) -> bool:
     """Send email using brand-specific sender when brand provided."""
     if not RESEND_API_KEY or not recipients:

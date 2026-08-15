@@ -12,6 +12,7 @@ from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_pending_df,
+    load_orders_df_branded, load_kpis_branded,
 )
 
 AGENT_NAME     = "HAIKU"
@@ -22,9 +23,9 @@ MIN_ORDER      = 10000
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
-def extract_snapshot(db: Session, store_id: str) -> dict:
-    kpis      = load_kpis(db, store_id)
-    orders_df = load_orders_df(db, store_id)
+def extract_snapshot(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
+    kpis      = load_kpis_branded(db, store_id, brand_slug)
+    orders_df = load_orders_df_branded(db, store_id, brand_slug)
     pend_df   = load_pending_df(db, store_id)
     today     = pd.Timestamp.now()
 
@@ -404,7 +405,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     store_name = store.name if store else "Store"
 
     print(f"[HAIKU] Extracting snapshot for {store_name}...")
-    snapshot = extract_snapshot(db, store_id)
+    snapshot = extract_snapshot(db, store_id, brand_slug)
     overdue  = snapshot["pending_overdue_days"]
     print(f"[HAIKU] {len(snapshot['stock_with_pending'])} products · {len(snapshot['pending_orders'])} pending SKUs · {overdue}d overdue")
 

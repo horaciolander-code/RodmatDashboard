@@ -14,6 +14,7 @@ from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
+    load_orders_df_branded, load_kpis_branded, load_creator_df_branded,
 )
 
 AGENT_NAME = "PRISM"
@@ -231,10 +232,10 @@ def module_opportunity_signals(velocity, category, portfolio, geographic, creato
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
-def extract_snapshot(db: Session, store_id: str) -> dict:
-    kpis       = load_kpis(db, store_id)
-    orders_df  = load_orders_df(db, store_id)
-    creator_df = load_creator_df(db, store_id)
+def extract_snapshot(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
+    kpis       = load_kpis_branded(db, store_id, brand_slug)
+    orders_df  = load_orders_df_branded(db, store_id, brand_slug)
+    creator_df = load_creator_df_branded(db, store_id, brand_slug)
     today      = pd.Timestamp.now()
     shipped    = _shipped(orders_df)
 
@@ -671,7 +672,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
         print(f"[PRISM] brand-scoped: {brand_info['display_name']} · recipients={recipients}")
 
     print(f"[PRISM] Extracting snapshot for {store_name}...")
-    snapshot = extract_snapshot(db, store_id)  # TODO: filtrar snapshot por brand_id cuando implementado
+    snapshot = extract_snapshot(db, store_id, brand_slug)
     high_n = sum(1 for o in snapshot["opportunities"] if o["score"] == "HIGH")
     print(f"[PRISM] {len(snapshot['opportunities'])} signals ({high_n} HIGH) · "
           f"{len(snapshot['velocity'].get('accelerating',[]))} accelerating")

@@ -13,6 +13,7 @@ from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
+    load_orders_df_branded, load_kpis_branded, load_creator_df_branded,
 )
 
 AGENT_NAME     = "FARAWAY"
@@ -21,10 +22,10 @@ AGENT_SUBTITLE = "Weekly Business Close"
 
 # ── Snapshot ──────────────────────────────────────────────────────────────────
 
-def extract_snapshot(db: Session, store_id: str) -> dict:
-    orders_df  = load_orders_df(db, store_id)
-    kpis       = load_kpis(db, store_id)
-    creator_df = load_creator_df(db, store_id)
+def extract_snapshot(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
+    orders_df  = load_orders_df_branded(db, store_id, brand_slug)
+    kpis       = load_kpis_branded(db, store_id, brand_slug)
+    creator_df = load_creator_df_branded(db, store_id, brand_slug)
     today      = pd.Timestamp.now()
 
     # Semana Rodmat: sábado → viernes (Saturday=5, Friday=4).
@@ -325,7 +326,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     store_name = store.name if store else "Store"
 
     print(f"[FARAWAY] Extracting snapshot for {store_name}...")
-    snapshot = extract_snapshot(db, store_id)
+    snapshot = extract_snapshot(db, store_id, brand_slug)
     pct_str = f"{snapshot['gmv_pct']:+.1f}%" if snapshot["gmv_pct"] is not None else "N/A"
     print(f"[FARAWAY] GMV ${snapshot['gmv_cur']:,.0f} ({pct_str} vs prev week)")
 

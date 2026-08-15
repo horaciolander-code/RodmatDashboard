@@ -20,6 +20,7 @@ from app.services.agents._base import (
     get_business_context, is_agent_enabled,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_creator_df,
+    load_orders_df_branded, load_creator_df_branded,
 )
 
 AGENT_NAME     = "TIMELESS"
@@ -41,9 +42,9 @@ def _prev_month(year: int, month: int):
     return (year, month - 1) if month > 1 else (year - 1, 12)
 
 
-def extract_snapshot(db: Session, store_id: str) -> dict:
-    orders_df  = load_orders_df(db, store_id)
-    creator_df = load_creator_df(db, store_id)
+def extract_snapshot(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
+    orders_df  = load_orders_df_branded(db, store_id, brand_slug)
+    creator_df = load_creator_df_branded(db, store_id, brand_slug)
     today      = pd.Timestamp.now()
 
     # Closed month = previous calendar month (regardless of today.day).
@@ -426,7 +427,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     business_context = get_business_context(store)
 
     print(f"[TIMELESS] Extracting snapshot for {store_name}...")
-    snapshot = extract_snapshot(db, store_id)
+    snapshot = extract_snapshot(db, store_id, brand_slug)
     mom = f"{snapshot['gmv_mom_pct']:+.1f}%" if snapshot["gmv_mom_pct"] is not None else "N/A"
     print(f"[TIMELESS] {snapshot['closed_month_name']} GMV ${snapshot['gmv_cur']:,.0f} ({mom} vs prev month)")
 
