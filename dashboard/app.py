@@ -648,8 +648,41 @@ def page_overview():
     st.subheader("GMV por Mes")
     if monthly:
         df_m = pd.DataFrame(monthly)
-        fig = px.bar(df_m, x="Month", y="GMV", text_auto="$.2s")
-        fig.update_layout(height=350, margin=dict(t=10, b=10))
+        # Stacked bar: Tienda (base) + Afiliados (encima)
+        fig = go.Figure()
+        if "GMV_Tienda" in df_m.columns:
+            fig.add_trace(go.Bar(
+                name="Ventas Tienda",
+                x=df_m["Month"], y=df_m["GMV_Tienda"],
+                marker_color="#00D4FF",
+                text=df_m["GMV_Tienda"].apply(lambda v: f"${v/1000:.0f}k" if v > 0 else ""),
+                textposition="inside",
+                hovertemplate="<b>%{x}</b><br>Tienda: $%{y:,.0f}<extra></extra>",
+            ))
+        if "GMV_Afiliados" in df_m.columns:
+            fig.add_trace(go.Bar(
+                name="Ventas Afiliados",
+                x=df_m["Month"], y=df_m["GMV_Afiliados"],
+                marker_color="#7B61FF",
+                text=df_m["GMV_Afiliados"].apply(lambda v: f"${v/1000:.0f}k" if v > 0 else ""),
+                textposition="inside",
+                hovertemplate="<b>%{x}</b><br>Afiliados: $%{y:,.0f}<extra></extra>",
+            ))
+        # Totales encima de cada barra
+        if "GMV" in df_m.columns:
+            fig.add_trace(go.Scatter(
+                x=df_m["Month"], y=df_m["GMV"],
+                mode="text",
+                text=df_m["GMV"].apply(lambda v: f"${v/1000:.0f}k"),
+                textposition="top center",
+                textfont=dict(color="#e4e9ff", size=11, family="SF Mono, monospace"),
+                showlegend=False, hoverinfo="skip",
+            ))
+        fig.update_layout(
+            barmode="stack", height=380, margin=dict(t=10, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis_title="", yaxis_title="GMV ($)",
+        )
         st.plotly_chart(fig, use_container_width=True, key="ov_monthly")
 
     # Month filter buttons for daily chart

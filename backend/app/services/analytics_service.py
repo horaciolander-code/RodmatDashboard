@@ -182,11 +182,37 @@ def get_sales_by_month(db: Session, store_id: str,
     if date_to:
         df = df[df["Order_Date"] <= pd.to_datetime(date_to)]
     df["Month"] = df["Order_Date"].dt.to_period("M").astype(str)
+
+    # ── Breakdown Afiliados vs Tienda ──
+    # affiliate_sales.order_id = tiktok_order_id → cualquier orden que aparezca
+    # ahí es "de afiliado" (llevó creator asignado).
+    aff_order_ids = set()
+    try:
+        rows = db.query(AffiliateSale.order_id).filter(
+            AffiliateSale.store_id == store_id,
+            AffiliateSale.order_id.isnot(None)
+        ).all()
+        aff_order_ids = {r[0] for r in rows if r[0]}
+    except Exception:
+        pass
+
+    if aff_order_ids and "Order ID" in df.columns:
+        df["_is_aff"] = df["Order ID"].astype(str).isin(aff_order_ids)
+    else:
+        df["_is_aff"] = False
+
     monthly = df.groupby("Month").agg(
         GMV=("SKU Subtotal After Discount", "sum"),
         Orders=("Order ID", "nunique"),
         Units=("Quantity", "sum"),
     ).reset_index()
+
+    # Breakdown GMV por mes
+    aff_by_month = df[df["_is_aff"]].groupby("Month")["SKU Subtotal After Discount"].sum().to_dict()
+    monthly["GMV_Afiliados"] = monthly["Month"].map(lambda m: round(aff_by_month.get(m, 0), 2))
+    monthly["GMV_Tienda"] = (monthly["GMV"] - monthly["GMV_Afiliados"]).round(2)
+    monthly["GMV_Tienda"] = monthly["GMV_Tienda"].clip(lower=0)  # safety no negativos
+
     return monthly.to_dict(orient="records")
 
 
