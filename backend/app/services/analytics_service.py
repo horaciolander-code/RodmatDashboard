@@ -260,8 +260,9 @@ def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30, brand_
     stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
     if stock.empty:
         return []
-    cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
-            "PedidosPendiente", "StockConPedidos", "FBT_Sent", "Stock_Warehouse", "Stock_FBT",
+    cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "SalesInPeriod",
+            "StockActualizado", "PedidosPendiente", "StockConPedidos", "FBT_Sent",
+            "Stock_Warehouse", "Stock_FBT",
             "Sales_7d", "Sales_30d", "Sales_60d", "AvgVentas30d", "AvgVentas60d",
             "WeeklyAvg_30d", "WeeklyAvg_60d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT",
             "Inv_deseado", "Unid_a_comprar", "Cajas_a_comprar", "Importe_a_comprar",
@@ -572,6 +573,215 @@ def get_monthly_product_sales(db: Session, store_id: str,
     result = decomposed.groupby("Month")["ComponentQty"].sum().reset_index()
     result.columns = ["Mes", "Unidades Vendidas"]
     return result.sort_values("Mes").to_dict(orient="records")
+
+
+def get_product_monthly_sales_pivot(db: Session, store_id: str,
+                                     year: Optional[int] = None,
+                                     brand_slug: Optional[str] = None) -> dict:
+    """Pivot productos × meses (unidades vendidas). Retorna años disponibles + rows.
+    Cada row: {producto, categoria, m01..m12, total_año}."""
+    import pandas as pd
+    from app.services.stock_calculator import decompose_orders
+    combo_dict = _build_combo_dict(db, store_id)
+    orders_df = _load_orders_df(db, store_id)
+    if orders_df.empty:
+        return {"years": [], "rows": []}
+
+    # Filtro por brand si aplica
+    if brand_slug:
+        from sqlalchemy import text
+        bid_row = db.execute(text("SELECT id FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
+                             {"sid": store_id, "slug": brand_slug}).fetchone()
+        if bid_row and "brand_id" in orders_df.columns:
+            orders_df = orders_df[orders_df["brand_id"] == bid_row[0]]
+
+    decomposed = decompose_orders(orders_df, combo_dict)
+    if decomposed.empty:
+        return {"years": [], "rows": []}
+
+    if "Order Status" in decomposed.columns:
+        mask = decomposed["Order Status"].astype(str).str.contains("Deliver|Ship|Complet", case=False, na=False)
+        decomposed = decomposed[mask]
+    if decomposed.empty:
+        return {"years": [], "rows": []}
+
+    decomposed["Year"] = decomposed["Order_Date"].dt.year
+    decomposed["Month"] = decomposed["Order_Date"].dt.month
+    years_available = sorted(decomposed["Year"].dropna().unique().astype(int).tolist(), reverse=True)
+
+    if year:
+        decomposed = decomposed[decomposed["Year"] == int(year)]
+    if decomposed.empty:
+        return {"years": years_available, "rows": []}
+
+    # Producto = ComponentKey + su categoría (join con products)
+    from app.models import Product
+    products_map = {p.name.strip().lower(): (p.category or "", p.sku)
+                    for p in db.query(Product).filter(Product.store_id == store_id).all()}
+
+    pivot = decomposed.pivot_table(
+        index="ComponentKey", columns="Month",
+        values="ComponentQty", aggfunc="sum", fill_value=0,
+    ).reset_index()
+    pivot.columns = [str(c) for c in pivot.columns]
+
+    rows = []
+    for _, r in pivot.iterrows():
+        prod_name = str(r["ComponentKey"]).strip()
+        cat, sku = products_map.get(prod_name.lower(), ("", ""))
+        row = {"producto": prod_name, "categoria": cat, "sku": sku}
+        total = 0
+        for m in range(1, 13):
+            v = int(r.get(str(m), 0))
+            row[f"m{m:02d}"] = v
+            total += v
+        row["total"] = total
+        rows.append(row)
+    rows.sort(key=lambda x: x["total"], reverse=True)
+    return {"years": years_available, "rows": rows, "year_active": int(year) if year else None}
+
+
+def get_combo_monthly_sales_pivot(db: Session, store_id: str,
+                                   year: Optional[int] = None,
+                                   brand_slug: Optional[str] = None) -> dict:
+    """Pivot combos × meses (unidades). Combo = Seller SKU + Product Name (nivel orden, sin descomponer)."""
+    import pandas as pd
+    df = _load_orders_df(db, store_id)
+    if df.empty:
+        return {"years": [], "rows": []}
+    if brand_slug:
+        from sqlalchemy import text
+        bid_row = db.execute(text("SELECT id FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
+                             {"sid": store_id, "slug": brand_slug}).fetchone()
+        if bid_row and "brand_id" in df.columns:
+            df = df[df["brand_id"] == bid_row[0]]
+
+    if "Order Status" in df.columns:
+        df = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
+
+    if "Order_Date" not in df.columns or df.empty:
+        return {"years": [], "rows": []}
+    df["Year"] = df["Order_Date"].dt.year
+    df["Month"] = df["Order_Date"].dt.month
+    years_available = sorted(df["Year"].dropna().unique().astype(int).tolist(), reverse=True)
+
+    if year:
+        df = df[df["Year"] == int(year)]
+    if df.empty:
+        return {"years": years_available, "rows": []}
+
+    for c in ["Seller SKU", "Product Name"]:
+        if c in df.columns:
+            df[c] = df[c].fillna("")
+
+    pivot = df.pivot_table(
+        index=["Seller SKU", "Product Name"], columns="Month",
+        values="Quantity", aggfunc="sum", fill_value=0,
+    ).reset_index()
+    pivot.columns = [str(c) for c in pivot.columns]
+
+    rows = []
+    for _, r in pivot.iterrows():
+        row = {"sku": str(r.get("Seller SKU", "")), "descripcion": str(r.get("Product Name", ""))}
+        total = 0
+        for m in range(1, 13):
+            v = int(r.get(str(m), 0))
+            row[f"m{m:02d}"] = v
+            total += v
+        row["total"] = total
+        rows.append(row)
+    rows.sort(key=lambda x: x["total"], reverse=True)
+    return {"years": years_available, "rows": rows, "year_active": int(year) if year else None}
+
+
+def get_creator_monthly_pivot(db: Session, store_id: str,
+                               year: Optional[int] = None) -> dict:
+    """Pivot creators × [muestras_gratis, muestras_compradas, m01..m12, total_ventas_año].
+    - muestras_gratis: órdenes en sales_orders con buyer_username == creator_username y order_amount == 0
+    - muestras_compradas: idem pero order_amount > 0
+    - m01..m12: GMV mensual del creator desde affiliate_sales
+    - total: suma m01..m12."""
+    import pandas as pd
+    from sqlalchemy import func
+    from app.models import SalesOrder
+
+    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    if not affiliates:
+        return {"years": [], "rows": []}
+    aff = pd.DataFrame([{
+        "Time Created": a.time_created,
+        "Creator Username": a.creator_username,
+        "Payment Amount": a.payment_amount or 0,
+        "Order ID": a.order_id,
+    } for a in affiliates])
+    aff["Time Created"] = pd.to_datetime(aff["Time Created"], errors="coerce")
+    aff = aff.dropna(subset=["Time Created"])
+    if aff.empty:
+        return {"years": [], "rows": []}
+    aff["Year"] = aff["Time Created"].dt.year
+    aff["Month"] = aff["Time Created"].dt.month
+    years_available = sorted(aff["Year"].dropna().unique().astype(int).tolist(), reverse=True)
+    if year:
+        aff_y = aff[aff["Year"] == int(year)]
+    else:
+        aff_y = aff
+    if aff_y.empty:
+        return {"years": years_available, "rows": []}
+
+    # Pivot GMV mensual
+    pivot = aff_y.pivot_table(
+        index="Creator Username", columns="Month",
+        values="Payment Amount", aggfunc="sum", fill_value=0,
+    ).reset_index()
+    pivot.columns = [str(c) for c in pivot.columns]
+
+    # Muestras gratis + compradas: query sales_orders con buyer == creator
+    creators_lower = {c.strip().lower() for c in aff_y["Creator Username"].dropna().unique()}
+    if not creators_lower:
+        return {"years": years_available, "rows": []}
+
+    # Load sales_orders + filter buyer in creators
+    orders = db.query(SalesOrder).filter(SalesOrder.store_id == store_id).all()
+    orders_rows = []
+    for o in orders:
+        buyer = (o.buyer_username or "").strip().lower()
+        if buyer and buyer in creators_lower:
+            orders_rows.append({
+                "buyer": buyer,
+                "amount": float(o.order_amount or 0),
+                "date": o.order_date,
+            })
+    if orders_rows:
+        od = pd.DataFrame(orders_rows)
+        od["date"] = pd.to_datetime(od["date"], errors="coerce")
+        if year and not od.empty:
+            od = od[od["date"].dt.year == int(year)]
+        if not od.empty:
+            gratis = od[od["amount"] == 0].groupby("buyer").size().to_dict()
+            compradas = od[od["amount"] > 0].groupby("buyer").size().to_dict()
+        else:
+            gratis, compradas = {}, {}
+    else:
+        gratis, compradas = {}, {}
+
+    rows = []
+    for _, r in pivot.iterrows():
+        creator = str(r["Creator Username"])
+        creator_lower = creator.strip().lower()
+        row = {
+            "creator": creator,
+            "muestras_gratis": int(gratis.get(creator_lower, 0)),
+            "muestras_compradas": int(compradas.get(creator_lower, 0)),
+        }
+        total = 0.0
+        for m in range(1, 13):
+            v = float(r.get(str(m), 0))
+            row[f"m{m:02d}"] = round(v, 2)
+            total += v
+        row["total"] = round(total, 2)
+        rows.append(row)
+    rows.sort(key=lambda x: x["total"], reverse=True)
+    return {"years": years_available, "rows": rows, "year_active": int(year) if year else None}
 
 
 def get_viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5) -> list:

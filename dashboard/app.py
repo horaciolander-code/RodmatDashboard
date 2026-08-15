@@ -382,6 +382,26 @@ def fetch_combo_sales(date_from=None, date_to=None, brand_slug=None):
     return api_get("/analytics/combo-sales", params) or []
 
 @st.cache_data(ttl=300)
+def fetch_product_monthly_sales_pivot(year=None, brand_slug=None):
+    params = {}
+    if year: params["year"] = year
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/product-monthly-sales-pivot", params) or {"years": [], "rows": []}
+
+
+def fetch_combo_monthly_sales_pivot(year=None, brand_slug=None):
+    params = {}
+    if year: params["year"] = year
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/combo-monthly-sales-pivot", params) or {"years": [], "rows": []}
+
+
+def fetch_creator_monthly_pivot(year=None):
+    params = {}
+    if year: params["year"] = year
+    return api_get("/analytics/creator-monthly-pivot", params) or {"years": [], "rows": []}
+
+
 def fetch_product_monthly_sales(product_name=None):
     params = {}
     if product_name: params["product_name"] = product_name
@@ -721,13 +741,13 @@ def page_inventario_summary():
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Stock Actual", f"{int(df['StockActualizado'].sum()):,}")
     c2.metric("Valor Inventario", f"${df['ValorInventario'].sum():,.2f}")
-    low_count = len(df[(df["Days_Coverage"] >= 0) & (df["Days_Coverage"] < 7) & (df["Initial_Stock"] > 0)]) if "Days_Coverage" in df.columns else 0
+    low_count = len(df[(df["Days_Coverage"] > 0) & (df["Days_Coverage"] < 7)]) if "Days_Coverage" in df.columns else 0
     c3.metric("Productos Stock Bajo", f"{low_count}")
     c4.metric("Stock Almacén", f"{int(df['Stock_Warehouse'].sum()):,}" if "Stock_Warehouse" in df.columns else "N/A")
     c5.metric("Stock FBT", f"{int(df['Stock_FBT'].sum()):,}" if "Stock_FBT" in df.columns else "N/A")
 
     if "Days_Coverage" in df.columns:
-        low_3 = df[(df["Days_Coverage"] >= 0) & (df["Days_Coverage"] < 999)].nsmallest(3, "Days_Coverage")
+        low_3 = df[df["Days_Coverage"] > 0].nsmallest(3, "Days_Coverage")
         if not low_3.empty:
             st.warning(f"Menor cobertura: {', '.join(low_3['ProductoNombre'].tolist())}")
 
@@ -752,18 +772,96 @@ def page_inventario_summary():
             st.plotly_chart(fig, use_container_width=True, key="inv_valor_tipo")
 
     st.subheader("Stock Actual por Producto")
-    display_cols = ["ProductoNombre", "Tipo", "Initial_Stock", "FBT_Sent",
+    display_cols = ["ProductoNombre", "Tipo",
                     "Stock_Warehouse", "Stock_FBT", "QtyShipped",
                     "StockActualizado", "PedidosPendiente", "StockConPedidos",
                     "Sales_30d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "ValorInventario"]
     available = [c for c in display_cols if c in df.columns]
     display_df = df[available].sort_values("StockActualizado", ascending=True).copy()
+    # Mostrar 0 como "—" en cobertura (visualmente más limpio, indica "sin ventas")
     for cov_col in ["Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"]:
         if cov_col in display_df.columns:
             display_df[cov_col] = display_df[cov_col].apply(
-                lambda v: "—" if isinstance(v, (int, float)) and v <= -999 else v
+                lambda v: "—" if isinstance(v, (int, float)) and v == 0 else v
             )
     st.dataframe(display_df, use_container_width=True, height=400)
+
+    # ─── Ventas Mensuales por Producto (pivot) ───
+    st.markdown("---")
+    st.subheader("📅 Ventas Mensuales por Producto")
+    st.caption("Unidades vendidas por mes tras descomponer combos. Filtro por producto/categoría y año.")
+
+    # Cargar datos (año actual por defecto)
+    _pmsp_first = fetch_product_monthly_sales_pivot(brand_slug=_bs)
+    years_pmsp = _pmsp_first.get("years", [])
+    if years_pmsp:
+        col_y1, col_y2, col_y3 = st.columns([1, 2, 2])
+        with col_y1:
+            year_sel = st.selectbox("Año", years_pmsp, index=0, key="pmsp_year")
+        pmsp_data = fetch_product_monthly_sales_pivot(year=year_sel, brand_slug=_bs)
+        rows_p = pmsp_data.get("rows", [])
+        if rows_p:
+            df_p = pd.DataFrame(rows_p)
+            with col_y2:
+                cat_opts = ["Todas"] + sorted(df_p["categoria"].dropna().unique().tolist())
+                cat_f = st.selectbox("Categoría", cat_opts, key="pmsp_cat")
+            with col_y3:
+                prod_opts = ["Todos"] + sorted(df_p["producto"].dropna().unique().tolist())
+                prod_f = st.selectbox("Producto", prod_opts, key="pmsp_prod")
+            if cat_f != "Todas": df_p = df_p[df_p["categoria"] == cat_f]
+            if prod_f != "Todos": df_p = df_p[df_p["producto"] == prod_f]
+
+            # Reordenar columnas + rename para display
+            month_cols = [f"m{m:02d}" for m in range(1, 13)]
+            display_p_cols = ["producto", "categoria"] + month_cols + ["total"]
+            display_p_cols = [c for c in display_p_cols if c in df_p.columns]
+            month_rename = {f"m{m:02d}": f"{m:02d}" for m in range(1, 13)}
+            rename_p = {"producto": "Producto", "categoria": "Categoría", "total": "TOTAL", **month_rename}
+            st.dataframe(df_p[display_p_cols].rename(columns=rename_p),
+                         use_container_width=True, height=400,
+                         column_config={"Producto": st.column_config.TextColumn(pinned=True, width="medium")})
+            st.caption(f"📊 {len(df_p)} productos · Total unidades: {int(df_p['total'].sum()):,}")
+        else:
+            st.info(f"Sin ventas de productos en {year_sel}.")
+    else:
+        st.info("No hay ventas de productos registradas todavía.")
+
+    # ─── Ventas Mensuales por Combo (pivot) ───
+    st.markdown("---")
+    st.subheader("📅 Ventas Mensuales por Combo")
+    st.caption("Unidades vendidas por combo (Seller SKU + descripción, nivel de orden sin descomponer). Filtro por SKU/descripción y año.")
+
+    _cmsp_first = fetch_combo_monthly_sales_pivot(brand_slug=_bs)
+    years_cmsp = _cmsp_first.get("years", [])
+    if years_cmsp:
+        col_c1, col_c2 = st.columns([1, 3])
+        with col_c1:
+            year_c = st.selectbox("Año", years_cmsp, index=0, key="cmsp_year")
+        cmsp_data = fetch_combo_monthly_sales_pivot(year=year_c, brand_slug=_bs)
+        rows_c = cmsp_data.get("rows", [])
+        if rows_c:
+            df_c = pd.DataFrame(rows_c)
+            with col_c2:
+                search = st.text_input("Buscar por SKU o descripción", "", key="cmsp_search")
+            if search:
+                mask = (df_c["sku"].str.contains(search, case=False, na=False) |
+                        df_c["descripcion"].str.contains(search, case=False, na=False))
+                df_c = df_c[mask]
+
+            month_cols = [f"m{m:02d}" for m in range(1, 13)]
+            display_c_cols = ["sku", "descripcion"] + month_cols + ["total"]
+            display_c_cols = [c for c in display_c_cols if c in df_c.columns]
+            month_rename = {f"m{m:02d}": f"{m:02d}" for m in range(1, 13)}
+            rename_c = {"sku": "SKU", "descripcion": "Descripción", "total": "TOTAL", **month_rename}
+            st.dataframe(df_c[display_c_cols].rename(columns=rename_c),
+                         use_container_width=True, height=400,
+                         column_config={"SKU": st.column_config.TextColumn(pinned=True, width="small"),
+                                        "Descripción": st.column_config.TextColumn(width="large")})
+            st.caption(f"📊 {len(df_c)} combos · Total unidades: {int(df_c['total'].sum()):,}")
+        else:
+            st.info(f"Sin ventas de combos en {year_c}.")
+    else:
+        st.info("No hay ventas de combos registradas todavía.")
 
 
 # ================================================================== #
@@ -810,13 +908,13 @@ def page_restock_analysis():
     st.markdown("---")
     st.subheader("Análisis Total Stock")
     table_cols = ["ProductoNombre", "Tipo", "Stock_Warehouse", "Stock_FBT",
-                  "QtyShipped", "StockActualizado", "StockConPedidos",
+                  "SalesInPeriod", "StockActualizado", "StockConPedidos",
                   "WeeklyAvg_30d", "WeeklyAvg_60d", "Inv_deseado_custom", "Unid_a_comprar_custom",
                   "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "SellThroughRate"]
     available = [c for c in table_cols if c in df.columns]
 
     # Cast enteros donde aplica (evita .000000)
-    _int_cols = ["Stock_Warehouse", "Stock_FBT", "QtyShipped", "StockActualizado",
+    _int_cols = ["Stock_Warehouse", "Stock_FBT", "SalesInPeriod", "StockActualizado",
                  "StockConPedidos", "Inv_deseado_custom", "Unid_a_comprar_custom",
                  "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"]
     for _c in _int_cols:
@@ -854,7 +952,7 @@ def page_restock_analysis():
                      "Tipo": st.column_config.TextColumn("Tipo", width="small"),
                      "Stock_Warehouse": st.column_config.NumberColumn("Stock WH", width="small"),
                      "Stock_FBT": st.column_config.NumberColumn("FBT", width="small"),
-                     "QtyShipped": st.column_config.NumberColumn("Shipped", width="small"),
+                     "SalesInPeriod": st.column_config.NumberColumn(f"Vendido {coverage}d", width="small"),
                      "StockActualizado": st.column_config.NumberColumn("Stock Act.", width="small"),
                      "StockConPedidos": st.column_config.NumberColumn("+Pedidos", width="small"),
                      "WeeklyAvg_30d": st.column_config.NumberColumn("Sem 30d", width="small"),
@@ -868,35 +966,46 @@ def page_restock_analysis():
                  })
 
     st.markdown("---")
-    st.subheader("Ventas Mensuales por Producto")
-    product_opts = ["All"]
-    if "ProductoNombre" in df.columns:
-        product_opts += sorted(df["ProductoNombre"].dropna().unique().tolist())
-    sel_prod = st.selectbox("Filtrar por producto", product_opts, key="ra_prod_filter")
-    monthly_sales = fetch_product_monthly_sales(sel_prod if sel_prod != "All" else None)
-    if monthly_sales:
-        df_ms = pd.DataFrame(monthly_sales)
-        title = f"Ventas Mensuales — {sel_prod}" if sel_prod != "All" else "Ventas Mensuales — Todos"
-        fig = px.bar(df_ms, x="Mes", y="Unidades Vendidas", title=title, text_auto=True)
-        fig.update_layout(height=320, margin=dict(t=40), xaxis_title="")
-        fig.update_xaxes(type="category")
-        st.plotly_chart(fig, use_container_width=True, key="ra_monthly")
-
-    st.markdown("---")
     st.subheader("Listado de Pedido (Purchase Order)")
     order_list = df[df["Unid_a_comprar_custom"] > 0].copy()
     if not order_list.empty:
+        # Fórmulas nuevas según spec finanzas:
+        # Coste por caja = coste_unitario × unidades_caja
+        # Importe = cajas × coste_por_caja
+        if "Coste" in order_list.columns and "UNIDADES POR CAJA" in order_list.columns:
+            order_list["CostePorCaja"] = (order_list["Coste"] * order_list["UNIDADES POR CAJA"]).round(2)
+            if "Cajas_custom" in order_list.columns:
+                order_list["ImporteTotal"] = (order_list["Cajas_custom"] * order_list["CostePorCaja"]).round(2)
+        # Orden nuevo: Unidades a comprar → Unidades por caja → Cajas a comprar → Coste por caja → Importe
         order_cols = ["ProductoNombre", "Unid_a_comprar_custom"]
-        if "Cajas_custom" in order_list.columns: order_cols.append("Cajas_custom")
-        if "Coste" in order_list.columns: order_cols.append("Coste")
-        if "Importe_custom" in order_list.columns: order_cols.append("Importe_custom")
         if "UNIDADES POR CAJA" in order_list.columns: order_cols.append("UNIDADES POR CAJA")
-        st.dataframe(order_list[order_cols].rename(columns={
-            "ProductoNombre": "Producto", "Unid_a_comprar_custom": "Unidades",
-            "Cajas_custom": "Cajas", "Importe_custom": "Importe",
-        }), use_container_width=True)
-        csv = order_list[order_cols].to_csv(index=False).encode("utf-8")
-        st.download_button("Download Purchase Order CSV", data=csv,
+        if "Cajas_custom" in order_list.columns: order_cols.append("Cajas_custom")
+        if "CostePorCaja" in order_list.columns: order_cols.append("CostePorCaja")
+        if "ImporteTotal" in order_list.columns:
+            order_cols.append("ImporteTotal")
+        elif "Importe_custom" in order_list.columns:
+            order_cols.append("Importe_custom")
+        rename_map = {
+            "ProductoNombre": "Producto",
+            "Unid_a_comprar_custom": "Unidades a comprar",
+            "UNIDADES POR CAJA": "Unidades por caja",
+            "Cajas_custom": "Cajas a comprar",
+            "CostePorCaja": "Coste por caja",
+            "ImporteTotal": "Importe",
+            "Importe_custom": "Importe",
+        }
+        st.dataframe(order_list[order_cols].rename(columns=rename_map),
+                     use_container_width=True,
+                     column_config={
+                         "Coste por caja": st.column_config.NumberColumn(format="$%.2f"),
+                         "Importe": st.column_config.NumberColumn(format="$%.2f"),
+                     })
+        # Total importe abajo
+        if "ImporteTotal" in order_list.columns:
+            total = order_list["ImporteTotal"].sum()
+            st.caption(f"💰 **Importe total pedido: ${total:,.2f}**")
+        csv = order_list[order_cols].rename(columns=rename_map).to_csv(index=False).encode("utf-8")
+        st.download_button("Descargar Purchase Order CSV", data=csv,
                            file_name="purchase_order.csv", mime="text/csv", key="ra_download")
     else:
         st.success("No hay productos que reabastecer con esta cobertura.")
@@ -1052,19 +1161,60 @@ def page_afiliados():
             fig.update_layout(height=350, yaxis={"categoryorder": "total ascending"}, margin=dict(t=10))
             st.plotly_chart(fig, use_container_width=True, key="af_top_prods")
 
-        st.subheader("Creadores por Mes (Pivot)")
-        df_crm = pd.DataFrame(cr_monthly)
-        if not df_crm.empty:
-            pivot = df_crm.pivot_table(index="Creator Username", columns="Month",
-                                       values="GMV", fill_value=0, aggfunc="sum")
-            pivot_fmt = pivot.map(lambda x: f"{int(x):,}" if x != 0 else "—")
-            st.dataframe(pivot_fmt, use_container_width=True, height=300)
+        st.subheader("Creadores por Mes (Pivot) — con muestras y ventas anuales")
+        # NEW: pivot con muestras_gratis + muestras_compradas + ventas mes 01-12 + total
+        _cmp_first = fetch_creator_monthly_pivot()
+        years_cmp = _cmp_first.get("years", [])
+        if years_cmp:
+            col_y_af1, col_y_af2 = st.columns([1, 3])
+            with col_y_af1:
+                year_af = st.selectbox("Año", years_cmp, index=0, key="cmp_year")
+            cmp_data = fetch_creator_monthly_pivot(year=year_af)
+            rows_cmp = cmp_data.get("rows", [])
+            if rows_cmp:
+                df_cmp = pd.DataFrame(rows_cmp)
+                with col_y_af2:
+                    creator_search = st.text_input("Buscar creator", "", key="cmp_search")
+                if creator_search:
+                    df_cmp = df_cmp[df_cmp["creator"].str.contains(creator_search, case=False, na=False)]
 
-            top5 = df_crm.groupby("Creator Username")["GMV"].sum().nlargest(5).index
-            cr_top5 = df_crm[df_crm["Creator Username"].isin(top5)]
-            fig = px.line(cr_top5, x="Month", y="GMV", color="Creator Username", markers=True)
-            fig.update_layout(height=350, margin=dict(t=10))
-            st.plotly_chart(fig, use_container_width=True, key="af_line_monthly")
+                month_cols = [f"m{m:02d}" for m in range(1, 13)]
+                display_cmp_cols = ["creator", "muestras_gratis", "muestras_compradas"] + month_cols + ["total"]
+                display_cmp_cols = [c for c in display_cmp_cols if c in df_cmp.columns]
+                month_rename = {f"m{m:02d}": f"{m:02d}" for m in range(1, 13)}
+                rename_cmp = {
+                    "creator": "Creator Username",
+                    "muestras_gratis": "Muestras gratis",
+                    "muestras_compradas": "Muestras compradas",
+                    "total": "TOTAL Ventas Año",
+                    **month_rename,
+                }
+                # Column config para formato moneda en columnas mes + total
+                cc = {"Creator Username": st.column_config.TextColumn(pinned=True, width="medium"),
+                      "Muestras gratis": st.column_config.NumberColumn(width="small"),
+                      "Muestras compradas": st.column_config.NumberColumn(width="small"),
+                      "TOTAL Ventas Año": st.column_config.NumberColumn(format="$%.0f", width="small")}
+                for m in range(1, 13):
+                    cc[f"{m:02d}"] = st.column_config.NumberColumn(format="$%.0f", width="small")
+                st.dataframe(df_cmp[display_cmp_cols].rename(columns=rename_cmp),
+                             use_container_width=True, height=400,
+                             column_config=cc)
+                st.caption(f"📊 {len(df_cmp)} creators · Total GMV año: ${df_cmp['total'].sum():,.0f} · Muestras gratis: {int(df_cmp['muestras_gratis'].sum())} · Muestras compradas: {int(df_cmp['muestras_compradas'].sum())}")
+
+                # Line chart top 5 (mantener)
+                top5_names = df_cmp.nlargest(5, "total")["creator"].tolist()
+                if top5_names:
+                    top5_data = []
+                    for _, r in df_cmp[df_cmp["creator"].isin(top5_names)].iterrows():
+                        for m in range(1, 13):
+                            top5_data.append({"Creator": r["creator"], "Mes": f"{m:02d}",
+                                              "GMV": r[f"m{m:02d}"]})
+                    df_top5 = pd.DataFrame(top5_data)
+                    fig = px.line(df_top5, x="Mes", y="GMV", color="Creator", markers=True)
+                    fig.update_layout(height=350, margin=dict(t=10))
+                    st.plotly_chart(fig, use_container_width=True, key="af_line_monthly_v2")
+            else:
+                st.info(f"Sin datos de creadores en {year_af}.")
 
     st.markdown("---")
     st.subheader("Alertas Virales (últimos 5 días)")

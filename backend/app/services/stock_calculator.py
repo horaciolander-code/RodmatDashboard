@@ -441,13 +441,23 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
 
     stock["AvgVentas30d"]   = (stock["Sales_30d"] / actual_30d).round(2)
     stock["AvgVentas60d"]   = (stock["Sales_60d"] / actual_60d).round(2)
+    # SalesInPeriod: ventas totales en el período del slider (coverage_days)
+    # Interpolación desde Sales_30d si coverage < 60d, sino usar Sales_60d proporcional
+    if coverage_days <= 30:
+        stock["SalesInPeriod"] = (stock["Sales_30d"] * coverage_days / 30).round(0).astype(int)
+    elif coverage_days <= 60:
+        stock["SalesInPeriod"] = (stock["Sales_60d"] * coverage_days / 60).round(0).astype(int)
+    else:
+        # Para períodos > 60d, extrapolar linealmente desde el ritmo de 60d
+        stock["SalesInPeriod"] = (stock["Sales_60d"] * coverage_days / 60).round(0).astype(int)
     stock["WeeklyAvg_30d"]  = (stock["Sales_30d"] / weeks_30d).round(2)
     stock["WeeklyAvg_60d"]  = (stock["Sales_60d"] / weeks_60d).round(2)
 
+    # Days_Coverage: 0 cuando no hay ventas (semánticamente más útil que 999)
     stock["Days_Coverage"] = np.where(
         stock["AvgVentas30d"] > 0,
         (stock["StockActualizado"] / stock["AvgVentas30d"]).round(1),
-        999,
+        0,
     )
 
     # WH/FBT coverage days
@@ -456,10 +466,11 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     # Patrón pandas seguro: replace 0→NaN, dividir, fillna(-999).
     # (np.divide(where=) NO funciona con pandas Series — internamente redirige
     # a __truediv__ que ignora 'where' → ZeroDivisionError con stores sin ventas.)
-    days_wh  = (stock["Stock_Warehouse"] / avg_wh.replace(0,  np.nan)).fillna(-999)
-    days_fbt = (stock["Stock_FBT"]       / avg_fbt.replace(0, np.nan)).fillna(-999)
-    stock["Days_Cov_WH"]  = np.where(avg_wh  > 0, np.minimum(days_wh,  365), -999)
-    stock["Days_Cov_FBT"] = np.where(avg_fbt > 0, np.minimum(days_fbt, 365), -999)
+    # Cob WH/FBT: 0 cuando no hay ventas en ese canal (no -999)
+    days_wh  = (stock["Stock_Warehouse"] / avg_wh.replace(0,  np.nan)).fillna(0)
+    days_fbt = (stock["Stock_FBT"]       / avg_fbt.replace(0, np.nan)).fillna(0)
+    stock["Days_Cov_WH"]  = np.where(avg_wh  > 0, np.minimum(days_wh,  365), 0)
+    stock["Days_Cov_FBT"] = np.where(avg_fbt > 0, np.minimum(days_fbt, 365), 0)
     stock["Days_Cov_WH"]  = stock["Days_Cov_WH"].round(0).astype(int)
     stock["Days_Cov_FBT"] = stock["Days_Cov_FBT"].round(0).astype(int)
 

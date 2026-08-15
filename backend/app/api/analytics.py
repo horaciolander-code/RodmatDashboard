@@ -277,3 +277,43 @@ def clear_cache(user: User = Depends(get_current_user)):
         del svc._df_cache[k]
     odf_cleared = clear_orders_df_cache(user.store_id)
     return {"cleared": len(keys_removed) + len(df_keys) + odf_cleared}
+
+
+@router.get("/product-monthly-sales-pivot")
+def product_monthly_sales_pivot(
+    year: Optional[int] = None,
+    brand_slug: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Brand scoping: si el user tiene brand_id → forzar
+    if user.brand_id:
+        from sqlalchemy import text
+        row = db.execute(text("SELECT slug FROM brands WHERE id=:bid"), {"bid": user.brand_id}).fetchone()
+        if row:
+            brand_slug = row[0]
+    return svc.get_product_monthly_sales_pivot(db, user.store_id, year, brand_slug)
+
+
+@router.get("/combo-monthly-sales-pivot")
+def combo_monthly_sales_pivot(
+    year: Optional[int] = None,
+    brand_slug: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.brand_id:
+        from sqlalchemy import text
+        row = db.execute(text("SELECT slug FROM brands WHERE id=:bid"), {"bid": user.brand_id}).fetchone()
+        if row:
+            brand_slug = row[0]
+    return svc.get_combo_monthly_sales_pivot(db, user.store_id, year, brand_slug)
+
+
+@router.get("/creator-monthly-pivot")
+def creator_monthly_pivot(
+    year: Optional[int] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return svc.get_creator_monthly_pivot(db, user.store_id, year)
