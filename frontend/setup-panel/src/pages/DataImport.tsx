@@ -125,21 +125,37 @@ export default function DataImport() {
     );
   };
 
+  // Fix upload mobile Chrome Android: <label> con input visually-hidden falla en
+  // ciertos móviles. Solución robusta: input file overlay full-size + opacity:0
+  // (así el toque cae SIEMPRE sobre el input real, no sobre el botón visual).
   const renderUploadButton = (step: RodmatStep | ExternalStep) => {
     const isLoading = loading === step.key;
     return (
-      <label className={`cursor-pointer px-4 py-2 rounded text-sm font-medium ${
-        isLoading ? 'bg-gray-200 text-gray-500 cursor-wait' : 'bg-blue-600 text-white hover:bg-blue-700'
-      }`}>
-        {isLoading ? 'Subiendo...' : 'Subir'}
-        <input
-          type="file"
-          accept={expandAccept(step.accept)}
-          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}
+      <div className="relative inline-block">
+        <button
+          type="button"
           disabled={isLoading}
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(step, f); e.target.value = ''; }}
-        />
-      </label>
+          className={`px-4 py-2 rounded text-sm font-medium pointer-events-none ${
+            isLoading ? 'bg-gray-200 text-gray-500' : 'bg-blue-600 text-white'
+          }`}
+        >
+          {isLoading ? 'Subiendo...' : 'Subir'}
+        </button>
+        {!isLoading && (
+          <input
+            type="file"
+            accept={expandAccept(step.accept)}
+            aria-label={`Subir ${step.label}`}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            style={{ fontSize: '16px' }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) handleUpload(step, f);
+              e.target.value = '';
+            }}
+          />
+        )}
+      </div>
     );
   };
 
