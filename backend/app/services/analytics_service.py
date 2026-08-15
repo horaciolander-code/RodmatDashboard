@@ -123,8 +123,9 @@ def get_overview_metrics(db: Session, store_id: str, brand_slug: str | None = No
     # Shipping Fee After Discount = lo que paga el comprador (casi siempre $0 con envío gratis)
     original_shipping = order_level["Original Shipping Fee"].sum() if "Original Shipping Fee" in order_level.columns else 0.0
     buyer_shipping = order_level["Shipping Fee After Discount"].sum()
-    shipping_fees = original_shipping  # Gastos de Envío = coste real
-    net_wo_shipping = net_order_amount - buyer_shipping
+    shipping_fees = original_shipping  # Gastos de Envío = coste real que paga Rodmat al transportista
+    # net_wo_shipping = Monto Neto MENOS coste real transportista (lo intuitivo para el user)
+    net_wo_shipping = net_order_amount - shipping_fees
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
     shipping_discount = 0.0
