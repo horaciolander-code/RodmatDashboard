@@ -43,6 +43,37 @@ def _target_store(user: User, store_id: str | None) -> str:
     return user.store_id
 
 
+def _require_module_enabled(user: User, module_name: str):
+    """Enforce feature flag: settings.modules_enabled[module_name] must be true."""
+    from app.database import SessionLocal
+    from app.models import Store
+    _db = SessionLocal()
+    try:
+        store = _db.query(Store).filter(Store.id == user.store_id).first()
+        settings = (store.settings or {}) if store else {}
+        modules = settings.get("modules_enabled") or {}
+        if not modules.get(module_name):
+            raise HTTPException(status_code=403, detail=f"Module '{module_name}' not enabled for this store")
+    finally:
+        _db.close()
+
+
+def _log_import(db, store_id: str, kind: str, filename: str | None, batch_id: str, result: dict):
+    """Registrar en import_history si el modelo lo permite (best-effort)."""
+    try:
+        rows_val = result.get("upserted_lines", result.get("total_lines", 0))
+        row = ImportHistory(
+            store_id=store_id,
+            import_type=kind,
+            filename=filename or "",
+            rows_imported=rows_val,
+        )
+        db.add(row); db.commit()
+    except Exception:
+        pass
+
+
+
 @router.post("/orders", response_model=ImportResult)
 async def import_orders(
     background_tasks: BackgroundTasks,
