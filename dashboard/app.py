@@ -648,6 +648,23 @@ def page_overview():
     st.subheader("GMV por Mes")
     if monthly:
         df_m = pd.DataFrame(monthly)
+        # Filtro año — botones arriba, default: último año (mayor)
+        df_m["_Year"] = df_m["Month"].astype(str).str[:4]
+        years_avail = sorted(df_m["_Year"].dropna().unique().tolist(), reverse=True)
+        year_opts = ["Todos"] + years_avail
+        default_year = years_avail[0] if years_avail else "Todos"
+        if "ov_gmv_year" not in st.session_state:
+            st.session_state["ov_gmv_year"] = default_year
+        yr_cols = st.columns(len(year_opts))
+        for i, yl in enumerate(year_opts):
+            with yr_cols[i]:
+                btype = "primary" if st.session_state["ov_gmv_year"] == yl else "secondary"
+                if st.button(yl, key=f"ov_gmv_y_{yl}", use_container_width=True, type=btype):
+                    st.session_state["ov_gmv_year"] = yl
+                    st.rerun()
+        sel_year = st.session_state["ov_gmv_year"]
+        if sel_year != "Todos":
+            df_m = df_m[df_m["_Year"] == sel_year].reset_index(drop=True)
         # Stacked bar: Tienda (base) + Afiliados (encima)
         fig = go.Figure()
         if "GMV_Tienda" in df_m.columns:
