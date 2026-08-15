@@ -166,7 +166,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     units_y  = yest_df["Quantity"].sum()
     pct      = ((rev_y - rev_prev) / rev_prev * 100) if rev_prev > 0 else 0
     arrow    = "&#9650;" if pct >= 0 else "&#9660;"
-    color    = "#27ae60" if pct >= 0 else "#e74c3c"
+    color    = "#00FF88" if pct >= 0 else "#FF3D6B"
 
     mtd_df    = active[active["Order_Date"] >= today.replace(day=1)]
     rev_mtd   = mtd_df["SKU Subtotal After Discount"].sum()
@@ -223,7 +223,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
         <div style="background-color:#1a1050;border:1px solid #7B61FF;border-radius:8px;padding:20px;margin-bottom:20px;">
           <h2 style="color:#7B61FF;margin-top:0;">&#128640; {len(viral)} Alerta(s) Video Viral (ultimos 5 dias, &ge;20 uds)</h2>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead><tr style="background:#8e44ad;color:#e4e9ff;">
+            <thead><tr bgcolor="#1a1050" style="background-color:#1a1050;color:#7B61FF;">
               <th style="padding:10px;text-align:left;">Creadora</th>
               <th style="padding:10px;text-align:left;">Producto</th>
               <th style="padding:10px;text-align:center;">Unidades</th>
@@ -310,7 +310,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
               <h2 style="color:#FF3D6B;margin-top:0;">{alert_title}</h2>
               <p style="color:#666;margin:0 0 12px 0;">Productos con stock negativo o por debajo de {low_threshold} unidades</p>
               <table style="width:100%;border-collapse:collapse;font-size:13px;">
-                <thead><tr style="background:#e74c3c;color:#e4e9ff;">
+                <thead><tr bgcolor="#3a0e1e" style="background-color:#3a0e1e;color:#FF3D6B;">
                   <th style="padding:10px;text-align:left;">Producto</th>
                   <th style="padding:10px;text-align:center;">Tipo</th>
                   <th style="padding:10px;text-align:center;">Warehouse</th>
@@ -397,7 +397,7 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
             flagged_table = f"""
             <h3 style="color:#e67e22;margin:15px 0 8px;">Ordenes Combo x2+ o Multi-SKU ({len(flagged)})</h3>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead><tr style="background:#f39c12;color:#e4e9ff;">
+              <thead><tr bgcolor="#3d2810" style="background-color:#3d2810;color:#FF9F45;">
                 <th style="padding:8px;text-align:left;">Order ID</th>
                 <th style="padding:8px;text-align:center;">SKUs</th>
                 <th style="padding:8px;text-align:center;">Qty Total</th>
