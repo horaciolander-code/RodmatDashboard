@@ -232,7 +232,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     today    = datetime.now()
     sections = _parse_sections(analysis_text)
     gmv_pct  = snapshot["gmv_pct"]
-    pct_color = "#27ae60" if (gmv_pct or 0) >= 0 else "#e74c3c"
+    pct_color = "#00FF88" if (gmv_pct or 0) >= 0 else "#FF3D6B"
     pct_str   = f"{gmv_pct:+.1f}%" if gmv_pct is not None else "N/A"
 
     top_prod_rows = "".join(
@@ -251,7 +251,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
       <td style="text-align:right;vertical-align:top;">
         <div style="font-size:14px;font-weight:bold;">Weekly Close Report</div>
         <div style="font-size:12px;opacity:0.8;">{snapshot['week_start']} → {snapshot['week_end']}</div>
-        <div style="margin-top:8px;background-color:#1a2050;padding:4px 14px;border-radius:20px;font-size:18px;font-weight:bold;display:inline-block;color:{pct_color if False else '#fff'};">{pct_str} vs prev week</div>
+        <div style="margin-top:8px;background-color:#1a2050;padding:4px 14px;border-radius:20px;font-size:18px;font-weight:bold;display:inline-block;color:{pct_color if False else '#0f142f'};">{pct_str} vs prev week</div>
       </td>
     </tr></table>
   </div>
@@ -275,10 +275,10 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
         <div style="font-size:12px;color:#8892b0;">{snapshot['aff_orders_cur']} órdenes</div>
       </div></td>
   </tr></table>
-  {_card("Performance de la Semana", sections.get("performance","—"), "#3498db")}
-  {_card("Canal de Afiliados", sections.get("afiliados","—"), "#9b59b6")}
-  {_card("Alertas de Inventario", sections.get("inventario","—"), "#e74c3c", "#fffafa")}
-  {_card("Prioridades Semana que Viene", sections.get("prioridades","—"), "#27ae60")}
+  {_card("Performance de la Semana", sections.get("performance","—"), "#00D4FF")}
+  {_card("Canal de Afiliados", sections.get("afiliados","—"), "#7B61FF")}
+  {_card("Alertas de Inventario", sections.get("inventario","—"), "#FF3D6B", "#141a3d")}
+  {_card("Prioridades Semana que Viene", sections.get("prioridades","—"), "#00FF88")}
   <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:18px;margin-bottom:16px;">
     <h3 style="color:#00D4FF;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top Productos Semana</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">

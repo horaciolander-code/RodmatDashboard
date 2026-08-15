@@ -284,10 +284,10 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Rodm
       </td>
     </tr></table>
   </div>
-  {_card("Estado del Mercado", sections.get("mercado","—"), "#7b2ff7")}
-  {_card("Posición Competitiva de Avon", sections.get("posicion","—"), "#c850c0")}
-  {_card("Oportunidades de Catálogo", sections.get("catalogo","—"), "#27ae60")}
-  {_card("Recomendaciones de Contenido y Creadores", sections.get("contenido","—"), "#3498db")}
+  {_card("Estado del Mercado", sections.get("mercado","—"), "#7B61FF")}
+  {_card("Posición Competitiva de Avon", sections.get("posicion","—"), "#FF3D6B")}
+  {_card("Oportunidades de Catálogo", sections.get("catalogo","—"), "#00FF88")}
+  {_card("Recomendaciones de Contenido y Creadores", sections.get("contenido","—"), "#00D4FF")}
   <div style="background-color:#0f142f;border-radius:8px;padding:18px;margin-bottom:16px;">
     <h3 style="color:#00D4FF;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Competencia — Top Marcas TikTok Shop</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">

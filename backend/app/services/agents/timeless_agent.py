@@ -326,7 +326,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     sections = _parse_sections(analysis_text)
 
     mom = snapshot["gmv_mom_pct"]
-    mom_color = "#27ae60" if (mom or 0) >= 0 else "#e74c3c"
+    mom_color = "#00FF88" if (mom or 0) >= 0 else "#FF3D6B"
     mom_str = f"{mom:+.1f}%" if mom is not None else "N/A"
 
     yoy = snapshot["gmv_yoy_pct"]
@@ -376,11 +376,11 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
         <div style="font-size:11px;color:#8892b0;">banda: ${projs[0]:,.0f} → ${projs[2]:,.0f}</div>
       </div></td>
   </tr></table>
-  {_card("Cierre del Mes", sections.get("cierre","—"), "#3498db")}
-  {_card("Proyección de Cierre de Año", sections.get("proyeccion","—"), "#1a2980")}
-  {_card("Top Productos y Canal Afiliados", sections.get("productos","—"), "#9b59b6")}
-  {_card("Alertas y Riesgos", sections.get("alertas","—"), "#e74c3c", "#fffafa")}
-  {_card("Prioridades Mes que Empieza", sections.get("prioridades","—"), "#27ae60")}
+  {_card("Cierre del Mes", sections.get("cierre","—"), "#00D4FF")}
+  {_card("Proyección de Cierre de Año", sections.get("proyeccion","—"), "#7B61FF")}
+  {_card("Top Productos y Canal Afiliados", sections.get("productos","—"), "#7B61FF")}
+  {_card("Alertas y Riesgos", sections.get("alertas","—"), "#FF3D6B", "#141a3d")}
+  {_card("Prioridades Mes que Empieza", sections.get("prioridades","—"), "#00FF88")}
   <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:18px;margin-bottom:16px;">
     <h3 style="color:#00D4FF;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top 10 Productos {snapshot['closed_month_name']}</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">

@@ -289,7 +289,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     verdict = (bold_match.group(1).strip() if bold_match
                else re.sub(r"\[.*?\]", "", raw_verdict).strip("* ").strip() or "ESPERAR")
     vup = verdict.upper()
-    v_color = "#e74c3c" if "PEDIR YA" in vup else ("#8e44ad" if "NO PEDIR" in vup else "#f39c12")
+    v_color = "#FF3D6B" if "PEDIR YA" in vup else ("#7B61FF" if "NO PEDIR" in vup else "#FF9F45")
 
     sales_rows = "".join(
         f"<tr><td style='padding:7px 12px;border-bottom:1px solid #2a2f5c;'>{m['month']}</td>"
@@ -304,7 +304,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     for r in show:
         pend_str = (f"<span style='color:#00D4FF;font-weight:bold;'>+{r['stock_pending']}</span>"
                     if r["stock_pending"] > 0 else "<span style='color:#576177;'>—</span>")
-        bg = "#fff0f0" if r.get("stockout_before_pending") else ("#fffbf0" if r.get("stockout_before_new_order") else "#fff")
+        bg = "#fff0f0" if r.get("stockout_before_pending") else ("#fffbf0" if r.get("stockout_before_new_order") else "#0f142f")
         cov_now  = r.get("coverage_now", r["coverage_days"])
         cov_full = r["coverage_days"]
         cov_cell = (f"{_coverage_badge(cov_now)} → {_coverage_badge(cov_full)}"
@@ -338,8 +338,8 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
       </td>
     </tr></table>
   </div>
-  {_section("Resumen Ejecutivo", sections.get("resumen","—"), "#2ecc71")}
-  {_section("Tendencia de Ventas", sections.get("ventas","—"), "#3498db")}
+  {_section("Resumen Ejecutivo", sections.get("resumen","—"), "#00FF88")}
+  {_section("Tendencia de Ventas", sections.get("ventas","—"), "#00D4FF")}
   <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:20px;margin-bottom:18px;">
     <h3 style="color:#00D4FF;margin:0 0 12px;font-size:15px;text-transform:uppercase;">Datos de Ventas</h3>
     <table width="100%" style="border-collapse:collapse;font-size:13px;">
@@ -353,7 +353,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
       ${snapshot['mtd_revenue']:,.0f} → <strong>Proy: ${snapshot['mtd_projected']:,.0f}</strong>
     </div>
   </div>
-  {_section("Estado de Inventario", sections.get("inventario","—"), "#e67e22")}
+  {_section("Estado de Inventario", sections.get("inventario","—"), "#FF9F45")}
   <div style="background-color:#0f142f;border:1px solid #2a2f5c;border-radius:8px;padding:20px;margin-bottom:18px;">
     <h3 style="color:#00D4FF;margin:0 0 6px;font-size:15px;text-transform:uppercase;">Stock — Productos Activos</h3>
     <table width="100%" style="border-collapse:collapse;font-size:12px;">
@@ -366,7 +366,7 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
   </div>
   {_section("Orden Pendiente" + (f" — ⚠️ {overdue}d retraso" if overdue > 0 else ""),
             sections.get("orden","—") + f"<br><br>💰 Valor total: <strong>${pend_total:,.0f}</strong>",
-            "#e74c3c" if overdue > 0 else "#27ae60")}
+            "#FF3D6B" if overdue > 0 else "#00FF88")}
   {_section("Decisión de Compra", sections.get("decision","—"), v_color)}
   <div style="text-align:center;padding:16px;color:#8892b0;font-size:11px;border-top:1px solid #2a2f5c;">
     <strong style="color:#8892b0;">{AGENT_NAME}</strong> · {store_name} · {AGENT_SUBTITLE}<br>
