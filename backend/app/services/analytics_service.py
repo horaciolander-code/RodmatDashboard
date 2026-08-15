@@ -717,7 +717,8 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
         net_order_amount = gmv - order_level["Order Refund Amount"].sum()
         net_wo_shipping = net_order_amount
     else:
-        net_wo_shipping = net_order_amount - buyer_shipping
+        # 'Neto sin Envío' = Monto Neto - COSTE REAL transportista (no buyer shipping ≈$0)
+        net_wo_shipping = net_order_amount - shipping_fees
 
     seller_discount = df["SKU Seller Discount"].sum()
     platform_discount = df["SKU Platform Discount"].sum()
