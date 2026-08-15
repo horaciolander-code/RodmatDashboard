@@ -1,3 +1,4 @@
+from ._email_theme import COLORS
 """
 PRISM — Product Research & Intelligence for Strategic Markets (V2)
 Data source: Neon PostgreSQL via SQLAlchemy (store-aware, multi-tenant).
@@ -392,21 +393,26 @@ def _parse_sections(text: str) -> dict:
     return sections
 
 
-def _card(title, content, border="#3498db", bg="#fff"):
-    content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content).replace("\n", "<br>")
-    return (f'<div style="background:{bg};border-left:4px solid {border};border:1px solid #e0e0e0;'
-            f'border-left:4px solid {border};border-radius:8px;padding:20px;margin-bottom:16px;">'
-            f'<h3 style="color:#2c3e50;margin:0 0 12px;font-size:14px;text-transform:uppercase;'
-            f'letter-spacing:1.5px;">{title}</h3>'
-            f'<div style="color:#444;font-size:13px;line-height:1.8;">{content}</div></div>')
+def _card(title, content, accent="#00D4FF"):
+    content = re.sub(r'\*\*(.+?)\*\*', r'<strong style="color:#fff;">\1</strong>', content).replace("\n", "<br>")
+    return (f'<div style="background:rgba(15,20,47,0.5);border-left:3px solid {accent};'
+            f'border:1px solid rgba(123,97,255,0.15);border-left:3px solid {accent};'
+            f'border-radius:10px;padding:18px 20px;margin-bottom:14px;">'
+            f'<h3 style="color:{accent};margin:0 0 10px;font-size:12px;text-transform:uppercase;'
+            f'letter-spacing:1.5px;font-weight:700;">{title}</h3>'
+            f'<div style="color:#c5cdd6;font-size:13px;line-height:1.7;">{content}</div></div>')
 
 
 def _score_badge(score):
-    bg = {"HIGH": "#e74c3c", "MEDIUM": "#f39c12", "LOW": "#27ae60"}.get(score, "#95a5a6")
-    return f"<span style='background:{bg};color:#fff;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:bold;'>{score}</span>"
+    cfg = {"HIGH":   ("rgba(255,61,107,0.15)",  "#FF3D6B", "rgba(255,61,107,0.4)"),
+           "MEDIUM": ("rgba(255,159,69,0.15)",  "#FF9F45", "rgba(255,159,69,0.4)"),
+           "LOW":    ("rgba(0,255,136,0.15)",   "#00FF88", "rgba(0,255,136,0.4)")}
+    bg, fg, bd = cfg.get(score, ("rgba(136,146,176,0.15)", "#8892b0", "rgba(136,146,176,0.4)"))
+    return f"<span style='background:{bg};color:{fg};border:1px solid {bd};padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;'>{score}</span>"
 
 
 def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Store") -> str:
+    """Rediseño 2026-08-15: paleta dark futurista neon (consistente con dashboard + KHAMRAH)."""
     today    = datetime.now()
     sections = _parse_sections(analysis_text)
     vel = snapshot["velocity"]; geo = snapshot["geography"]
@@ -414,155 +420,184 @@ def build_email_html(analysis_text: str, snapshot: dict, store_name: str = "Stor
     cat = snapshot["categories"]; cre = snapshot["creator"]
 
     sales_rows = "".join(
-        f"<tr><td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;'>{m['month']}</td>"
-        f"<td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:bold;'>${m['gmv']:,.0f}</td>"
-        f"<td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:center;'>{m['orders']}</td></tr>"
+        f"<tr><td style='padding:8px 12px;color:#e4e9ff;'>{m['month']}</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-family:\'SF Mono\',Menlo,monospace;color:#00FF88;font-weight:700;'>${m['gmv']:,.0f}</td>"
+        f"<td style='padding:8px 12px;text-align:center;color:#8892b0;'>{m['orders']}</td></tr>"
         for m in snapshot["monthly_sales"])
 
     trend_icon = {"ACCELERATING": "🚀", "DECELERATING": "📉", "STABLE": "➡️", "NEW": "🆕"}
     vel_rows = ""
     for p in vel["products"][:15]:
-        mc = "#27ae60" if p["momentum_7_30"] > 0 else "#e74c3c"
-        vel_rows += (f"<tr><td style='padding:5px 8px;border-bottom:1px solid #f5f5f5;font-size:11px;'>"
+        mc = "#00FF88" if p["momentum_7_30"] > 0 else "#FF6B35"
+        vel_rows += (f"<tr><td style='padding:7px 10px;font-size:12px;color:#e4e9ff;'>"
                      f"{trend_icon.get(p['trend'],'')} {p['name']}</td>"
-                     f"<td style='padding:5px 8px;font-size:10px;color:#888;text-align:center;'>{p['tipo']}</td>"
-                     f"<td style='padding:5px 8px;text-align:center;font-weight:bold;'>{p['vel_30d']}</td>"
-                     f"<td style='padding:5px 8px;text-align:center;color:{mc};font-weight:bold;'>{p['momentum_7_30']:+.0f}%</td>"
-                     f"<td style='padding:5px 8px;text-align:center;'>{p['sell_through']:.0f}%</td>"
-                     f"<td style='padding:5px 8px;text-align:center;'>${p['price']:.2f}</td></tr>")
+                     f"<td style='padding:7px 10px;font-size:10px;color:#8892b0;text-align:center;'>{p['tipo']}</td>"
+                     f"<td style='padding:7px 10px;text-align:center;font-weight:700;color:#00D4FF;font-family:\'SF Mono\',Menlo,monospace;'>{p['vel_30d']}</td>"
+                     f"<td style='padding:7px 10px;text-align:center;color:{mc};font-weight:700;font-family:\'SF Mono\',Menlo,monospace;'>{p['momentum_7_30']:+.0f}%</td>"
+                     f"<td style='padding:7px 10px;text-align:center;color:#c5cdd6;font-family:\'SF Mono\',Menlo,monospace;'>{p['sell_through']:.0f}%</td>"
+                     f"<td style='padding:7px 10px;text-align:center;color:#c5cdd6;font-family:\'SF Mono\',Menlo,monospace;'>${p['price']:.2f}</td></tr>")
 
     opp_rows = "".join(
-        f"<tr><td style='padding:6px 10px;border-bottom:1px solid #f5f5f5;'>{_score_badge(o['score'])}</td>"
-        f"<td style='padding:6px 10px;font-weight:bold;font-size:11px;'>{o['type']}</td>"
-        f"<td style='padding:6px 10px;font-size:11px;'>{o['product']}</td>"
-        f"<td style='padding:6px 10px;font-size:11px;color:#555;'>{o['detail'][:90]}...</td>"
-        f"<td style='padding:6px 10px;font-size:10px;color:#3498db;'>{o['action'][:70]}...</td></tr>"
+        f"<tr><td style='padding:8px 10px;'>{_score_badge(o['score'])}</td>"
+        f"<td style='padding:8px 10px;font-weight:700;font-size:11px;color:#7B61FF;'>{o['type']}</td>"
+        f"<td style='padding:8px 10px;font-size:11px;color:#e4e9ff;'>{o['product']}</td>"
+        f"<td style='padding:8px 10px;font-size:11px;color:#c5cdd6;'>{o['detail'][:90]}...</td>"
+        f"<td style='padding:8px 10px;font-size:10px;color:#00D4FF;'>{o['action'][:70]}...</td></tr>"
         for o in opp)
 
     geo_rows = "".join(
-        f"<tr><td style='padding:5px 10px;font-size:11px;'>{g['state']}</td>"
-        f"<td style='padding:5px 10px;text-align:right;font-weight:bold;font-size:11px;'>${g['gmv']:,.0f}</td>"
-        f"<td style='padding:5px 10px;text-align:center;font-size:11px;'>{g['share_pct']}%</td></tr>"
+        f"<tr><td style='padding:6px 10px;font-size:12px;color:#e4e9ff;'>{g['state']}</td>"
+        f"<td style='padding:6px 10px;text-align:right;font-weight:700;font-size:12px;color:#00FF88;font-family:\'SF Mono\',Menlo,monospace;'>${g['gmv']:,.0f}</td>"
+        f"<td style='padding:6px 10px;text-align:center;font-size:11px;color:#8892b0;'>{g['share_pct']}%</td></tr>"
         for g in geo["top10"][:8])
 
     def _plist(items, limit=4):
-        return "<br>".join(f"<span style='font-size:11px;'>• {p['name']} ({p['vel_30d']}/d)</span>"
-                           for p in items[:limit]) or "<span style='color:#ccc;font-size:11px;'>—</span>"
+        return "<br>".join(f"<span style='font-size:11px;color:#c5cdd6;'>• {p['name']} <span style=\'color:#8892b0;\'>({p['vel_30d']}/d)</span></span>"
+                           for p in items[:limit]) or "<span style='color:#576177;font-size:11px;'>—</span>"
 
     high_count = sum(1 for o in opp if o["score"] == "HIGH")
 
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:'Segoe UI',Arial,sans-serif;max-width:900px;margin:0 auto;padding:20px;background:#f0f2f5;">
-  <div style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);color:#fff;padding:28px 32px;border-radius:12px;margin-bottom:20px;">
-    <table width="100%"><tr>
-      <td><div style="font-size:10px;letter-spacing:4px;opacity:0.55;text-transform:uppercase;margin-bottom:4px;">{store_name} · Market Intelligence</div>
-        <div style="font-size:32px;font-weight:800;letter-spacing:4px;color:#e94560;">PRISM</div>
-        <div style="font-size:11px;opacity:0.6;">{AGENT_FULL}</div></td>
-      <td style="text-align:right;vertical-align:top;">
-        <div style="font-size:13px;font-weight:bold;">Weekly Market Report</div>
-        <div style="font-size:11px;opacity:0.6;">{today.strftime('%A %d %B, %Y')}</div>
-        <div style="margin-top:10px;"><span style="background:#e94560;color:#fff;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:bold;">{high_count} HIGH-PRIORITY SIGNALS</span></div>
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>PRISM · {store_name}</title></head>
+<body style="margin:0;padding:20px;background:#0a0e27;color:#e4e9ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <div style="max-width:900px;margin:0 auto;">
+
+    <!-- HEADER -->
+    <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.25);border-radius:14px;padding:28px 32px;margin-bottom:18px;box-shadow:0 8px 32px rgba(0,212,255,0.06);">
+      <table width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="vertical-align:top;">
+          <div style="font-size:10px;letter-spacing:4px;color:#8892b0;text-transform:uppercase;margin-bottom:6px;">{store_name} · Market Intelligence</div>
+          <div style="font-size:36px;font-weight:800;letter-spacing:4px;background:linear-gradient(90deg,#00D4FF,#7B61FF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PRISM</div>
+          <div style="font-size:11px;color:#576177;margin-top:2px;">{AGENT_FULL}</div>
+        </td>
+        <td style="text-align:right;vertical-align:top;">
+          <div style="font-size:13px;font-weight:700;color:#e4e9ff;">Weekly Market Report</div>
+          <div style="font-size:11px;color:#8892b0;">{today.strftime('%A %d %B, %Y')}</div>
+          <div style="margin-top:12px;"><span style="background:rgba(255,61,107,0.15);color:#FF3D6B;border:1px solid rgba(255,61,107,0.4);padding:5px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.5px;">{high_count} HIGH-PRIORITY SIGNALS</span></div>
+        </td>
+      </tr></table>
+    </div>
+
+    <!-- KPI CARDS -->
+    <table width="100%" cellpadding="0" cellspacing="6" style="margin-bottom:18px;border-collapse:separate;"><tr>
+      <td width="25%" style="padding:0 4px;">
+        <div style="background:rgba(15,20,47,0.7);border:1px solid rgba(123,97,255,0.2);border-radius:10px;padding:14px 16px;text-align:center;">
+          <div style="font-size:10px;color:#8892b0;text-transform:uppercase;letter-spacing:1px;">MTD Revenue</div>
+          <div style="font-size:24px;font-weight:800;color:#00D4FF;font-family:'SF Mono',Menlo,monospace;margin-top:4px;">${snapshot['mtd_revenue']:,.0f}</div>
+          <div style="font-size:10px;color:#576177;margin-top:2px;">Proy: ${snapshot['mtd_projected']:,.0f}</div>
+        </div></td>
+      <td width="25%" style="padding:0 4px;">
+        <div style="background:rgba(15,20,47,0.7);border:1px solid rgba(123,97,255,0.2);border-radius:10px;padding:14px 16px;text-align:center;">
+          <div style="font-size:10px;color:#8892b0;text-transform:uppercase;letter-spacing:1px;">SKUs Activos</div>
+          <div style="font-size:24px;font-weight:800;color:#00FF88;font-family:'SF Mono',Menlo,monospace;margin-top:4px;">{snapshot['total_active_skus']}</div>
+          <div style="font-size:10px;color:#576177;margin-top:2px;">{len(vel.get('accelerating',[]))} acelerando</div>
+        </div></td>
+      <td width="25%" style="padding:0 4px;">
+        <div style="background:rgba(15,20,47,0.7);border:1px solid rgba(123,97,255,0.2);border-radius:10px;padding:14px 16px;text-align:center;">
+          <div style="font-size:10px;color:#8892b0;text-transform:uppercase;letter-spacing:1px;">Creator GMV</div>
+          <div style="font-size:24px;font-weight:800;color:#7B61FF;font-family:'SF Mono',Menlo,monospace;margin-top:4px;">{cre['creator_gmv_pct']}%</div>
+          <div style="font-size:10px;color:#576177;margin-top:2px;">${cre['creator_gmv_usd']:,.0f}</div>
+        </div></td>
+      <td width="25%" style="padding:0 4px;">
+        <div style="background:rgba(15,20,47,0.7);border:1px solid rgba(123,97,255,0.2);border-radius:10px;padding:14px 16px;text-align:center;">
+          <div style="font-size:10px;color:#8892b0;text-transform:uppercase;letter-spacing:1px;">Geo Spread</div>
+          <div style="font-size:24px;font-weight:800;color:#FF9F45;font-family:'SF Mono',Menlo,monospace;margin-top:4px;">{geo['total_states_active']}</div>
+          <div style="font-size:10px;color:#576177;margin-top:2px;">estados activos</div>
+        </div></td>
+    </tr></table>
+
+    <!-- ANALYSIS CARDS -->
+    <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.2);border-radius:14px;padding:22px;margin-bottom:18px;">
+      <div style="color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;font-weight:700;padding-bottom:8px;border-bottom:1px solid rgba(123,97,255,0.15);">🧠 Análisis Estratégico</div>
+      {_card("Tendencias de Mercado", sections.get("tendencias","—"), "#00D4FF")}
+      {_card("Oportunidades de Producto", sections.get("oportunidades","—"), "#00FF88")}
+      {_card("Señales de Riesgo", sections.get("riesgos","—"), "#FF3D6B")}
+      {_card("Recomendaciones Estratégicas", sections.get("acciones","—"), "#7B61FF")}
+    </div>
+
+    <!-- OPPORTUNITY SIGNALS -->
+    <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.2);border-radius:14px;padding:22px;margin-bottom:18px;">
+      <div style="color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;font-weight:700;padding-bottom:8px;border-bottom:1px solid rgba(123,97,255,0.15);">⚡ Opportunity Signals ({len(opp)})</div>
+      <table width="100%" style="border-collapse:collapse;font-size:12px;background:rgba(15,20,47,0.5);border-radius:8px;overflow:hidden;">
+        <thead><tr style="background:rgba(0,212,255,0.08);">
+          <th style="padding:10px;width:70px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Score</th>
+          <th style="padding:10px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Tipo</th>
+          <th style="padding:10px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Producto</th>
+          <th style="padding:10px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Detalle</th>
+          <th style="padding:10px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Acción</th></tr></thead>
+        <tbody>{opp_rows}</tbody>
+      </table>
+    </div>
+
+    <!-- VELOCITY -->
+    <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.2);border-radius:14px;padding:22px;margin-bottom:18px;">
+      <div style="color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;font-weight:700;padding-bottom:8px;border-bottom:1px solid rgba(123,97,255,0.15);">🏃 Velocidad Productos — Top 15</div>
+      <table width="100%" style="border-collapse:collapse;font-size:12px;background:rgba(15,20,47,0.5);border-radius:8px;overflow:hidden;">
+        <thead><tr style="background:rgba(0,212,255,0.08);">
+          <th style="padding:9px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Producto</th>
+          <th style="padding:9px;text-align:center;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Tipo</th>
+          <th style="padding:9px;text-align:center;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Vel 30d</th>
+          <th style="padding:9px;text-align:center;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">7d vs 30d</th>
+          <th style="padding:9px;text-align:center;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Sell-Thru</th>
+          <th style="padding:9px;text-align:center;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Precio</th></tr></thead>
+        <tbody>{vel_rows}</tbody>
+      </table>
+    </div>
+
+    <!-- PORTFOLIO + GEO grid -->
+    <table width="100%" cellpadding="0" cellspacing="10" style="margin-bottom:18px;"><tr>
+      <td width="50%" valign="top" style="padding:0 5px;">
+        <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.2);border-radius:14px;padding:20px;">
+          <div style="color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 12px;font-weight:700;">📦 Portfolio Matrix</div>
+          <table width="100%" style="border-collapse:separate;border-spacing:6px;"><tr>
+            <td style="padding:10px;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:8px;vertical-align:top;width:50%;">
+              <div style="font-size:10px;font-weight:700;color:#00FF88;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">⭐ STARS</div>{_plist(port.get("star",[]))}</td>
+            <td style="padding:10px;background:rgba(255,159,69,0.08);border:1px solid rgba(255,159,69,0.2);border-radius:8px;vertical-align:top;width:50%;">
+              <div style="font-size:10px;font-weight:700;color:#FF9F45;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">🌱 GROWERS</div>{_plist(port.get("grower",[]))}</td>
+          </tr><tr>
+            <td style="padding:10px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:8px;vertical-align:top;">
+              <div style="font-size:10px;font-weight:700;color:#00D4FF;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">💰 CASH</div>{_plist(port.get("cash",[]))}</td>
+            <td style="padding:10px;background:rgba(255,61,107,0.08);border:1px solid rgba(255,61,107,0.2);border-radius:8px;vertical-align:top;">
+              <div style="font-size:10px;font-weight:700;color:#FF3D6B;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">🐕 DOGS</div>{_plist(port.get("dog",[]))}</td>
+          </tr></table>
+        </div>
+      </td>
+      <td width="50%" valign="top" style="padding:0 5px;">
+        <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.2);border-radius:14px;padding:20px;">
+          <div style="color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 12px;font-weight:700;">🌎 Top 8 Estados — GMV</div>
+          <table width="100%" style="border-collapse:collapse;background:rgba(15,20,47,0.5);border-radius:8px;overflow:hidden;">
+            <thead><tr style="background:rgba(0,212,255,0.08);">
+              <th style="padding:8px 10px;font-size:10px;text-align:left;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">Estado</th>
+              <th style="padding:8px 10px;font-size:10px;text-align:right;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">GMV</th>
+              <th style="padding:8px 10px;font-size:10px;text-align:center;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">%</th></tr></thead>
+            <tbody>{geo_rows}</tbody>
+          </table>
+          <div style="margin-top:12px;font-size:10px;color:#8892b0;padding-top:8px;border-top:1px solid rgba(123,97,255,0.08);">
+            Concentración top-5: <strong style="color:#00D4FF;">{geo['top5_concentration_pct']}%</strong>&nbsp;·&nbsp;
+            Emergentes: <span style="color:#7B61FF;">{', '.join(s['state'] for s in geo.get('emerging_states',[])[:3]) or '—'}</span>
+          </div>
+        </div>
       </td>
     </tr></table>
-  </div>
-  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;border-collapse:collapse;"><tr>
-    <td width="25%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">MTD Revenue</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">${snapshot['mtd_revenue']:,.0f}</div>
-        <div style="font-size:10px;color:#aaa;">Proy: ${snapshot['mtd_projected']:,.0f}</div>
-      </div></td>
-    <td width="25%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">SKUs Activos</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">{snapshot['total_active_skus']}</div>
-        <div style="font-size:10px;color:#aaa;">{len(vel.get('accelerating',[]))} acelerando</div>
-      </div></td>
-    <td width="25%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">Creator GMV</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">{cre['creator_gmv_pct']}%</div>
-        <div style="font-size:10px;color:#aaa;">${cre['creator_gmv_usd']:,.0f}</div>
-      </div></td>
-    <td width="25%" style="padding:4px;">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 16px;text-align:center;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;">Geo Spread</div>
-        <div style="font-size:22px;font-weight:800;color:#2c3e50;">{geo['total_states_active']}</div>
-        <div style="font-size:10px;color:#aaa;">estados activos</div>
-      </div></td>
-  </tr></table>
-  {_card("Tendencias de Mercado", sections.get("tendencias","—"), "#3498db")}
-  {_card("Oportunidades de Producto", sections.get("oportunidades","—"), "#27ae60")}
-  {_card("Senales de Riesgo", sections.get("riesgos","—"), "#e74c3c", "#fffafa")}
-  {_card("Recomendaciones Estrategicas", sections.get("acciones","—"), "#9b59b6")}
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:16px;">
-    <h3 style="color:#2c3e50;margin:0 0 14px;font-size:14px;text-transform:uppercase;">Opportunity Signals ({len(opp)})</h3>
-    <table width="100%" style="border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:#2c3e50;color:#fff;">
-        <th style="padding:8px 10px;width:60px;">Score</th><th style="padding:8px 10px;text-align:left;">Tipo</th>
-        <th style="padding:8px 10px;text-align:left;">Producto</th><th style="padding:8px 10px;text-align:left;">Detalle</th>
-        <th style="padding:8px 10px;text-align:left;">Accion</th></tr></thead>
-      <tbody>{opp_rows}</tbody>
-    </table>
-  </div>
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:16px;">
-    <h3 style="color:#2c3e50;margin:0 0 14px;font-size:14px;text-transform:uppercase;">Velocidad de Productos — Top 15</h3>
-    <table width="100%" style="border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:#34495e;color:#fff;">
-        <th style="padding:7px 8px;text-align:left;">Producto</th><th style="padding:7px 8px;text-align:center;">Tipo</th>
-        <th style="padding:7px 8px;text-align:center;">Vel 30d</th><th style="padding:7px 8px;text-align:center;">7d vs 30d</th>
-        <th style="padding:7px 8px;text-align:center;">Sell-Thru</th><th style="padding:7px 8px;text-align:center;">Precio</th></tr></thead>
-      <tbody>{vel_rows}</tbody>
-    </table>
-  </div>
-  <table width="100%" cellpadding="0" cellspacing="10" style="margin-bottom:16px;"><tr>
-    <td width="50%" valign="top">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;">
-        <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Portfolio Matrix</h3>
-        <table width="100%"><tr>
-          <td style="padding:8px;background:#eafaf1;border-radius:6px;vertical-align:top;width:50%;">
-            <div style="font-size:10px;font-weight:bold;color:#27ae60;">STARS</div>{_plist(port.get("star",[]))}</td>
-          <td width="8px"></td>
-          <td style="padding:8px;background:#fef9e7;border-radius:6px;vertical-align:top;width:50%;">
-            <div style="font-size:10px;font-weight:bold;color:#f39c12;">GROWERS</div>{_plist(port.get("grower",[]))}</td>
-        </tr><tr><td colspan="3" style="height:8px;"></td></tr><tr>
-          <td style="padding:8px;background:#eaf2f8;border-radius:6px;vertical-align:top;">
-            <div style="font-size:10px;font-weight:bold;color:#3498db;">CASH</div>{_plist(port.get("cash",[]))}</td>
-          <td></td>
-          <td style="padding:8px;background:#fdedec;border-radius:6px;vertical-align:top;">
-            <div style="font-size:10px;font-weight:bold;color:#e74c3c;">DOGS</div>{_plist(port.get("dog",[]))}</td>
-        </tr></table>
-      </div>
-    </td>
-    <td width="50%" valign="top">
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;">
-        <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Top 8 Estados — GMV</h3>
-        <table width="100%" style="border-collapse:collapse;">
-          <thead><tr style="background:#ecf0f1;">
-            <th style="padding:5px 10px;font-size:10px;text-align:left;">Estado</th>
-            <th style="padding:5px 10px;font-size:10px;text-align:right;">GMV</th>
-            <th style="padding:5px 10px;font-size:10px;text-align:center;">%</th></tr></thead>
-          <tbody>{geo_rows}</tbody>
-        </table>
-        <div style="margin-top:10px;font-size:10px;color:#888;">
-          Concentracion top-5: <strong>{geo['top5_concentration_pct']}%</strong>&nbsp;|&nbsp;
-          Emergentes: {', '.join(s['state'] for s in geo.get('emerging_states',[])[:3]) or '—'}
-        </div>
-      </div>
-    </td>
-  </tr></table>
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;margin-bottom:16px;">
-    <h3 style="color:#2c3e50;margin:0 0 12px;font-size:13px;text-transform:uppercase;">Ventas Mensuales</h3>
-    <table width="100%" style="border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:#2c3e50;color:#fff;">
-        <th style="padding:7px 12px;text-align:left;">Mes</th><th style="padding:7px 12px;text-align:right;">GMV</th>
-        <th style="padding:7px 12px;text-align:center;">Ordenes</th></tr></thead>
-      <tbody>{sales_rows}</tbody>
-    </table>
-  </div>
-  <div style="text-align:center;padding:14px;color:#aaa;font-size:10px;border-top:1px solid #e0e0e0;">
-    <strong style="color:#e94560;">PRISM</strong> &nbsp;·&nbsp; {store_name} &nbsp;·&nbsp; {AGENT_FULL}<br>
-    {today.strftime('%Y-%m-%d %H:%M')}
+
+    <!-- MONTHLY SALES -->
+    <div style="background:linear-gradient(135deg,#0f142f,#141a3d);border:1px solid rgba(123,97,255,0.2);border-radius:14px;padding:22px;margin-bottom:18px;">
+      <div style="color:#8892b0;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:0 0 14px;font-weight:700;padding-bottom:8px;border-bottom:1px solid rgba(123,97,255,0.15);">📈 Ventas Mensuales</div>
+      <table width="100%" style="border-collapse:collapse;font-size:12px;background:rgba(15,20,47,0.5);border-radius:8px;overflow:hidden;">
+        <thead><tr style="background:rgba(0,212,255,0.08);">
+          <th style="padding:10px 12px;text-align:left;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Mes</th>
+          <th style="padding:10px 12px;text-align:right;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">GMV</th>
+          <th style="padding:10px 12px;text-align:center;color:#8892b0;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Órdenes</th></tr></thead>
+        <tbody>{sales_rows}</tbody>
+      </table>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:16px;color:#576177;font-size:11px;border-top:1px solid rgba(123,97,255,0.15);margin-top:8px;">
+      <strong style="background:linear-gradient(90deg,#00D4FF,#7B61FF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PRISM</strong>
+      &nbsp;·&nbsp; {store_name} &nbsp;·&nbsp; {AGENT_FULL}<br>
+      <span style="color:#576177;">{today.strftime('%Y-%m-%d %H:%M')}</span>
+    </div>
+
   </div>
 </body></html>"""
 
