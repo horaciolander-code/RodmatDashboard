@@ -553,7 +553,7 @@ def get_monthly_product_sales(db: Session, store_id: str,
     if orders_df.empty:
         return []
 
-    decomposed = decompose_orders(orders_df, combo_dict)
+    decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
     if decomposed.empty:
         return []
 
@@ -595,7 +595,7 @@ def get_product_monthly_sales_pivot(db: Session, store_id: str,
         if bid_row and "brand_id" in orders_df.columns:
             orders_df = orders_df[orders_df["brand_id"] == bid_row[0]]
 
-    decomposed = decompose_orders(orders_df, combo_dict)
+    decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
     if decomposed.empty:
         return {"years": [], "rows": []}
 

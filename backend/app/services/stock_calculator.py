@@ -136,13 +136,19 @@ def decompose_orders(df, combo_dict: dict, db: Session = None, store_id: str = N
     # plataforma. Los SKUs Amazon/Walmart en combos pero NO en sku_map (ej.
     # AV-BSP, AV-ID/3, AV-FP/2) SÍ deben usar combos como antes — su quantity
     # NO fue expandida en el parser.
-    from sqlalchemy import text as _sql_text
-    _amz = db.execute(_sql_text("SELECT amazon_sku FROM amazon_sku_map WHERE store_id = :sid"),
-                      {"sid": store_id}).fetchall()
-    _wmt = db.execute(_sql_text("SELECT walmart_sku FROM walmart_sku_map WHERE store_id = :sid"),
-                      {"sid": store_id}).fetchall()
-    amz_expanded_skus = {r[0] for r in _amz}
-    wmt_expanded_skus = {r[0] for r in _wmt}
+    # Protección: si db es None (caller no pasó BD), asumimos que ningún SKU
+    # está en sku_map (comportamiento pre-fix, todos usan combos como siempre).
+    if db is not None and store_id:
+        from sqlalchemy import text as _sql_text
+        _amz = db.execute(_sql_text("SELECT amazon_sku FROM amazon_sku_map WHERE store_id = :sid"),
+                          {"sid": store_id}).fetchall()
+        _wmt = db.execute(_sql_text("SELECT walmart_sku FROM walmart_sku_map WHERE store_id = :sid"),
+                          {"sid": store_id}).fetchall()
+        amz_expanded_skus = {r[0] for r in _amz}
+        wmt_expanded_skus = {r[0] for r in _wmt}
+    else:
+        amz_expanded_skus = set()
+        wmt_expanded_skus = set()
 
     platform_col = df["Platform"].astype(str).str.lower() if "Platform" in df.columns else pd.Series("tiktok", index=df.index)
     already_expanded = (
