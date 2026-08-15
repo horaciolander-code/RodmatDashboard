@@ -902,8 +902,18 @@ def page_restock_analysis():
             df["Unid_a_comprar_custom"]
         ).astype(int)
     if "Coste" in df.columns:
-        df["Importe_custom"] = (df["Unid_a_comprar_custom"] * df["Coste"]).round(2)
-        st.metric("Total Importe a Comprar", f"${df['Importe_custom'].sum():,.2f}")
+        # Fórmula NUEVA (spec finanzas): Importe = cajas × (coste_unitario × unidades_por_caja)
+        # = cajas × coste_por_caja. Compras cajas enteras, no unidades exactas.
+        if "Cajas_custom" in df.columns and "UNIDADES POR CAJA" in df.columns:
+            df["CostePorCaja"] = (df["Coste"] * df["UNIDADES POR CAJA"]).round(2)
+            df["Importe_custom"] = (df["Cajas_custom"] * df["CostePorCaja"]).round(2)
+        else:
+            # Fallback si no hay UNIDADES POR CAJA
+            df["Importe_custom"] = (df["Unid_a_comprar_custom"] * df["Coste"]).round(2)
+        # Filtrar KPI solo a productos a comprar (evita ruido de productos con 0 cajas)
+        _to_buy = df[df["Unid_a_comprar_custom"] > 0]
+        _total = _to_buy["Importe_custom"].sum() if not _to_buy.empty else 0
+        st.metric("Total Importe a Comprar", f"${_total:,.2f}")
 
     st.markdown("---")
     st.subheader("Análisis Total Stock")
