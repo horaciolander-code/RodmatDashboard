@@ -1022,10 +1022,18 @@ def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batc
         "affiliate_commission", "customer_paid_ship", "sku_subtotal_before",
         "sku_subtotal_after", "order_amount", "taxes", "brand_id", "import_batch_id",
     ]
+    # Deduplicar por (store_id, order_id, sku_id) — mantener último — antes del UPSERT
+    # Postgres ON CONFLICT no soporta múltiples rows con misma target key en un batch.
+    _dedup = {}
+    for L in lines:
+        _key = (L.get("store_id"), L.get("order_id"), L.get("sku_id"))
+        _dedup[_key] = L  # último gana
+    lines_deduped = list(_dedup.values())
+
     BATCH = 500
     upserted_lines = 0
-    for i in range(0, len(lines), BATCH):
-        batch = lines[i:i+BATCH]
+    for i in range(0, len(lines_deduped), BATCH):
+        batch = lines_deduped[i:i+BATCH]
         stmt_sql = pg_insert(TiktokStatementLine).values(batch)
         stmt_sql = stmt_sql.on_conflict_do_update(
             constraint="uq_tt_line",

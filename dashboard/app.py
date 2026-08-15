@@ -1556,11 +1556,11 @@ def page_gestion_combos():
     st.header("Gestion Combos y Mapeos")
     st.caption("Editor unificado de combos TikTok, mapeos Walmart y Amazon. Todos los SKUs con multiplicador N × producto base.")
 
-    # ─── Cargar datos comunes ───
-    combos = fetch_combos(brand_slug=_bs_gc)
-    sku_maps = fetch_sku_maps("all")
+    # ─── Cargar datos comunes (brand-aware) ───
     _u_gc = st.session_state.get('cached_user') or {}
     _bs_gc = get_current_brand_slug() if _u_gc.get('brands_enabled') else None
+    combos = fetch_combos(brand_slug=_bs_gc)
+    sku_maps = fetch_sku_maps("all")
     products_data = fetch_products(brand_slug=_bs_gc)
     product_names = sorted([p["name"] for p in products_data]) if products_data else []
     product_map = {p["name"]: p["id"] for p in products_data} if products_data else {}
