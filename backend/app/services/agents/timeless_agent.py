@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.services.agents._base import (
     call_groq, send_email, get_recipients,
     get_business_context, is_agent_enabled,
+    resolve_brand_context, get_brand_recipients,
     load_orders_df, load_creator_df,
 )
 
@@ -190,7 +191,11 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 
 _PROMPT = """\
 Eres TIMELESS, agente de cierre mensual y proyección anual de {store_name}.
-{business_context_line}
+{business_context_line}{brand_context_line}
+REGLAS ESTRICTAS:
+- Solo usa datos del snapshot. NO inventes cifras ni proyecciones no soportadas.
+- Sé ejecutivo: MoM% + YoY% + proyección cierre año con banda min-max. Recomendaciones concretas.
+
 Produce un informe ejecutivo en ESPAÑOL con estas 5 secciones EXACTAS
 (usa los headers con === tal cual, parsearé por ellos):
 
@@ -226,7 +231,7 @@ mes que comienza. Cada una con dueño implícito y métrica de éxito.
 """
 
 
-def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str, brand_context: str = "") -> str:
     mom = f"{snapshot['gmv_mom_pct']:+.1f}%" if snapshot["gmv_mom_pct"] is not None else "N/A"
     yoy = f"{snapshot['gmv_yoy_pct']:+.1f}%" if snapshot["gmv_yoy_pct"] is not None else "N/A (sin histórico)"
     ytd_yoy = f"{snapshot['ytd_yoy_pct']:+.1f}%" if snapshot["ytd_yoy_pct"] is not None else "N/A"
@@ -244,6 +249,7 @@ def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str
     header = _PROMPT.format(
         store_name=store_name,
         business_context_line=bc_line,
+        brand_context_line=brand_context or "",
         months_elapsed=snapshot["months_elapsed"],
         months_remaining=snapshot["months_remaining"],
     )

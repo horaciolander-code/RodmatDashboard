@@ -9,7 +9,8 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
-    call_groq, send_email, get_recipients, is_agent_enabled,
+    call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
+    resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
 )
 
@@ -131,28 +132,28 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 # ── Groq prompt ───────────────────────────────────────────────────────────────
 
 _PROMPT = """\
-Eres MESMERIZE, agente de inteligencia de catálogo de fragancias para Rodmat.
-Rodmat vende fragancias Avon en TikTok Shop (EE.UU.) — precio bajo ($2-8).
+Eres MESMERIZE, agente de inteligencia de catálogo de fragancias para {store_name}.
+{business_context_line}{brand_context_line}
+REGLAS ESTRICTAS:
+- Solo usa datos del snapshot (top SKUs + tendencias categoría + contexto mercado). NO inventes cifras.
+- Sé ejecutivo: acciones específicas con SKU + POR QUÉ + CÓMO ejecutar.
+- Prefiere referencias a marcas del contexto de mercado (Lattafa, Armaf, Phlur, Sol de Janeiro, etc.).
 
-Tu misión: analizar el mercado de fragancias en TikTok Shop y encontrar oportunidades
-para el catálogo Avon de Rodmat. ¿Qué fragancias deberían promover más? ¿Contra qué
-marcas premium posicionarse? ¿Qué tendencias de aroma están creciendo?
-
-Produce análisis en ESPAÑOL con estas 4 secciones:
+Produce análisis mensual en ESPAÑOL con estas 4 secciones:
 
 === ESTADO DEL MERCADO ===
-(¿Qué está pasando en el mercado de fragancias TikTok Shop este mes?
-¿Qué marcas están ganando/perdiendo? ¿Qué tendencias de aroma dominan? Máximo 5 frases.)
+(¿Qué pasa este mes en el mercado de fragancias TikTok Shop? ¿Qué marcas ganan/pierden?
+¿Qué tendencias de aroma dominan? Máximo 5 frases.)
 
-=== POSICIÓN COMPETITIVA DE AVON ===
-(¿Cómo está posicionado Avon vs la competencia?
+=== POSICIÓN COMPETITIVA ===
+(¿Cómo está posicionada tu marca vs la competencia del mercado?
 ¿Qué ventajas tiene? ¿Dónde hay gaps que explotar? Máximo 4 frases.)
 
 === OPORTUNIDADES DE CATÁLOGO ===
-Identifica 3-5 oportunidades específicas para el catálogo Avon:
-- ¿Qué SKUs de Avon encajan con tendencias actuales del mercado?
+Identifica 3-5 oportunidades específicas:
+- ¿Qué SKUs encajan con tendencias actuales del mercado?
 - ¿Qué posicionamiento de precio es más efectivo?
-- ¿Qué dupes de marcas premium debería Rodmat destacar?
+- ¿Qué dupes o comparaciones vs marcas premium podrías destacar?
 
 === RECOMENDACIONES DE CONTENIDO Y CREADORES ===
 Lista 3-4 acciones concretas para creadores: qué tipo de contenido, contra qué marcas comparar,
@@ -160,17 +161,18 @@ qué hashtags/tendencias explotar este mes.
 """
 
 
-def _build_prompt(snapshot: dict) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str, brand_context: str = "") -> str:
     mkt = snapshot["market_intel"]["tiktok_shop_market"]
-    avon = snapshot["market_intel"]["avon_position"]
+    # avon_position es histórico Rodmat — se usa solo si aplica (Rodmat/Avon)
+    brand_position = snapshot["market_intel"].get("avon_position", {})
 
     brands_txt = "\n".join(
         f"  {b['brand']}: ${b['monthly_gmv']/1e6:.1f}M/mes ({b['price_range']}) — {b['notes']}"
         for b in mkt["top_brands_by_revenue"])
     trends_txt = "\n".join(f"  • {t}" for t in mkt["trending_scent_profiles"])
     insights_txt = "\n".join(f"  • {i}" for i in mkt["market_insights"])
-    strengths_txt = "\n".join(f"  • {s}" for s in avon["strengths"])
-    opps_txt = "\n".join(f"  • {o}" for o in avon["opportunity_gap"])
+    strengths_txt = "\n".join(f"  • {s}" for s in brand_position.get("strengths", [])) or "  (Sin fortalezas específicas cargadas para esta marca)"
+    opps_txt = "\n".join(f"  • {o}" for o in brand_position.get("opportunity_gap", [])) or "  (Sin oportunidades específicas cargadas para esta marca)"
 
     top_skus_txt = "\n".join(
         f"  {s['name']} ({s['tipo']}): ${s['price']} | {s['vel_30d']}/día | ST={s['sell_through']}%"
@@ -179,9 +181,12 @@ def _build_prompt(snapshot: dict) -> str:
         f"  {c['category']}: ${c['gmv_last_month']:,.0f} ({c['pct_change']:+.1f}% vs mes ant.)"
         for c in snapshot["category_trends"][:6]) or "  Sin datos."
 
-    return _PROMPT + f"""
+    bc_line = f"Contexto del negocio: {business_context}\n" if business_context else ""
+    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line, brand_context_line=brand_context or "")
 
-DATOS INTERNOS RODMAT ({snapshot['analysis_date']}):
+    return header + f"""
+
+DATOS INTERNOS {store_name.upper()} ({snapshot['analysis_date']}):
 
 TOP SKUs POR VELOCIDAD:
 {top_skus_txt}
@@ -202,10 +207,10 @@ TENDENCIAS DE AROMA DOMINANTES:
 INSIGHTS DEL MERCADO:
 {insights_txt}
 
-FORTALEZAS AVON EN TIKTOK SHOP:
+POSICIÓN DE MARCA — FORTALEZAS:
 {strengths_txt}
 
-OPORTUNIDADES GAP PARA AVON:
+POSICIÓN DE MARCA — OPORTUNIDADES:
 {opps_txt}
 """
 
@@ -329,17 +334,25 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not is_agent_enabled(store, "mesmerize"):
         print(f"[MESMERIZE] Disabled by tenant settings for store {store_id[:8]}")
         return False
-    recipients = [test_email] if test_email else get_recipients(store)
+    brand_info, brand_ctx = resolve_brand_context(db, store_id, brand_slug)
+    if test_email:
+        recipients = [test_email]
+    else:
+        fallback = get_recipients(store)
+        recipients = get_brand_recipients(db, store_id, brand_slug, fallback)
     if not recipients:
-        print(f"[MESMERIZE] No recipients for store {store_id}")
+        print(f"[MESMERIZE] No recipients for store {store_id} brand={brand_slug}")
         return False
     store_name = store.name if store else "Store"
+    if brand_info:
+        print(f"[MESMERIZE] brand-scoped: {brand_info['display_name']}")
 
     print(f"[MESMERIZE] Extracting snapshot for {store_name}...")
     snapshot = extract_snapshot(db, store_id)
 
     print("[MESMERIZE] Calling Groq...")
-    analysis = call_groq(_build_prompt(snapshot))
+    business_context = get_business_context(store)
+    analysis = call_groq(_build_prompt(snapshot, store_name, business_context, brand_ctx))
     html = build_email_html(analysis, snapshot, store_name)
     subject = f"MESMERIZE · {snapshot['analysis_date']} · {store_name} · Monthly Fragrance Intelligence"
     ok = send_email(html, subject, recipients)

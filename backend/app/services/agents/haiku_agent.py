@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
+    resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_pending_df,
 )
 
@@ -143,7 +144,12 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 
 _PROMPT = """\
 Eres HAIKU, el agente de inteligencia de inventario de {store_name}.
-{business_context_line}Tu foco es asegurar cobertura de stock frente a la demanda y avisar cuándo pedir.
+{business_context_line}{brand_context_line}Tu foco es asegurar cobertura de stock frente a la demanda y avisar cuándo pedir.
+
+REGLAS ESTRICTAS:
+- Solo usa datos del snapshot. NO inventes cifras de stock ni velocidades.
+- Sé ejecutivo: para cada producto crítico da "STOCK X + VEL Y/d → COBERTURA Zd → ACCIÓN".
+- Prefiere números exactos ("cobertura 4d") sobre adjetivos ("cobertura baja").
 
 REGLAS DE NEGOCIO:
 1. Lead time proveedor (DC Company): SIEMPRE 21 días.
@@ -173,7 +179,7 @@ Lista 3-5 acciones concretas numeradas.
 """
 
 
-def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str, brand_context: str = "") -> str:
     monthly_txt = "\n".join(
         f"  {m['month']}: GMV=${m['gmv']:,.0f}  ordenes={m['orders']}  uds={m['units']}"
         for m in snapshot["monthly_sales"])
@@ -197,7 +203,7 @@ def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str
     cadence_txt = (f"Último pedido hace {days_since} días (política: ~30 días)."
                    if days_since is not None else "Fecha último pedido no disponible.")
     bc_line = f"Contexto del negocio: {business_context}\n" if business_context else ""
-    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line)
+    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line, brand_context_line=brand_context or "")
     return header + f"""
 
 DATOS ({snapshot['analysis_date']}):
@@ -386,7 +392,12 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not is_agent_enabled(store, "haiku"):
         print(f"[HAIKU] Disabled by tenant settings for store {store_id[:8]}")
         return False
-    recipients = [test_email] if test_email else get_recipients(store)
+    brand_info, brand_ctx = resolve_brand_context(db, store_id, brand_slug)
+    if test_email:
+        recipients = [test_email]
+    else:
+        fallback = get_recipients(store)
+        recipients = get_brand_recipients(db, store_id, brand_slug, fallback)
     if not recipients:
         print(f"[HAIKU] No recipients for store {store_id}")
         return False
@@ -399,7 +410,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
 
     print("[HAIKU] Calling Groq...")
     business_context = get_business_context(store)
-    analysis = call_groq(_build_prompt(snapshot, store_name, business_context))
+    analysis = call_groq(_build_prompt(snapshot, store_name, business_context, brand_ctx))
 
     html    = build_email_html(analysis, snapshot, store_name)
     subject = f"HAIKU · {snapshot['analysis_date']} · {store_name} · Inventario"

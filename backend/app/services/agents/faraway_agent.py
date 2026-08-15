@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
+    resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
 )
 
@@ -133,7 +134,12 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 
 _PROMPT = """\
 Eres FARAWAY, agente de cierre semanal de {store_name}.
-{business_context_line}Analiza el performance de la semana con perspectiva del negocio en su mercado.
+{business_context_line}{brand_context_line}Analiza el performance de la semana con perspectiva del negocio en su mercado.
+
+REGLAS ESTRICTAS:
+- Solo usa datos del snapshot. NO inventes cifras.
+- Sé ejecutivo: "GMV $X (%+/-vs semana anterior)". Highlights + prioridades siguientes 7 días.
+- Prefiere cifras específicas y acciones concretas.
 
 Produce un informe de cierre semanal ejecutivo en ESPAÑOL con estas 4 secciones:
 
@@ -151,7 +157,7 @@ Lista de 3-5 acciones concretas y priorizadas para la semana siguiente.
 """
 
 
-def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str, brand_context: str = "") -> str:
     gmv_pct_str = f"{snapshot['gmv_pct']:+.1f}%" if snapshot["gmv_pct"] is not None else "N/A"
     top_prod_txt = "\n".join(f"  {p['name']}: ${p['gmv']:,.0f} ({p['units']} uds)"
                              for p in snapshot["top_products"]) or "  Sin datos."
@@ -163,7 +169,7 @@ def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str
                             for m in snapshot["monthly_trend"])
 
     bc_line = f"Contexto del negocio: {business_context}\n" if business_context else ""
-    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line)
+    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line, brand_context_line=brand_context or "")
     return header + f"""
 
 DATOS DE LA SEMANA ({snapshot['week_start']} → {snapshot['week_end']}):
@@ -307,7 +313,12 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not is_agent_enabled(store, "faraway"):
         print(f"[FARAWAY] Disabled by tenant settings for store {store_id[:8]}")
         return False
-    recipients = [test_email] if test_email else get_recipients(store)
+    brand_info, brand_ctx = resolve_brand_context(db, store_id, brand_slug)
+    if test_email:
+        recipients = [test_email]
+    else:
+        fallback = get_recipients(store)
+        recipients = get_brand_recipients(db, store_id, brand_slug, fallback)
     if not recipients:
         print(f"[FARAWAY] No recipients for store {store_id}")
         return False
@@ -320,7 +331,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
 
     print("[FARAWAY] Calling Groq...")
     business_context = get_business_context(store)
-    analysis = call_groq(_build_prompt(snapshot, store_name, business_context))
+    analysis = call_groq(_build_prompt(snapshot, store_name, business_context, brand_ctx))
     html = build_email_html(analysis, snapshot, store_name)
     subject = (f"FARAWAY · {snapshot['analysis_date']} · {store_name} · "
                f"Weekly Close ${snapshot['gmv_cur']:,.0f} ({pct_str})")

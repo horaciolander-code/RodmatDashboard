@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
     call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
+    resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
 )
 
@@ -286,7 +287,12 @@ def extract_snapshot(db: Session, store_id: str) -> dict:
 
 _PROMPT = """\
 Eres PRISM, analista senior de inteligencia de mercado para {store_name}.
-{business_context_line}Analiza el negocio con perspectiva del mercado donde opera (dinámica plataforma, competencia, comportamiento comprador).
+{business_context_line}{brand_context_line}Analiza el negocio con perspectiva del mercado donde opera (dinámica plataforma, competencia, comportamiento comprador).
+
+REGLAS ESTRICTAS:
+- Solo usa datos del snapshot que sigue. NO inventes cifras ni tendencias no soportadas por los datos.
+- Sé ejecutivo: bullets cortos, cifras específicas, acciones concretas con QUÉ + POR QUÉ (dato) + CUÁNDO.
+- Prefiere "$45K" sobre "cuarenta y cinco mil dólares". Prefiere "-22%" sobre "una caída significativa".
 
 PRINCIPIOS DE ANÁLISIS:
 1. Las tendencias internas (velocidad, sell-through, geografía) SON el mercado — datos reales, no predicciones.
@@ -312,7 +318,7 @@ Lista numerada de 4-6 acciones concretas: QUÉ hacer, POR QUÉ (dato), CUÁNDO.
 """
 
 
-def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str:
+def _build_prompt(snapshot: dict, store_name: str, business_context: str, brand_context: str = "") -> str:
     vel = snapshot["velocity"]; cat = snapshot["categories"]
     geo = snapshot["geography"]; port = snapshot["portfolio"]
     cre = snapshot["creator"];   opp = snapshot["opportunities"]
@@ -336,7 +342,7 @@ def _build_prompt(snapshot: dict, store_name: str, business_context: str) -> str
                           for o in opp[:8]) or "  Sin signals."
 
     bc_line = f"Contexto del negocio: {business_context}\n" if business_context else ""
-    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line)
+    header = _PROMPT.format(store_name=store_name, business_context_line=bc_line, brand_context_line=brand_context or "")
     return header + f"""
 
 DATOS DE ESTA SEMANA ({snapshot['analysis_date']}):
@@ -650,21 +656,29 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not is_agent_enabled(store, "prism"):
         print(f"[PRISM] Disabled by tenant settings for store {store_id[:8]}")
         return False
-    recipients = [test_email] if test_email else get_recipients(store)
+    # Brand-scoping: si viene brand_slug → filtramos recipients + inyectamos brand_context
+    brand_info, brand_ctx = resolve_brand_context(db, store_id, brand_slug)
+    if test_email:
+        recipients = [test_email]
+    else:
+        fallback = get_recipients(store)
+        recipients = get_brand_recipients(db, store_id, brand_slug, fallback)
     if not recipients:
-        print(f"[PRISM] No recipients for store {store_id}")
+        print(f"[PRISM] No recipients for store {store_id} brand={brand_slug}")
         return False
     store_name = store.name if store else "Store"
+    if brand_info:
+        print(f"[PRISM] brand-scoped: {brand_info['display_name']} · recipients={recipients}")
 
     print(f"[PRISM] Extracting snapshot for {store_name}...")
-    snapshot = extract_snapshot(db, store_id)
+    snapshot = extract_snapshot(db, store_id)  # TODO: filtrar snapshot por brand_id cuando implementado
     high_n = sum(1 for o in snapshot["opportunities"] if o["score"] == "HIGH")
     print(f"[PRISM] {len(snapshot['opportunities'])} signals ({high_n} HIGH) · "
           f"{len(snapshot['velocity'].get('accelerating',[]))} accelerating")
 
     print("[PRISM] Calling Groq...")
     business_context = get_business_context(store)
-    analysis = call_groq(_build_prompt(snapshot, store_name, business_context))
+    analysis = call_groq(_build_prompt(snapshot, store_name, business_context, brand_ctx))
     print(f"[PRISM] Response: {len(analysis)} chars")
 
     html    = build_email_html(analysis, snapshot, store_name)

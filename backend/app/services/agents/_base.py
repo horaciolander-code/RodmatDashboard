@@ -37,6 +37,62 @@ def get_business_context(store) -> str:
     return ""
 
 
+def resolve_brand_context(db, store_id: str, brand_slug: str | None) -> tuple[dict | None, str]:
+    """Devuelve (brand_info, brand_context_line) para agentes brand-scoped.
+
+    Cuando brand_slug es None → (None, "") → agente ve todo el store.
+    Cuando brand_slug es X → busca la brand en BD, devuelve info + línea inyectable
+    en el prompt LLM del tipo: "ESTÁS ANALIZANDO SOLO la marca X (Lattafa+Atralia)".
+
+    brand_info dict:
+      { id, slug, display_name, sku_prefixes_note, brand_color, email_sender }
+    """
+    if not brand_slug:
+        return None, ""
+
+    from sqlalchemy import text as _text
+    row = db.execute(_text(
+        "SELECT id, slug, display_name, sku_prefixes_note, brand_color, email_sender "
+        "FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
+        {"sid": store_id, "slug": brand_slug}
+    ).fetchone()
+    if not row:
+        return None, ""
+
+    binfo = {
+        "id": row[0], "slug": row[1], "display_name": row[2],
+        "sku_prefixes_note": row[3] or "", "brand_color": row[4] or "",
+        "email_sender": row[5] or "",
+    }
+    prefix_hint = f" (SKU prefixes: {binfo['sku_prefixes_note']})" if binfo['sku_prefixes_note'] else ""
+    ctx_line = (
+        f"⚠️ ANÁLISIS RESTRINGIDO A UNA MARCA: estás analizando SOLO la marca "
+        f"'{binfo['display_name']}'{prefix_hint} dentro del catálogo del store. "
+        f"NO menciones datos de otras marcas — el snapshot ya viene filtrado. "
+        f"Contextualiza tus recomendaciones específicamente para esta marca.\n"
+    )
+    return binfo, ctx_line
+
+
+def get_brand_recipients(db, store_id: str, brand_slug: str | None, fallback_recipients: list[str]) -> list[str]:
+    """Devuelve destinatarios específicos por brand.
+
+    Prioridad:
+      1. brands.email_sender si está definido para la brand
+      2. Fallback: recipients del store (los ya-configurados)
+    """
+    if not brand_slug:
+        return fallback_recipients
+    from sqlalchemy import text as _text
+    row = db.execute(_text(
+        "SELECT email_sender FROM brands WHERE store_id=:sid AND slug=:slug"),
+        {"sid": store_id, "slug": brand_slug}
+    ).fetchone()
+    if row and row[0]:
+        return [r.strip() for r in row[0].split(",") if r.strip()]
+    return fallback_recipients
+
+
 def is_agent_enabled(store, agent_name: str) -> bool:
     """Return True if the agent is enabled for this tenant.
 
