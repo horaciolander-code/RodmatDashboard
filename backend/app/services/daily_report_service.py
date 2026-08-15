@@ -147,9 +147,9 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     data_lag_days = (today - max_date).days if pd.notna(max_date) else 999
     if data_lag_days >= 2:
         sections.append(f"""
-        <div style="background:#fff3cd;border:2px solid #ffc107;border-radius:8px;padding:15px;margin-bottom:20px;">
-          <strong style="color:#856404;">&#9888; DATOS DESACTUALIZADOS</strong>
-          <span style="color:#856404;"> — El CSV m&aacute;s reciente en BD es del {max_date.strftime('%d/%m/%Y') if pd.notna(max_date) else 'desconocido'} ({data_lag_days} d&iacute;as de retraso).
+        <div style="background-color:#3d2810;border:1px solid #FF9F45;border-radius:8px;padding:15px;margin-bottom:20px;">
+          <strong style="color:#FF9F45;">&#9888; DATOS DESACTUALIZADOS</strong>
+          <span style="color:#FF9F45;"> — El CSV m&aacute;s reciente en BD es del {max_date.strftime('%d/%m/%Y') if pd.notna(max_date) else 'desconocido'} ({data_lag_days} d&iacute;as de retraso).
           Importa el CSV actualizado para que los KPIs sean correctos.</span>
         </div>
         """)
@@ -173,29 +173,29 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     orders_mtd = mtd_df["Order ID"].nunique()
 
     sections.append(f"""
-    <div style="background:#f8f9fa;border-radius:8px;padding:20px;margin-bottom:20px;">
-      <h2 style="color:#2c3e50;margin-top:0;">&#128202; Resumen de Ventas - {yesterday.strftime('%d/%m/%Y')}</h2>
+    <div style="background-color:#0f142f;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="color:#00D4FF;margin-top:0;">&#128202; Resumen de Ventas - {yesterday.strftime('%d/%m/%Y')}</h2>
       <table style="width:100%;border-collapse:collapse;">
         <tr>
-          <td style="padding:6px;text-align:center;background:#fff;border-radius:8px;border:1px solid #eee;">
+          <td style="padding:6px;text-align:center;background-color:#0f142f;border-radius:8px;border:1px solid #2a2f5c;">
             <div style="font-size:13px;color:#7f8c8d;">Facturado Ayer</div>
-            <div style="font-size:28px;font-weight:bold;color:#2c3e50;">${rev_y:,.2f}</div>
+            <div style="font-size:28px;font-weight:bold;color:#00D4FF;">${rev_y:,.2f}</div>
           </td>
-          <td style="padding:6px;text-align:center;background:#fff;border-radius:8px;border:1px solid #eee;">
+          <td style="padding:6px;text-align:center;background-color:#0f142f;border-radius:8px;border:1px solid #2a2f5c;">
             <div style="font-size:13px;color:#7f8c8d;">Ordenes Ayer</div>
-            <div style="font-size:28px;font-weight:bold;color:#2c3e50;">{orders_y}</div>
+            <div style="font-size:28px;font-weight:bold;color:#00D4FF;">{orders_y}</div>
           </td>
-          <td style="padding:6px;text-align:center;background:#fff;border-radius:8px;border:1px solid #eee;">
+          <td style="padding:6px;text-align:center;background-color:#0f142f;border-radius:8px;border:1px solid #2a2f5c;">
             <div style="font-size:13px;color:#7f8c8d;">Unidades Ayer</div>
-            <div style="font-size:28px;font-weight:bold;color:#2c3e50;">{units_y:.0f}</div>
+            <div style="font-size:28px;font-weight:bold;color:#00D4FF;">{units_y:.0f}</div>
           </td>
-          <td style="padding:6px;text-align:center;background:#fff;border-radius:8px;border:1px solid #eee;">
+          <td style="padding:6px;text-align:center;background-color:#0f142f;border-radius:8px;border:1px solid #2a2f5c;">
             <div style="font-size:13px;color:#7f8c8d;">vs Dia Anterior</div>
             <div style="font-size:28px;font-weight:bold;color:{color};">{arrow} {pct:+.1f}%</div>
           </td>
         </tr>
       </table>
-      <div style="margin-top:12px;padding:10px;background:#eaf2f8;border-radius:6px;font-size:13px;color:#2c3e50;">
+      <div style="margin-top:12px;padding:10px;background-color:#0e2836;border-radius:6px;font-size:13px;color:#00D4FF;">
         <strong>Mes en curso ({today.strftime('%B %Y')}):</strong>
         ${rev_mtd:,.2f} facturado | {orders_mtd} ordenes
       </div>
@@ -213,17 +213,17 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
         for _, r in viral.iterrows():
             viral_rows += f"""
             <tr>
-              <td style="padding:8px;border:1px solid #eee;">{r['Creator Username']}</td>
-              <td style="padding:8px;border:1px solid #eee;">{r['Product Name']}</td>
-              <td style="padding:8px;border:1px solid #eee;text-align:center;font-weight:bold;color:#8e44ad;">{int(r['Unidades'])}</td>
-              <td style="padding:8px;border:1px solid #eee;text-align:center;">{int(r['Ordenes'])}</td>
-              <td style="padding:8px;border:1px solid #eee;text-align:center;">${r['GMV']:,.2f}</td>
+              <td style="padding:8px;border:1px solid #2a2f5c;">{r['Creator Username']}</td>
+              <td style="padding:8px;border:1px solid #2a2f5c;">{r['Product Name']}</td>
+              <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;font-weight:bold;color:#7B61FF;">{int(r['Unidades'])}</td>
+              <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{int(r['Ordenes'])}</td>
+              <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">${r['GMV']:,.2f}</td>
             </tr>"""
         sections.append(f"""
-        <div style="background:#f5eef8;border:2px solid #8e44ad;border-radius:8px;padding:20px;margin-bottom:20px;">
-          <h2 style="color:#8e44ad;margin-top:0;">&#128640; {len(viral)} Alerta(s) Video Viral (ultimos 5 dias, &ge;20 uds)</h2>
+        <div style="background-color:#1a1050;border:1px solid #7B61FF;border-radius:8px;padding:20px;margin-bottom:20px;">
+          <h2 style="color:#7B61FF;margin-top:0;">&#128640; {len(viral)} Alerta(s) Video Viral (ultimos 5 dias, &ge;20 uds)</h2>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead><tr style="background:#8e44ad;color:#fff;">
+            <thead><tr style="background:#8e44ad;color:#e4e9ff;">
               <th style="padding:10px;text-align:left;">Creadora</th>
               <th style="padding:10px;text-align:left;">Producto</th>
               <th style="padding:10px;text-align:center;">Unidades</th>
@@ -284,19 +284,19 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
                 cov  = r.get("Days_Coverage", 999)
                 cov_wh  = r.get("Days_Cov_WH",  999) if has_cov_wh  else 999
                 cov_fbt = r.get("Days_Cov_FBT", 999) if has_cov_fbt else 999
-                def _cov(v): return f"{v:.0f}d" if v < 999 else "N/A"
-                sv_html = f"<span style='color:#e74c3c;font-weight:bold;'>{sv:.0f}</span>" if sv < 0 else f"{sv:.0f}"
+                def _cov(v): return f"{v:.0f}d" if v > 0 else "—"
+                sv_html = f"<span style='color:#FF3D6B;font-weight:bold;'>{sv:.0f}</span>" if sv < 0 else f"{sv:.0f}"
                 tipo    = r.get("Tipo", "-") or "-"
-                fbt_cov_cell = f"<td style='padding:8px;border:1px solid #eee;text-align:center;'>{_cov(cov_fbt)}</td>" if has_cov_fbt else ""
+                fbt_cov_cell = f"<td style='padding:8px;border:1px solid #2a2f5c;text-align:center;'>{_cov(cov_fbt)}</td>" if has_cov_fbt else ""
                 rows_html += f"""
                 <tr style="background:{bg};">
-                  <td style="padding:8px;border:1px solid #eee;">{r['ProductoNombre']}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{tipo}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{swh:.0f}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{"—" if not has_fbt else f"{sfbt:.0f}"}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{sv_html}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{r.get('AvgVentas30d', 0):.1f}</td>
-                  <td style="padding:8px;border:1px solid #eee;text-align:center;">{_cov(cov_wh) if has_cov_wh else _cov(cov)}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;">{r['ProductoNombre']}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{tipo}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{swh:.0f}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{"—" if not has_fbt else f"{sfbt:.0f}"}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{sv_html}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{r.get('AvgVentas30d', 0):.1f}</td>
+                  <td style="padding:8px;border:1px solid #2a2f5c;text-align:center;">{_cov(cov_wh) if has_cov_wh else _cov(cov)}</td>
                   {fbt_cov_cell}
                 </tr>"""
 
@@ -306,11 +306,11 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
 
             fbt_cov_header = "<th style='padding:10px;text-align:center;'>Cob. FBT</th>" if has_cov_fbt else ""
             sections.append(f"""
-            <div style="background:#fff;border:2px solid #e74c3c;border-radius:8px;padding:20px;margin-bottom:20px;">
-              <h2 style="color:#e74c3c;margin-top:0;">{alert_title}</h2>
+            <div style="background-color:#0f142f;border:1px solid #FF3D6B;border-radius:8px;padding:20px;margin-bottom:20px;">
+              <h2 style="color:#FF3D6B;margin-top:0;">{alert_title}</h2>
               <p style="color:#666;margin:0 0 12px 0;">Productos con stock negativo o por debajo de {low_threshold} unidades</p>
               <table style="width:100%;border-collapse:collapse;font-size:13px;">
-                <thead><tr style="background:#e74c3c;color:#fff;">
+                <thead><tr style="background:#e74c3c;color:#e4e9ff;">
                   <th style="padding:10px;text-align:left;">Producto</th>
                   <th style="padding:10px;text-align:center;">Tipo</th>
                   <th style="padding:10px;text-align:center;">Warehouse</th>
@@ -326,8 +326,8 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
             """)
         else:
             sections.append(f"""
-            <div style="background:#eafaf1;border-radius:8px;padding:15px;margin-bottom:20px;">
-              <h2 style="color:#27ae60;margin-top:0;">&#9989; Stock OK - Todos los productos por encima de {low_threshold} uds</h2>
+            <div style="background-color:#0e2818;border-radius:8px;padding:15px;margin-bottom:20px;">
+              <h2 style="color:#00FF88;margin-top:0;">&#9989; Stock OK - Todos los productos por encima de {low_threshold} uds</h2>
             </div>
             """)
 
@@ -375,8 +375,8 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
             if len(stale) > 10:
                 stale_items += f"<li>... y {len(stale)-10} ordenes mas</li>"
             warning_html = f"""
-            <div style="background:#fdedec;border-left:4px solid #e74c3c;padding:12px;margin-bottom:15px;border-radius:4px;">
-              <strong style="color:#e74c3c;">&#128680; ATENCION:</strong>
+            <div style="background-color:#2d0e1e;border-left:4px solid #FF3D6B;padding:12px;margin-bottom:15px;border-radius:4px;">
+              <strong style="color:#FF3D6B;">&#128680; ATENCION:</strong>
               {len(stale)} ordenes llevan <strong>{stale_days}+ dias</strong> sin prepararse:
               <ul style="margin:8px 0;">{stale_items}</ul>
             </div>"""
@@ -388,16 +388,16 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
                 bg = "#fdedec" if r["days_waiting"] >= stale_days else "#fff"
                 flagged_rows += f"""
                 <tr style="background:{bg};">
-                  <td style="padding:6px 8px;border:1px solid #eee;font-family:monospace;">{r['Order ID']}</td>
-                  <td style="padding:6px 8px;border:1px solid #eee;text-align:center;">{r['sku_count']}</td>
-                  <td style="padding:6px 8px;border:1px solid #eee;text-align:center;font-weight:bold;">{r['total_qty']:.0f}</td>
-                  <td style="padding:6px 8px;border:1px solid #eee;">{r['products'][:80]}</td>
-                  <td style="padding:6px 8px;border:1px solid #eee;text-align:center;">{r['days_waiting']}</td>
+                  <td style="padding:6px 8px;border:1px solid #2a2f5c;font-family:monospace;">{r['Order ID']}</td>
+                  <td style="padding:6px 8px;border:1px solid #2a2f5c;text-align:center;">{r['sku_count']}</td>
+                  <td style="padding:6px 8px;border:1px solid #2a2f5c;text-align:center;font-weight:bold;">{r['total_qty']:.0f}</td>
+                  <td style="padding:6px 8px;border:1px solid #2a2f5c;">{r['products'][:80]}</td>
+                  <td style="padding:6px 8px;border:1px solid #2a2f5c;text-align:center;">{r['days_waiting']}</td>
                 </tr>"""
             flagged_table = f"""
             <h3 style="color:#e67e22;margin:15px 0 8px;">Ordenes Combo x2+ o Multi-SKU ({len(flagged)})</h3>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead><tr style="background:#f39c12;color:#fff;">
+              <thead><tr style="background:#f39c12;color:#e4e9ff;">
                 <th style="padding:8px;text-align:left;">Order ID</th>
                 <th style="padding:8px;text-align:center;">SKUs</th>
                 <th style="padding:8px;text-align:center;">Qty Total</th>
@@ -406,12 +406,12 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
               </tr></thead>
               <tbody>{flagged_rows}</tbody>
             </table>
-            {"<p style='color:#999;font-size:11px;'>Mostrando 40 de " + str(len(flagged)) + "</p>" if len(flagged) > 40 else ""}"""
+            {"<p style='color:#8892b0;font-size:11px;'>Mostrando 40 de " + str(len(flagged)) + "</p>" if len(flagged) > 40 else ""}"""
 
         sections.append(f"""
-        <div style="background:#fff;border:2px solid #f39c12;border-radius:8px;padding:20px;margin-bottom:20px;">
+        <div style="background-color:#0f142f;border:1px solid #FF9F45;border-radius:8px;padding:20px;margin-bottom:20px;">
           <h2 style="color:#e67e22;margin-top:0;">&#128230; Ordenes Pendientes de Envio</h2>
-          <div style="margin-bottom:15px;padding:12px;background:#fef9e7;border-radius:6px;">
+          <div style="margin-bottom:15px;padding:12px;background-color:#3d2810;border-radius:6px;">
             <table style="width:100%;border-collapse:collapse;font-size:14px;">
               <tr>
                 <td style="padding:8px;text-align:center;">
@@ -420,11 +420,11 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
                 </td>
                 <td style="padding:8px;text-align:center;">
                   <div style="font-size:12px;color:#7f8c8d;">Pendientes Warehouse</div>
-                  <div style="font-size:24px;font-weight:bold;color:#2c3e50;">{awaiting_wh_count}</div>
+                  <div style="font-size:24px;font-weight:bold;color:#00D4FF;">{awaiting_wh_count}</div>
                 </td>
                 <td style="padding:8px;text-align:center;">
                   <div style="font-size:12px;color:#7f8c8d;">Pendientes FBT</div>
-                  <div style="font-size:24px;font-weight:bold;color:#3498db;">{awaiting_fbt_count}</div>
+                  <div style="font-size:24px;font-weight:bold;color:#00D4FF;">{awaiting_fbt_count}</div>
                 </td>
                 <td style="padding:8px;text-align:center;">
                   <div style="font-size:12px;color:#7f8c8d;">Combo x2+ / Multi-SKU</div>
@@ -432,11 +432,11 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
                 </td>
                 <td style="padding:8px;text-align:center;">
                   <div style="font-size:12px;color:#7f8c8d;">Nuevas ayer</div>
-                  <div style="font-size:24px;font-weight:bold;color:#2c3e50;">{new_yesterday}</div>
+                  <div style="font-size:24px;font-weight:bold;color:#00D4FF;">{new_yesterday}</div>
                 </td>
                 <td style="padding:8px;text-align:center;">
                   <div style="font-size:12px;color:#7f8c8d;">Mas de {stale_days} dias</div>
-                  <div style="font-size:24px;font-weight:bold;color:#e74c3c;">{len(stale)}</div>
+                  <div style="font-size:24px;font-weight:bold;color:#FF3D6B;">{len(stale)}</div>
                 </td>
               </tr>
             </table>
@@ -447,8 +447,8 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
         """)
     else:
         sections.append("""
-        <div style="background:#eafaf1;border-radius:8px;padding:15px;margin-bottom:20px;">
-          <h2 style="color:#27ae60;margin-top:0;">&#9989; No hay ordenes pendientes de envio</h2>
+        <div style="background-color:#0e2818;border-radius:8px;padding:15px;margin-bottom:20px;">
+          <h2 style="color:#00FF88;margin-top:0;">&#9989; No hay ordenes pendientes de envio</h2>
         </div>
         """)
 
@@ -458,18 +458,18 @@ def build_report(db: Session, store_id: str) -> tuple[str, str]:
     <!DOCTYPE html>
     <html>
     <head><meta charset="utf-8"></head>
-    <body style="font-family:'Segoe UI',Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;background:#f5f6fa;">
-      <div style="background:linear-gradient(135deg,#2c3e50,#3498db);color:#fff;padding:25px;border-radius:10px;margin-bottom:20px;text-align:center;">
+    <body style="margin:0;padding:0;background-color:#0a0e27;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0e27" style="background-color:#0a0e27;margin:0;padding:0;"><tr><td align="center" bgcolor="#0a0e27" style="background-color:#0a0e27;padding:20px 10px;"><table role="presentation" width="800" cellpadding="0" cellspacing="0" border="0" bgcolor="#0a0e27" style="max-width:800px;background-color:#0a0e27;color:#e4e9ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;"><tr><td bgcolor="#0a0e27" style="background-color:#0a0e27;padding:0;">
+      <div style="background-color:#0f142f;color:#e4e9ff;padding:25px;border-radius:10px;margin-bottom:20px;text-align:center;">
         <h1 style="margin:0;font-size:24px;">{store_name} - Daily Report</h1>
         <p style="margin:8px 0 0;font-size:14px;opacity:0.9;">{now.strftime('%A %d de %B, %Y')}</p>
       </div>
       {_bank_deposit_summary_html(db, store_id)}
       {"".join(sections)}
-      <div style="text-align:center;padding:20px;color:#999;font-size:11px;">
+      <div style="text-align:center;padding:20px;color:#8892b0;font-size:11px;">
         Generado automaticamente por {store_name} Dashboard<br>
         {now.strftime('%H:%M:%S')} UTC | Para dejar de recibir estos emails, contacta al administrador.
       </div>
-    </body>
+    </td></tr></table></td></tr></table></body>
     </html>
     """
 
