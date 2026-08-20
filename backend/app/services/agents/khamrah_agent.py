@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.services.agents._base import (
-    send_email, send_email_branded, get_recipients, get_brand_recipients,
+    send_email, send_email_branded, get_recipients, get_brand_recipients_legacy,
     get_brand, is_agent_enabled,
 )
 
@@ -226,7 +226,7 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if test_email:
         recipients = [test_email]
     else:
-        recipients = get_brand_recipients(store, brand) if brand else get_recipients(store)
+        recipients = get_brand_recipients_legacy(store, brand) if brand else get_recipients(store)
     if not recipients:
         return False
 

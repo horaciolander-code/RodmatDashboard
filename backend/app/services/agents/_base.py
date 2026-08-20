@@ -230,7 +230,7 @@ def get_brand_context(store, brand=None) -> str:
     return get_business_context(store)
 
 
-def get_brand_recipients(store, brand=None) -> list[str]:
+def get_brand_recipients_legacy(store, brand=None) -> list[str]:
     """Return recipients — brand-scoped list if brand provided and
     settings['brands_recipients'][slug] set, else store-level.
 
