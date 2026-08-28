@@ -2609,14 +2609,19 @@ def main():
     _role = user.get("role", "viewer")
     _modules = user.get("modules_enabled") or {}
     _finance_enabled = bool(_modules.get("finance", False))
+    _chat_ai_enabled = (user.get("email") or "").lower() in CHAT_AI_ALLOWED
     if _role in ("admin", "superadmin"):
         _sections = ["Dashboard", "Gestion"]
         if _finance_enabled:
             _sections.append("Finance")
+        if _chat_ai_enabled:
+            _sections.append("Chat IA")
     elif _role == "warehouse":
         _sections = ["Gestion"]
     else:
         _sections = ["Dashboard", "Gestion"]
+        if _chat_ai_enabled:
+            _sections.append("Chat IA")
     # Preservar section elegido a través de reruns (ej: cambio de brand)
     _prev_section = st.session_state.get("_last_section")
     _default_idx = _sections.index(_prev_section) if _prev_section in _sections else 0
@@ -2665,6 +2670,9 @@ def main():
                     page_finance_tiktok_statements()
             else:
                 page_finance_pl()
+
+    elif section == "Chat IA":
+        page_chat_ai()
 
 
 
@@ -2863,6 +2871,80 @@ def page_finance_tiktok_statements():
         df_s = df_s[["settled_date", "period_start", "period_end", "total_orders", "total_income", "total_margin", "total_fees", "statement_id"]]
         df_s.columns = ["Settled Date", "Desde", "Hasta", "Órdenes", "Income", "Margin TT", "Fees", "Statement ID"]
         st.dataframe(df_s, use_container_width=True, height=380, hide_index=True)
+
+
+# ============================================================================
+#  CHAT IA — Demo gated to rodmatwh@gmail.com only
+# ============================================================================
+CHAT_AI_ALLOWED = {"rodmatwh@gmail.com"}
+
+def page_chat_ai():
+    """Chat IA hibrido: 10 tools + SQL fallback + guardrail off-topic."""
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#0a0e27 0%,#1a1f4a 100%);
+                padding:20px;border-radius:12px;border:1px solid #00d4ff33;margin-bottom:16px;">
+      <div style="color:#00d4ff;font-size:24px;font-weight:700;">🤖 Chat IA · Datos en tiempo real</div>
+      <div style="color:#8899aa;font-size:13px;margin-top:6px;">
+        Pregunta lo que quieras sobre ventas, inventario, creators, órdenes o P&L.<br>
+        Ejemplos: "cuánto vendimos esta semana", "top 5 productos del mes", "stock de Far Away",
+        "creators top de agosto", "P&L de julio".
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Init history
+    if "_chat_ai_msgs" not in st.session_state:
+        st.session_state["_chat_ai_msgs"] = []
+
+    # Render history
+    for msg in st.session_state["_chat_ai_msgs"]:
+        with st.chat_message(msg["role"], avatar="🤖" if msg["role"]=="assistant" else "👤"):
+            st.markdown(msg["content"])
+            if msg.get("meta"):
+                with st.expander("🔍 Debug info", expanded=False):
+                    m = msg["meta"]
+                    st.caption(f"**Path:** {m.get('path')} · **Tool:** {m.get('tool_used') or '-'}")
+                    if m.get("router_reason"): st.caption(f"**Router:** {m['router_reason']}")
+                    if m.get("sql_executed"):
+                        st.code(m["sql_executed"], language="sql")
+                    if m.get("raw_data"):
+                        st.json(m["raw_data"])
+
+    # Input
+    q = st.chat_input("¿Qué quieres saber?")
+    if q:
+        st.session_state["_chat_ai_msgs"].append({"role":"user","content":q})
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(q)
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Consultando datos..."):
+                resp = api_post("/api/chat/query", json_data={"question": q})
+            if not resp:
+                st.error("Error de red. Reintenta.")
+                return
+            ans = resp.get("answer", "(sin respuesta)")
+            st.markdown(ans)
+            with st.expander("🔍 Debug info", expanded=False):
+                st.caption(f"**Path:** {resp.get('path')} · **Tool:** {resp.get('tool_used') or '-'}")
+                if resp.get("router_reason"): st.caption(f"**Router:** {resp['router_reason']}")
+                if resp.get("sql_executed"):
+                    st.code(resp["sql_executed"], language="sql")
+                if resp.get("raw_data"):
+                    st.json(resp["raw_data"])
+            st.session_state["_chat_ai_msgs"].append({
+                "role":"assistant","content":ans,
+                "meta":{"path":resp.get("path"),"tool_used":resp.get("tool_used"),
+                        "router_reason":resp.get("router_reason"),
+                        "sql_executed":resp.get("sql_executed"),
+                        "raw_data":resp.get("raw_data")}
+            })
+
+    # Clear button
+    if st.session_state["_chat_ai_msgs"]:
+        if st.button("🧹 Limpiar conversación", key="_chat_clear"):
+            st.session_state["_chat_ai_msgs"] = []
+            st.rerun()
+
 
 
 
