@@ -1,5 +1,7 @@
 """Chat AI endpoint — DEMO gated to a single user by email."""
+from __future__ import annotations
 import logging
+from typing import Any, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -24,10 +26,10 @@ class QueryIn(BaseModel):
 class QueryOut(BaseModel):
     answer: str
     path: str
-    tool_used: str | None = None
-    sql_executed: str | None = None
-    raw_data: dict | list | None = None
-    router_reason: str | None = None
+    tool_used: Optional[str] = None
+    sql_executed: Optional[str] = None
+    raw_data: Optional[Any] = None
+    router_reason: Optional[str] = None
 
 
 def _require_beta_access(user: User = Depends(get_current_user)) -> User:
