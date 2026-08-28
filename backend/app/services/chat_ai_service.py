@@ -24,27 +24,45 @@ OFF_TOPIC_MSG = (
     "generales prueba con ChatGPT o Claude."
 )
 
-ROUTER_SYSTEM = """Clasificas preguntas de usuarios de un dashboard de e-commerce (Rodmat).
+ROUTER_SYSTEM = """Eres un router para un dashboard de e-commerce (Rodmat). Tu única tarea es clasificar la pregunta del usuario.
 
-Devuelves SOLO JSON con estructura: {"path":"TOOL|SQL|OFF_TOPIC","tool":"nombre_tool_o_null","reason":"breve","period":"today|yesterday|week|month|null"}
+TOOLS DISPONIBLES:
+1. get_sales_summary — "cuánto vendimos" / GMV / ventas totales en un periodo
+2. get_top_products — "producto más vendido" / bestseller / top productos
+3. get_product_stock — "cuánto stock queda" / cajas / inventario de un producto
+4. get_low_stock_alerts — "qué reponer" / stock bajo / alerta inventario
+5. get_top_creators — "mejores creators/afiliados/influencers"
+6. get_sales_by_day — "ventas por día" / evolución diaria
+7. get_platform_split — "TikTok vs Amazon" / desglose por plataforma
+8. get_finance_pnl — "P&L" / margen / beneficios / rentabilidad
+9. get_growth_vs_prev — "vs mes/semana pasado" / crecimiento / comparativa
+10. get_recent_orders — "últimas órdenes" / órdenes recientes
 
-Tools disponibles:
-- get_sales_summary(period): "cuánto vendimos hoy/ayer/semana/mes/GMV"
-- get_top_products(period): "qué producto se vende más / bestseller"
-- get_product_stock(query): "cuánto stock queda de X / cajas de X"
-- get_low_stock_alerts: "qué me falta reponer / stock bajo / urgente"
-- get_top_creators(period): "mejores creators / afiliados / TikTok influencers"
-- get_sales_by_day(days_back): "ventas últimos N días / evolución diaria"
-- get_platform_split(period): "TikTok vs Amazon vs Walmart / plataformas"
-- get_finance_pnl(month): "margen / P&L / beneficios del mes"
-- get_growth_vs_prev(period): "vs mes/semana anterior / crecimiento"
-- get_recent_orders(hours): "últimas órdenes / órdenes recientes"
+RESPUESTA — EXACTAMENTE una línea con este formato:
+TOOL:<nombre_tool>:<periodo>
+o
+SQL
+o
+OFF_TOPIC
 
-Reglas:
-- Si encaja con tool → path=TOOL + nombre + period detectado
-- Si es sobre datos negocio pero cross-tabla o específico (p.ej. "combos con Far Away") → path=SQL
-- Si NO es sobre ventas/inventario/creators/órdenes/finanzas/productos/combos → path=OFF_TOPIC
-- OFF_TOPIC = chit-chat, código, opinión general, cualquier tema no-negocio
+Donde <periodo> es: today, yesterday, week, month, year (o "auto" si no se especifica).
+
+REGLAS:
+- Si la pregunta pide un dato del negocio (ventas, inventario, creators, órdenes, finanzas, productos, combos) → usa TOOL o SQL
+- OFF_TOPIC SOLO si la pregunta NO tiene NINGUNA relación con e-commerce/datos del negocio (saludos, opiniones, código, temas generales)
+- Preferir TOOL sobre SQL cuando algún tool encaje
+
+EJEMPLOS:
+"cuánto vendimos esta semana" → TOOL:get_sales_summary:week
+"cuál es el producto más vendido del año" → TOOL:get_top_products:year
+"cuánto stock queda de Imari" → TOOL:get_product_stock:auto
+"mejores creators del mes" → TOOL:get_top_creators:month
+"ventas por día últimos 15 días" → TOOL:get_sales_by_day:auto
+"cuántos combos incluyen Far Away" → SQL
+"hola cómo estás" → OFF_TOPIC
+"escríbeme un email" → OFF_TOPIC
+
+Devuelve SOLO la línea de clasificación, sin explicaciones ni JSON.
 """
 
 
@@ -61,16 +79,50 @@ def _groq_call(messages, response_format=None, max_tokens=800, temperature=0.2):
 
 
 def _route(question: str) -> dict:
+    """Robust router — parses text response, falls back to keyword matching if LLM fails."""
+    raw = ""
     try:
         raw = _groq_call(
             [{"role":"system","content":ROUTER_SYSTEM},{"role":"user","content":question}],
-            response_format={"type":"json_object"}, max_tokens=200)
-        d = json.loads(raw)
-        assert d.get("path") in ("TOOL","SQL","OFF_TOPIC")
-        return d
+            max_tokens=60, temperature=0.0).strip()
+        # Parse "TOOL:name:period" | "SQL" | "OFF_TOPIC"
+        first_line = raw.split("\n")[0].strip().upper()
+        if first_line.startswith("OFF_TOPIC"):
+            return {"path":"OFF_TOPIC","tool":None,"reason":"llm-classified","period":None}
+        if first_line.startswith("SQL"):
+            return {"path":"SQL","tool":None,"reason":"llm-classified","period":None}
+        if first_line.startswith("TOOL:"):
+            parts = first_line.split(":")
+            tool_name = parts[1].lower().strip() if len(parts) > 1 else None
+            period = parts[2].lower().strip() if len(parts) > 2 else None
+            if tool_name and tool_name in TOOLS:
+                if period == "AUTO".lower(): period = None
+                return {"path":"TOOL","tool":tool_name,"reason":"llm-classified","period":period}
+        # Fallthrough: LLM returned unexpected format → try keyword match
+        log.warning(f"Router unparseable: raw={raw!r}")
     except Exception as e:
-        log.warning(f"Router failed: {e}")
-        return {"path":"OFF_TOPIC","tool":None,"reason":f"router-error","period":None}
+        log.warning(f"Router LLM failed: {e}")
+
+    # Keyword fallback — better than defaulting to OFF_TOPIC
+    q = question.lower()
+    if any(w in q for w in ["hola","que tal","cómo estás","como estas","gracias","chao","adios","adiós"]):
+        return {"path":"OFF_TOPIC","tool":None,"reason":"kw-chitchat","period":None}
+    if any(w in q for w in ["vend","gmv","factur","ingres"]):
+        return {"path":"TOOL","tool":"get_sales_summary","reason":"kw-ventas","period":None}
+    if any(w in q for w in ["producto más","producto mas","bestseller","best seller","top produc","más vendido","mas vendido"]):
+        return {"path":"TOOL","tool":"get_top_products","reason":"kw-top-products","period":None}
+    if any(w in q for w in ["stock","queda","caja","inventario","unidades"]):
+        return {"path":"TOOL","tool":"get_product_stock","reason":"kw-stock","period":None}
+    if any(w in q for w in ["reponer","stock bajo","alerta","urgente","cobertura"]):
+        return {"path":"TOOL","tool":"get_low_stock_alerts","reason":"kw-lowstock","period":None}
+    if any(w in q for w in ["creator","afiliad","influenc","tiktoker"]):
+        return {"path":"TOOL","tool":"get_top_creators","reason":"kw-creators","period":None}
+    if any(w in q for w in ["p&l","pnl","margen","beneficio","rentabil","pérdida","perdida"]):
+        return {"path":"TOOL","tool":"get_finance_pnl","reason":"kw-pnl","period":None}
+    if any(w in q for w in ["orden","order","pedido"]):
+        return {"path":"TOOL","tool":"get_recent_orders","reason":"kw-orders","period":None}
+    # Last resort: assume it's a data question → try SQL
+    return {"path":"SQL","tool":None,"reason":f"fallback-sql (raw={raw[:80]!r})","period":None}
 
 
 def _period_dates(period: Optional[str]) -> tuple[date,date]:
