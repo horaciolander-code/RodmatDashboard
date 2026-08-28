@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, date
 from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-import requests
+import httpx
 
 log = logging.getLogger("rodmat.chat_ai")
 
@@ -53,7 +53,7 @@ def _groq_call(messages, response_format=None, max_tokens=800, temperature=0.2):
         raise RuntimeError("GROQ_API_KEY not set")
     body = {"model": GROQ_MODEL, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
     if response_format: body["response_format"] = response_format
-    r = requests.post(GROQ_URL,
+    r = httpx.post(GROQ_URL,
         headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
         json=body, timeout=15)
     r.raise_for_status()
