@@ -2615,13 +2615,13 @@ def main():
         if _finance_enabled:
             _sections.append("Finance")
         if _chat_ai_enabled:
-            _sections.append("Chat IA")
+            _sections.append("🤖 Rod-AI")
     elif _role == "warehouse":
         _sections = ["Gestion"]
     else:
         _sections = ["Dashboard", "Gestion"]
         if _chat_ai_enabled:
-            _sections.append("Chat IA")
+            _sections.append("🤖 Rod-AI")
     # Preservar section elegido a través de reruns (ej: cambio de brand)
     _prev_section = st.session_state.get("_last_section")
     _default_idx = _sections.index(_prev_section) if _prev_section in _sections else 0
@@ -2671,7 +2671,7 @@ def main():
             else:
                 page_finance_pl()
 
-    elif section == "Chat IA":
+    elif section == "🤖 Rod-AI":
         page_chat_ai()
 
 
@@ -2882,12 +2882,21 @@ def page_chat_ai():
     """Chat IA hibrido: 10 tools + SQL fallback + guardrail off-topic."""
     st.markdown("""
     <div style="background:linear-gradient(135deg,#0a0e27 0%,#1a1f4a 100%);
-                padding:20px;border-radius:12px;border:1px solid #00d4ff33;margin-bottom:16px;">
-      <div style="color:#00d4ff;font-size:24px;font-weight:700;">🤖 Chat IA · Datos en tiempo real</div>
-      <div style="color:#8899aa;font-size:13px;margin-top:6px;">
-        Pregunta lo que quieras sobre ventas, inventario, creators, órdenes o P&L.<br>
-        Ejemplos: "cuánto vendimos esta semana", "top 5 productos del mes", "stock de Far Away",
-        "creators top de agosto", "P&L de julio".
+                padding:22px 24px;border-radius:14px;border:1px solid #00d4ff44;margin-bottom:18px;
+                box-shadow:0 0 40px #00d4ff11;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:44px;height:44px;border-radius:50%;
+                    background:radial-gradient(circle at 30% 30%,#00d4ff,#0066ff);
+                    display:flex;align-items:center;justify-content:center;font-size:22px;">🤖</div>
+        <div>
+          <div style="color:#00d4ff;font-size:22px;font-weight:700;letter-spacing:0.5px;">Rod-AI</div>
+          <div style="color:#8899aa;font-size:12px;">Asistente de datos · Rodmat Dashboard</div>
+        </div>
+      </div>
+      <div style="color:#a0aec0;font-size:13px;margin-top:12px;line-height:1.5;">
+        Pregúntame lo que quieras sobre tus <b>ventas, inventario, creators, órdenes o finanzas</b>.<br>
+        Ejemplos: <i>"cuánto vendimos esta semana"</i> · <i>"top 5 productos del mes"</i> · 
+        <i>"stock del producto XYZ"</i> · <i>"creators top del último mes"</i> · <i>"P&L de julio"</i>.
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2918,7 +2927,7 @@ def page_chat_ai():
             st.markdown(q)
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Consultando datos..."):
-                resp = api_post("/api/chat/query", json_data={"question": q})
+                resp = api_post("/chat/query", json_data={"question": q})
             if not resp:
                 st.error("Error de red. Reintenta.")
                 return
