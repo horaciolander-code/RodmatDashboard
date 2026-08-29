@@ -379,7 +379,7 @@ REGLAS:
         const raw = await FUSE_API.chat([
           { role: "system", content: systemPrompt },
           { role: "user", content: `Texto del documento:\n\n${doc.text}` },
-        ], { temperature: 0.1, max_tokens: 700, jsonMode: true });
+        ], { temperature: 0.1, max_tokens: 1500 });
 
         const parsed = extractJSON(raw);
         if (!parsed || !parsed.proveedor) {

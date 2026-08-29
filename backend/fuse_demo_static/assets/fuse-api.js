@@ -10,7 +10,7 @@ const FUSE_API = {
     const body = {
       messages,
       temperature: opts.temperature ?? 0.4,
-      max_tokens: opts.max_tokens ?? 800,
+      max_tokens: opts.max_tokens ?? 1200,
       response_format: opts.jsonMode ? "json_object" : null,
     };
     try {

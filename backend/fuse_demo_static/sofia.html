@@ -262,7 +262,7 @@ REGLAS:
       ];
 
       try {
-        const raw = await FUSE_API.chat(messages, { temperature: 0.4, max_tokens: 500 });
+        const raw = await FUSE_API.chat(messages, { temperature: 0.4, max_tokens: 1200 });
         const parsed = extractJSON(raw);
         hideTyping();
 

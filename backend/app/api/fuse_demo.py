@@ -61,10 +61,11 @@ def fuse_chat(payload: ChatIn, request: Request, x_demo_token: str = Header(defa
         "model": GROQ_MODEL,
         "messages": payload.messages,
         "temperature": payload.temperature,
-        "max_tokens": min(payload.max_tokens, 2000),
+        "max_tokens": min(max(payload.max_tokens, 400), 3000),  # min 400 for gpt-oss-20b reasoning
     }
-    if payload.response_format == "json_object":
-        body["response_format"] = {"type": "json_object"}
+    # Note: gpt-oss-20b on Groq does not reliably support response_format=json_object.
+    # We rely on prompt engineering to request JSON output instead.
+    # payload.response_format is accepted for API compat but ignored.
 
     try:
         r = httpx.post(GROQ_URL,
