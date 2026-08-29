@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.config import APP_VERSION, CORS_ORIGINS, ENVIRONMENT
 from app.database import engine, Base, SessionLocal
-from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps, brands, tiktok_statements, chat_ai
+from app.api import stores, products, combos, inventory, sales, auth, imports, analytics, reports, admin, agents, finance, self_check, sku_maps, brands, tiktok_statements, chat_ai, fuse_demo
 
 import app.models  # noqa: F401
 
@@ -54,6 +54,7 @@ app.include_router(self_check.router)
 app.include_router(brands.router)
 app.include_router(tiktok_statements.router)
 app.include_router(chat_ai.router)
+app.include_router(fuse_demo.router)
 
 
 def _start_scheduler():
@@ -189,6 +190,12 @@ if not _dist.exists():
 if _dist.exists():
     app.mount("/assets", StaticFiles(directory=str(_dist / "assets")), name="assets")
 
+# ─── FUSE DEMO static hosting (same-origin as API = no CORS issue) ───
+_fuse_demo_dir = Path(__file__).resolve().parent.parent / "fuse_demo_static"
+if _fuse_demo_dir.exists():
+    app.mount("/fuse-demo", StaticFiles(directory=str(_fuse_demo_dir), html=True), name="fuse_demo")
+
+if _dist.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_react(full_path: str):
         return FileResponse(str(_dist / "index.html"))

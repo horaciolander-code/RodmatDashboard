@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sofía · Secretaria Virtual — FUSE Demo</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+  <header class="fuse-header">
+    <div class="container">
+      <div class="fuse-logo" onclick="location.href='index.html'">
+        <div class="fuse-logo-mark"></div>
+        <div class="fuse-logo-text">FUSE</div>
+        <span class="badge-demo">DEMO LIVE</span>
+      </div>
+      <nav class="fuse-nav">
+        <a href="index.html">← Agentes</a>
+        <a href="ana.html">Ana →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="demo-page container">
+    <div class="demo-header">
+      <div class="demo-title-box">
+        <div class="agent-avatar">🌸</div>
+        <div>
+          <div class="demo-title">Sofía — Secretaria Virtual</div>
+          <div class="demo-subtitle">Escribe como si fueras un paciente. Agenda citas en la Clínica Dental Sonrisa Norte.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-grid">
+
+      <!-- WhatsApp UI -->
+      <div class="demo-panel">
+        <div class="demo-panel-header">
+          <div class="demo-panel-title">📱 WhatsApp · Clínica Sonrisa Norte</div>
+          <div class="demo-panel-badge"><span class="dot"></span>Online</div>
+        </div>
+        <div class="wa-chat">
+          <div class="wa-messages" id="wa-messages">
+            <div class="wa-msg received">
+              👋 ¡Hola! Soy <strong>Sofía</strong>, asistente virtual de la Clínica Dental Sonrisa Norte.
+              <br><br>¿En qué puedo ayudarte? Puedo agendar citas, informarte sobre nuestros servicios o horarios.
+              <span class="wa-msg-time">Ahora</span>
+            </div>
+          </div>
+          <div class="wa-input-bar">
+            <input class="wa-input" id="wa-input" placeholder="Escribe un mensaje..." autocomplete="off" />
+            <button class="wa-send" id="wa-send" title="Enviar">➤</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar -->
+      <div class="demo-panel">
+        <div class="demo-panel-header">
+          <div class="demo-panel-title">📅 Calendario · Dr. Martínez</div>
+          <div class="demo-panel-badge"><span class="dot"></span>Sync activo</div>
+        </div>
+        <div class="calendar" id="calendar">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- EXPLAINER -->
+    <div class="explainer">
+      <h3>🔍 Qué está pasando por detrás</h3>
+      <div class="explainer-grid">
+        <div class="explainer-step">
+          <div class="num">01</div>
+          <div class="title">Recibe mensaje</div>
+          <div class="desc">Sofía lee tu mensaje y el estado actual del calendario (slots libres/ocupados).</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">02</div>
+          <div class="title">Procesa intención</div>
+          <div class="desc">LLM extrae: ¿agenda, cancela, consulta info? ¿Qué día/hora prefiere? ¿Servicio?</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">03</div>
+          <div class="title">Acción concreta</div>
+          <div class="desc">Devuelve JSON estructurado: mensaje al usuario + acciones (book_slot, propose_slots, escalate).</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">04</div>
+          <div class="title">Ejecuta + confirma</div>
+          <div class="desc">Frontend crea el evento, actualiza calendario en vivo, envía confirmación por WhatsApp.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ejemplos sugeridos -->
+    <div style="margin-top:24px;padding:20px;background:var(--bg-1);border:1px solid var(--border);border-radius:14px;">
+      <div style="font-size:12px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;">💡 Prueba estos ejemplos</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;" onclick="tryExample(this.innerText)">Hola, necesito una cita para una limpieza dental</button>
+        <button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;" onclick="tryExample(this.innerText)">¿Tienen hueco mañana por la tarde?</button>
+        <button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;" onclick="tryExample(this.innerText)">Quiero cancelar mi cita del martes</button>
+        <button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;" onclick="tryExample(this.innerText)">¿Cuánto cuesta un blanqueamiento?</button>
+        <button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;" onclick="tryExample(this.innerText)">Necesito hablar con el dentista urgente, es una emergencia</button>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="assets/fuse-api.js"></script>
+  <script>
+    // ─── Calendar state ───
+    const CALENDAR = {
+      services: {
+        "limpieza": { name: "Limpieza dental", duration: 60, price: "$45" },
+        "revision": { name: "Revisión general", duration: 30, price: "gratis" },
+        "empaste": { name: "Empaste", duration: 45, price: "$80" },
+        "blanqueamiento": { name: "Blanqueamiento", duration: 90, price: "$220" },
+        "ortodoncia": { name: "Consulta ortodoncia", duration: 45, price: "$60" },
+        "endodoncia": { name: "Endodoncia", duration: 90, price: "$350" },
+        "extraccion": { name: "Extracción", duration: 45, price: "$120" },
+      },
+      slots: [
+        { day: "lunes", date: "1 sep", time: "09:00", busy: true, event: "María López · Revisión" },
+        { day: "lunes", date: "1 sep", time: "10:30", busy: false },
+        { day: "lunes", date: "1 sep", time: "12:00", busy: true, event: "Juan Ramos · Empaste" },
+        { day: "lunes", date: "1 sep", time: "16:00", busy: false },
+        { day: "lunes", date: "1 sep", time: "17:30", busy: false },
+        { day: "martes", date: "2 sep", time: "09:00", busy: false },
+        { day: "martes", date: "2 sep", time: "10:30", busy: true, event: "Ana Prieto · Blanqueamiento" },
+        { day: "martes", date: "2 sep", time: "16:00", busy: false },
+        { day: "martes", date: "2 sep", time: "17:30", busy: false },
+        { day: "miércoles", date: "3 sep", time: "09:00", busy: false },
+        { day: "miércoles", date: "3 sep", time: "11:00", busy: false },
+        { day: "miércoles", date: "3 sep", time: "16:00", busy: true, event: "Carlos Vega · Endodoncia" },
+        { day: "miércoles", date: "3 sep", time: "17:30", busy: false },
+        { day: "jueves", date: "4 sep", time: "09:00", busy: false },
+        { day: "jueves", date: "4 sep", time: "10:30", busy: false },
+        { day: "jueves", date: "4 sep", time: "12:00", busy: false },
+        { day: "jueves", date: "4 sep", time: "16:00", busy: false },
+        { day: "jueves", date: "4 sep", time: "17:30", busy: true, event: "Laura Ruiz · Ortodoncia" },
+        { day: "viernes", date: "5 sep", time: "09:00", busy: false },
+        { day: "viernes", date: "5 sep", time: "10:30", busy: true, event: "Pedro Sanz · Extracción" },
+        { day: "viernes", date: "5 sep", time: "12:00", busy: false },
+      ],
+    };
+
+    let conversation = []; // full history for LLM context
+
+    // ─── Render calendar ───
+    function renderCalendar() {
+      const cal = document.getElementById("calendar");
+      cal.innerHTML = `
+        <div class="cal-title">Semana del 1 al 5 septiembre</div>
+        <div class="cal-sub">Horario clínica: Lun-Vie 9:00-14:00 y 16:00-19:00</div>
+      `;
+      const days = ["lunes","martes","miércoles","jueves","viernes"];
+      for (const day of days) {
+        const daySlots = CALENDAR.slots.filter(s => s.day === day);
+        if (!daySlots.length) continue;
+        const dayEl = document.createElement("div");
+        dayEl.className = "cal-day";
+        dayEl.innerHTML = `<div class="cal-day-name">${day} · ${daySlots[0].date}</div>`;
+        for (const slot of daySlots) {
+          const slotClass = slot._justAdded ? "new" : (slot.busy ? "busy" : "free");
+          const label = slot.busy ? slot.event : "Libre";
+          dayEl.innerHTML += `
+            <div class="cal-slot ${slotClass}">
+              <div class="cal-time">${slot.time}</div>
+              <div class="cal-event">${label}</div>
+            </div>
+          `;
+          if (slot._justAdded) delete slot._justAdded;
+        }
+        cal.appendChild(dayEl);
+      }
+    }
+    renderCalendar();
+
+    // ─── Chat rendering ───
+    function addMessage(role, html) {
+      const box = document.getElementById("wa-messages");
+      const msg = document.createElement("div");
+      msg.className = `wa-msg ${role === "user" ? "sent" : "received"}`;
+      const now = new Date();
+      const hm = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+      msg.innerHTML = `${html}<span class="wa-msg-time">${hm}</span>`;
+      box.appendChild(msg);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function showTyping() {
+      const box = document.getElementById("wa-messages");
+      const t = document.createElement("div");
+      t.className = "wa-msg received";
+      t.id = "typing-indicator";
+      t.innerHTML = `<div class="wa-typing"><span></span><span></span><span></span></div>`;
+      box.appendChild(t);
+      box.scrollTop = box.scrollHeight;
+    }
+    function hideTyping() {
+      const t = document.getElementById("typing-indicator");
+      if (t) t.remove();
+    }
+
+    // ─── LLM system prompt ───
+    function buildSystemPrompt() {
+      return `Eres Sofía, secretaria virtual de la Clínica Dental Sonrisa Norte (Dr. Martínez).
+
+TU PERSONALIDAD:
+- Amable, profesional, cercana. Usas emojis con moderación.
+- Respuestas SIEMPRE cortas (máx 3 frases). Como si escribieras WhatsApp.
+- Tuteas al paciente.
+- Si el paciente escribe en inglés/otro idioma, responde en ese idioma.
+
+TU FUNCIÓN:
+1. Agendar citas — pides: nombre completo, servicio, día/hora preferido
+2. Cancelar/reprogramar citas existentes
+3. Informar de servicios y precios
+4. Escalar a humano solo si es EMERGENCIA (dolor severo, sangrado, etc.) o caso complejo
+
+SERVICIOS DISPONIBLES (nombre · duración · precio):
+${Object.entries(CALENDAR.services).map(([k,v]) => `- ${v.name}: ${v.duration}min · ${v.price}`).join("\\n")}
+
+ESTADO ACTUAL DEL CALENDARIO (esta semana):
+${JSON.stringify(CALENDAR.slots.filter(s => !s.busy).map(s => `${s.day} ${s.date} ${s.time}`), null, 0)}
+(Solo los libres. NO propongas horarios que no estén en esta lista.)
+
+FORMATO DE RESPUESTA — MUY IMPORTANTE:
+Responde SIEMPRE con un JSON válido con esta estructura exacta:
+{
+  "message": "Tu respuesta al paciente en texto (WhatsApp-style, corta)",
+  "action": {
+    "type": "none|propose_slots|book_slot|escalate",
+    "slots": ["lunes 1 sep 10:30", "..."],
+    "booking": {"name": "...", "service": "...", "day": "lunes", "date": "1 sep", "time": "10:30"},
+    "escalation_reason": "..."
+  }
+}
+
+REGLAS:
+- Si el paciente NO da datos suficientes → action.type = "none"
+- Si le PROPONES horarios → action.type = "propose_slots" con array de slots del calendario
+- Si CONFIRMAS reserva (paciente aceptó horario y dio nombre) → action.type = "book_slot" con booking completo
+- Si es EMERGENCIA o caso complejo → action.type = "escalate"
+- SIEMPRE JSON válido, sin texto extra fuera del JSON`;
+    }
+
+    // ─── Send message ───
+    async function sendMessage(userText) {
+      if (!userText.trim()) return;
+      addMessage("user", escapeHTML(userText));
+      conversation.push({ role: "user", content: userText });
+      showTyping();
+
+      const messages = [
+        { role: "system", content: buildSystemPrompt() },
+        ...conversation,
+      ];
+
+      try {
+        const raw = await FUSE_API.chat(messages, { temperature: 0.4, max_tokens: 500 });
+        const parsed = extractJSON(raw);
+        hideTyping();
+
+        if (!parsed || !parsed.message) {
+          addMessage("assistant", raw); // fallback
+          conversation.push({ role: "assistant", content: raw });
+          return;
+        }
+
+        addMessage("assistant", escapeHTML(parsed.message).replace(/\n/g, "<br>"));
+        conversation.push({ role: "assistant", content: parsed.message });
+
+        // Handle actions
+        const action = parsed.action || { type: "none" };
+        if (action.type === "book_slot" && action.booking) {
+          bookSlot(action.booking);
+        } else if (action.type === "escalate") {
+          setTimeout(() => {
+            addMessage("assistant",
+              `🚨 <strong>Escalado a humano</strong><br>` +
+              `Motivo: <em>${escapeHTML(action.escalation_reason || "caso complejo")}</em><br>` +
+              `Un miembro del equipo te contactará en menos de 5 minutos.`
+            );
+          }, 800);
+        }
+      } catch (e) {
+        hideTyping();
+        addMessage("assistant", `⚠️ Error temporal. Reintenta en un momento.<br><small style="opacity:0.6;">(${escapeHTML(e.message)})</small>`);
+      }
+    }
+
+    function bookSlot(booking) {
+      const slot = CALENDAR.slots.find(s =>
+        s.day.toLowerCase() === (booking.day || "").toLowerCase() &&
+        s.time === booking.time
+      );
+      if (slot && !slot.busy) {
+        slot.busy = true;
+        const svc = CALENDAR.services[Object.keys(CALENDAR.services).find(k =>
+          (booking.service || "").toLowerCase().includes(k)
+        )] || { name: booking.service || "Cita" };
+        slot.event = `${booking.name || "Paciente"} · ${svc.name}`;
+        slot._justAdded = true;
+        renderCalendar();
+        setTimeout(() => {
+          addMessage("assistant", `✅ <strong>Cita confirmada</strong><br>${slot.event}<br>${booking.day} ${slot.time}<br><br>Te enviaré recordatorio 24h antes. ¡Nos vemos! 🦷`);
+        }, 400);
+      }
+    }
+
+    function escapeHTML(s) {
+      return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
+
+    function tryExample(text) {
+      document.getElementById("wa-input").value = text;
+      sendMessage(text);
+      document.getElementById("wa-input").value = "";
+    }
+
+    // ─── Event listeners ───
+    document.getElementById("wa-send").addEventListener("click", () => {
+      const inp = document.getElementById("wa-input");
+      const v = inp.value.trim();
+      if (v) { sendMessage(v); inp.value = ""; }
+    });
+    document.getElementById("wa-input").addEventListener("keypress", e => {
+      if (e.key === "Enter") document.getElementById("wa-send").click();
+    });
+  </script>
+
+  <footer class="fuse-footer">
+    <div class="container">
+      FUSE Demo · Sofía Secretaria · Powered by Groq gpt-oss-20b
+    </div>
+  </footer>
+
+</body>
+</html>

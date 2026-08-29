@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ana · Administrativa IA — FUSE Demo</title>
+  <link rel="stylesheet" href="assets/style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+  <header class="fuse-header">
+    <div class="container">
+      <div class="fuse-logo" onclick="location.href='index.html'">
+        <div class="fuse-logo-mark"></div>
+        <div class="fuse-logo-text">FUSE</div>
+        <span class="badge-demo">DEMO LIVE</span>
+      </div>
+      <nav class="fuse-nav">
+        <a href="index.html">← Agentes</a>
+        <a href="sofia.html">← Sofía</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="demo-page container">
+    <div class="demo-header">
+      <div class="demo-title-box">
+        <div class="agent-avatar">📄</div>
+        <div>
+          <div class="demo-title">Ana — Administrativa IA</div>
+          <div class="demo-subtitle">Sube una factura (PDF) o usa una de ejemplo. Ana extrae los datos y solicita aprobación por WhatsApp.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-grid">
+
+      <!-- Left: Upload + Preview -->
+      <div class="demo-panel">
+        <div class="demo-panel-header">
+          <div class="demo-panel-title">📥 Bandeja de facturas</div>
+          <div class="demo-panel-badge"><span class="dot"></span>Monitorizando</div>
+        </div>
+
+        <div style="padding: 20px;">
+          <div class="ana-upload" id="drop-zone">
+            <div class="ana-upload-icon">📄⬆️</div>
+            <div class="ana-upload-title">Arrastra tu PDF aquí</div>
+            <div class="ana-upload-sub">o haz click para seleccionar (facturas, contratos, tickets)</div>
+            <input type="file" id="file-input" accept="application/pdf" style="display:none;">
+          </div>
+
+          <div style="margin-top: 20px;">
+            <div style="font-size:12px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">💡 O prueba con estas facturas de ejemplo:</div>
+            <div style="display:grid;gap:8px;">
+              <button class="btn btn-secondary" style="text-align:left;font-size:13px;" onclick="loadSample('esteemed')">
+                📄 Esteemed Brands · Invoice #32378 · Julio 2026
+              </button>
+              <button class="btn btn-secondary" style="text-align:left;font-size:13px;" onclick="loadSample('office')">
+                📄 Suministros de Oficina · Factura 8817 · Julio 2026
+              </button>
+              <button class="btn btn-secondary" style="text-align:left;font-size:13px;" onclick="loadSample('legal')">
+                📄 Bufete García & Asoc. · Honorarios · Agosto 2026
+              </button>
+              <button class="btn btn-secondary" style="text-align:left;font-size:13px;" onclick="loadSample('hosting')">
+                📄 CloudHost Pro · Suscripción mensual · Agosto 2026
+              </button>
+            </div>
+          </div>
+
+          <div id="doc-preview-wrapper" style="display:none;margin-top:20px;">
+            <div style="font-size:12px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">📃 Documento cargado</div>
+            <div class="ana-doc-preview" id="doc-preview"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Extraction + Form + Approval -->
+      <div class="demo-panel">
+        <div class="demo-panel-header">
+          <div class="demo-panel-title">🤖 Ana · Extracción y aprobación</div>
+          <div class="demo-panel-badge"><span class="dot"></span>Ready</div>
+        </div>
+
+        <div id="ana-status-slot"></div>
+
+        <div class="ana-form" id="ana-form">
+          <div class="ana-field">
+            <label>Proveedor</label>
+            <input id="f-proveedor" placeholder="Esperando documento..." readonly>
+          </div>
+          <div class="ana-field">
+            <label>Número de factura</label>
+            <input id="f-numero" placeholder="—" readonly>
+          </div>
+          <div class="ana-field">
+            <label>Fecha</label>
+            <input id="f-fecha" placeholder="—" readonly>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+            <div class="ana-field">
+              <label>Base</label>
+              <input id="f-base" placeholder="—" readonly>
+            </div>
+            <div class="ana-field">
+              <label>IVA</label>
+              <input id="f-iva" placeholder="—" readonly>
+            </div>
+            <div class="ana-field">
+              <label>Total</label>
+              <input id="f-total" placeholder="—" readonly>
+            </div>
+          </div>
+          <div class="ana-field">
+            <label>Categoría contable sugerida</label>
+            <input id="f-categoria" placeholder="—" readonly>
+          </div>
+          <div class="ana-field">
+            <label>Resumen ejecutivo</label>
+            <input id="f-resumen" placeholder="—" readonly>
+          </div>
+        </div>
+
+        <div id="approval-container" style="display:none;">
+          <div style="padding:0 20px;">
+            <div style="font-size:12px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin:20px 0 10px;">📱 WhatsApp al gerente</div>
+          </div>
+          <div class="approval-panel">
+            <div style="background:#0f1a28;padding:14px;border-radius:12px;">
+              <div class="approval-msg" id="approval-msg-content"></div>
+              <div class="approval-buttons">
+                <button class="btn btn-primary" onclick="approve()">✅ Aprobar</button>
+                <button class="btn btn-danger" onclick="reject()">❌ Rechazar</button>
+                <button class="btn btn-secondary" onclick="hold()">⏸ Revisar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- EXPLAINER -->
+    <div class="explainer">
+      <h3>🔍 Qué está pasando por detrás</h3>
+      <div class="explainer-grid">
+        <div class="explainer-step">
+          <div class="num">01</div>
+          <div class="title">Recibe documento</div>
+          <div class="desc">Ana monitoriza email/carpeta/upload. En producción: llega solo a su bandeja dedicada (facturas@tuempresa.com).</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">02</div>
+          <div class="title">OCR + parsing</div>
+          <div class="desc">Extrae texto del PDF (PDF.js aquí, Textract/GPT-4V en producción para escaneos e imágenes).</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">03</div>
+          <div class="title">Extracción estructurada</div>
+          <div class="desc">LLM identifica: proveedor, importe, IVA, fecha, categoría contable. Valida coherencia matemática (base + IVA = total).</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">04</div>
+          <div class="title">Aprobación humana</div>
+          <div class="desc">Notifica al gerente por WhatsApp con resumen ejecutivo. Solo tras aprobación se registra en la contabilidad.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">05</div>
+          <div class="title">Registro en sistema</div>
+          <div class="desc">Aprobado → escribe en Airtable/QuickBooks/tu ERP. Etiqueta como "pendiente pago" o "pagada" según flujo.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">06</div>
+          <div class="title">Aprendizaje</div>
+          <div class="desc">Rechazos y correcciones humanas se guardan como few-shot examples para mejorar precisión con el tiempo.</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="assets/fuse-api.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    // ─── Sample invoices (fake, but realistic) ───
+    const SAMPLES = {
+      esteemed: {
+        name: "esteemed_brands_inv32378.pdf",
+        text: `ESTEEMED BRANDS LLC
+1234 Perfume Blvd, Newark NJ 07105
+Tax ID: 82-1234567
+
+INVOICE #32378
+Bill To: RODMAT WAREHOUSE
+Date: 07/25/2026
+Terms: Net 30
+
+Item                                    Qty     Unit Price    Amount
+────────────────────────────────────────────────────────────────────
+Avon Far Away EDP 1.7 oz                240      $12.50      $3,000.00
+Avon Imari EDP 1.7 oz                   120      $11.00      $1,320.00
+Avon Little Black Dress 1.7 oz          180      $13.00      $2,340.00
+Freight                                                          $85.00
+                                                              ─────────
+                                                Subtotal:      $6,745.00
+                                                Sales Tax 0%:      $0.00
+                                                TOTAL:         $6,745.00
+
+Payment Instructions: Wire transfer to BofA acct #0091-2233-4455
+Questions: billing@esteemedbrands.com`
+      },
+      office: {
+        name: "suministros_oficina_8817.pdf",
+        text: `SUMINISTROS DE OFICINA S.L.
+Calle Mayor 45, 28013 Madrid
+CIF: B-87654321
+
+FACTURA Nº 8817
+Cliente: Empresa Cliente S.L. (CIF: B-11223344)
+Fecha: 15/07/2026
+Vencimiento: 14/08/2026
+
+Descripción                           Cant    Precio     Total
+─────────────────────────────────────────────────────────────
+Cartuchos tinta HP 305 XL negro         5     18,50 €    92,50 €
+Cartuchos tinta HP 305 XL color         3     22,00 €    66,00 €
+Papel A4 500 hojas (paquete)           10      3,80 €    38,00 €
+Bolígrafos Bic azul (caja 50)           2     12,50 €    25,00 €
+Grapadora Petrus 226                    1     28,00 €    28,00 €
+                                              ─────────────────
+                                     Base imponible:    249,50 €
+                                     IVA (21%):          52,40 €
+                                     TOTAL:             301,90 €
+
+Forma de pago: Transferencia bancaria
+IBAN: ES91 2100 0813 6101 2345 6789
+Vencimiento: 30 días fecha factura`
+      },
+      legal: {
+        name: "bufete_garcia_honorarios.pdf",
+        text: `BUFETE GARCÍA & ASOCIADOS
+Consulting Jurídico y Fiscal
+Paseo de la Castellana 100, 28046 Madrid
+CIF: B-98765432 · Colegiado ICAM #12345
+
+MINUTA DE HONORARIOS Nº 2026/08-017
+Cliente: Rodmat Consulting S.L.
+Fecha emisión: 12/08/2026
+Vencimiento: 11/09/2026
+
+Servicios profesionales prestados en el periodo:
+- Revisión contrato Master Strategic Partnership (Amazon)   1.200,00 €
+- Asesoramiento fiscal Q2 2026                               450,00 €
+- Redacción NDA cliente Estados Unidos                       350,00 €
+                                                          ────────────
+                                            Subtotal:      2.000,00 €
+                                            IVA 21%:         420,00 €
+                                            IRPF -15%:      -300,00 €
+                                            TOTAL A PAGAR: 2.120,00 €
+
+Cuenta bancaria: ES12 1234 5678 9012 3456 7890
+Concepto: Minuta 2026/08-017 Rodmat`
+      },
+      hosting: {
+        name: "cloudhost_pro_agosto.pdf",
+        text: `CloudHost Pro · Cloud Infrastructure
+support@cloudhost.pro · https://cloudhost.pro
+
+Invoice #CH-2026-08-4471
+Customer: rodmatwh@gmail.com
+Billing Period: August 1-31, 2026
+Issue Date: August 1, 2026
+
+Service                                    Amount
+─────────────────────────────────────────────────
+Business Tier Plan (unlimited projects)   $49.00
+Extra bandwidth (150 GB @ $0.09/GB)        $13.50
+Managed Postgres (Pro tier)                $25.00
+Domain registration fee (fuse.commerce)    $12.99
+                                        ──────────
+                                Subtotal:  $100.49
+                                Tax (0%):    $0.00
+                                TOTAL:     $100.49
+
+Charged to VISA ending in ****4321
+Next invoice: September 1, 2026`
+      }
+    };
+
+    let currentDoc = null;
+    let currentExtraction = null;
+
+    // ─── Upload handling ───
+    const dropZone = document.getElementById("drop-zone");
+    const fileInput = document.getElementById("file-input");
+
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault(); dropZone.classList.remove("dragover");
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", e => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
+
+    async function handleFile(file) {
+      if (file.type !== "application/pdf") {
+        setStatus("error", "Solo se aceptan archivos PDF por ahora.");
+        return;
+      }
+      setStatus("processing", `📄 Cargando <strong>${file.name}</strong>...`);
+      try {
+        const buf = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        let text = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text += content.items.map(it => it.str).join(" ") + "\n";
+        }
+        currentDoc = { name: file.name, text: text.trim() };
+        showDocPreview(currentDoc);
+        await extract(currentDoc);
+      } catch (e) {
+        setStatus("error", `Error leyendo PDF: ${e.message}`);
+      }
+    }
+
+    function loadSample(key) {
+      const sample = SAMPLES[key];
+      if (!sample) return;
+      currentDoc = sample;
+      showDocPreview(sample);
+      setStatus("processing", `📄 Cargando <strong>${sample.name}</strong>...`);
+      setTimeout(() => extract(sample), 300);
+    }
+
+    function showDocPreview(doc) {
+      document.getElementById("doc-preview-wrapper").style.display = "block";
+      document.getElementById("doc-preview").innerText = doc.text;
+    }
+
+    function setStatus(kind, html) {
+      const slot = document.getElementById("ana-status-slot");
+      slot.innerHTML = `<div class="ana-status ${kind}">${html}</div>`;
+    }
+
+    // ─── LLM extraction ───
+    async function extract(doc) {
+      setStatus("processing", `🤖 Ana está analizando el documento...`);
+
+      const systemPrompt = `Eres Ana, un agente de IA especializado en extraer datos de facturas y documentos administrativos.
+
+Recibirás el TEXTO CRUDO de una factura extraída de un PDF. Tu tarea es identificar y devolver los siguientes campos en JSON:
+
+{
+  "proveedor": "Nombre del proveedor/emisor",
+  "numero_factura": "Número/código de la factura",
+  "fecha": "Fecha de emisión (YYYY-MM-DD si es posible)",
+  "base": "Importe base sin IVA (número + moneda, ej: '249.50 EUR')",
+  "iva": "Importe del IVA (número + moneda)",
+  "total": "Importe TOTAL a pagar (número + moneda)",
+  "categoria": "Categoría contable sugerida (Suministros, Servicios Profesionales, Software/SaaS, Compras Mercadería, Alquiler, etc.)",
+  "resumen": "Frase de 1 línea que resume qué es esta factura y para qué"
+}
+
+REGLAS:
+- Si un campo no aparece explícitamente, usa "No indicado"
+- Si hay IRPF o retenciones, réstalas del total en el campo "total"
+- Interpreta moneda de contexto (EUR, USD, MXN, etc.)
+- Devuelve SOLO JSON válido sin texto extra`;
+
+      try {
+        const raw = await FUSE_API.chat([
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Texto del documento:\n\n${doc.text}` },
+        ], { temperature: 0.1, max_tokens: 700, jsonMode: true });
+
+        const parsed = extractJSON(raw);
+        if (!parsed || !parsed.proveedor) {
+          setStatus("error", `⚠️ Ana no pudo extraer los datos. Reintenta o revisa el documento.<br><small>${escapeHTML(raw.slice(0,200))}</small>`);
+          return;
+        }
+        currentExtraction = parsed;
+        fillForm(parsed);
+        setStatus("success", `✅ Extracción completada · <strong>${parsed.proveedor}</strong> · Enviando a aprobación por WhatsApp...`);
+        setTimeout(() => showApprovalMessage(parsed), 1000);
+      } catch (e) {
+        setStatus("error", `Error IA: ${e.message}`);
+      }
+    }
+
+    function fillForm(data) {
+      const fields = {
+        "f-proveedor": data.proveedor,
+        "f-numero": data.numero_factura,
+        "f-fecha": data.fecha,
+        "f-base": data.base,
+        "f-iva": data.iva,
+        "f-total": data.total,
+        "f-categoria": data.categoria,
+        "f-resumen": data.resumen,
+      };
+      let delay = 0;
+      for (const [id, val] of Object.entries(fields)) {
+        setTimeout(() => {
+          const el = document.getElementById(id);
+          el.value = val || "—";
+          el.classList.add("filled");
+        }, delay);
+        delay += 150;
+      }
+    }
+
+    function showApprovalMessage(data) {
+      const container = document.getElementById("approval-container");
+      const msg = document.getElementById("approval-msg-content");
+      msg.innerHTML = `
+        📄 <strong>Nueva factura recibida</strong><br>
+        <strong>${escapeHTML(data.proveedor)}</strong><br>
+        Total: <strong>${escapeHTML(data.total)}</strong><br>
+        Categoría: ${escapeHTML(data.categoria)}<br>
+        <em style="opacity:0.8;font-size:12px;">${escapeHTML(data.resumen)}</em>
+        <div class="approval-msg-time">Ahora · Ana AI</div>
+      `;
+      container.style.display = "block";
+    }
+
+    function approve() {
+      setStatus("success", `✅ <strong>Factura aprobada</strong>. Registrada en Airtable como "pendiente pago". Notificación al proveedor enviada por email.`);
+      document.getElementById("approval-container").style.display = "none";
+    }
+    function reject() {
+      setStatus("error", `❌ <strong>Factura rechazada</strong>. Ana la archivó en carpeta "revisión pendiente" y notificó al equipo.`);
+      document.getElementById("approval-container").style.display = "none";
+    }
+    function hold() {
+      setStatus("processing", `⏸ <strong>En revisión manual</strong>. Ana pausó el flujo, esperando decisión del gerente.`);
+    }
+
+    function escapeHTML(s) {
+      return String(s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
+  </script>
+
+  <footer class="fuse-footer">
+    <div class="container">
+      FUSE Demo · Ana Administrativa · Powered by Groq gpt-oss-20b + PDF.js
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUSE — Agentes de IA para tu negocio</title>
+  <meta name="description" content="Agentes de IA que atienden clientes, procesan documentos y automatizan tareas 24/7. Demo en vivo." />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+  <header class="fuse-header">
+    <div class="container">
+      <div class="fuse-logo" onclick="location.href='index.html'">
+        <div class="fuse-logo-mark"></div>
+        <div class="fuse-logo-text">FUSE</div>
+        <span class="badge-demo">DEMO LIVE</span>
+      </div>
+      <nav class="fuse-nav">
+        <a href="index.html" class="active">Agentes</a>
+        <a href="#arquitectura">Arquitectura</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#contacto">Contacto</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <h1>
+        Agentes de IA que <span class="grad">trabajan por ti</span>,<br>
+        24/7, sin descanso.
+      </h1>
+      <p>
+        Secretarias virtuales, atención a clientes, procesamiento de documentos.
+        Integrados a tus canales reales (WhatsApp, email, teléfono, CRM).
+        <strong style="color:var(--text)">Prueba cada agente en vivo aquí.</strong>
+      </p>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="agents-grid">
+
+      <!-- SOFÍA -->
+      <div class="agent-card" onclick="location.href='sofia.html'">
+        <div class="agent-avatar">🌸</div>
+        <div class="agent-name">Sofía</div>
+        <div class="agent-role">Secretaria Virtual</div>
+        <p class="agent-desc">
+          Recibe mensajes en WhatsApp, agenda citas en tu calendario y envía confirmaciones.
+          Disponible 24/7 sin turnos ni vacaciones.
+        </p>
+        <div class="agent-features">
+          <span class="agent-feature">WhatsApp Business</span>
+          <span class="agent-feature">Google Calendar</span>
+          <span class="agent-feature">Escalado humano</span>
+          <span class="agent-feature">Multi-idioma</span>
+        </div>
+        <div class="agent-cta">Ver demo en vivo →</div>
+      </div>
+
+      <!-- CARLOS -->
+      <div class="agent-card coming">
+        <div class="agent-avatar">📞</div>
+        <div class="agent-name">Carlos</div>
+        <div class="agent-role">Call Center IA</div>
+        <p class="agent-desc">
+          Contesta llamadas telefónicas con voz natural. Consulta pedidos, responde FAQ,
+          transfiere a humano cuando el caso lo requiere.
+        </p>
+        <div class="agent-features">
+          <span class="agent-feature">Twilio Voice</span>
+          <span class="agent-feature">Speech-to-Text</span>
+          <span class="agent-feature">Voz natural (ES/EN)</span>
+          <span class="agent-feature">CRM real-time</span>
+        </div>
+        <div class="agent-cta">Disponible tras KYC Twilio (5 días)</div>
+      </div>
+
+      <!-- ANA -->
+      <div class="agent-card" onclick="location.href='ana.html'">
+        <div class="agent-avatar">📄</div>
+        <div class="agent-name">Ana</div>
+        <div class="agent-role">Administrativa IA</div>
+        <p class="agent-desc">
+          Procesa facturas, contratos y documentos. Extrae datos, categoriza y solicita aprobación
+          por WhatsApp antes de registrar en tu contabilidad.
+        </p>
+        <div class="agent-features">
+          <span class="agent-feature">PDF · OCR</span>
+          <span class="agent-feature">Extracción estructurada</span>
+          <span class="agent-feature">Aprobación humana</span>
+          <span class="agent-feature">Airtable · Sheets</span>
+        </div>
+        <div class="agent-cta">Ver demo en vivo →</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ARQUITECTURA -->
+  <section id="arquitectura" class="container" style="padding: 60px 0;">
+    <h2 style="font-size:32px;font-weight:700;margin-bottom:12px;text-align:center;">
+      Arquitectura <span style="background:linear-gradient(90deg,var(--accent),var(--accent-3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">segura y escalable</span>
+    </h2>
+    <p style="color:var(--text-dim);text-align:center;margin-bottom:40px;">
+      Modular, agnóstico al proveedor de LLM, con datos siempre en tu control.
+    </p>
+    <div class="explainer" style="margin-top:0;">
+      <div class="explainer-grid">
+        <div class="explainer-step">
+          <div class="num">01 · CANAL</div>
+          <div class="title">Multi-entrada</div>
+          <div class="desc">WhatsApp, email, teléfono, chat web, formularios — el agente recibe por cualquier canal.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">02 · CEREBRO</div>
+          <div class="title">LLM + Reglas</div>
+          <div class="desc">Modelos de lenguaje (Groq/OpenAI/Anthropic) + reglas de negocio custom. Agnóstico al proveedor.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">03 · CONTEXTO</div>
+          <div class="title">Tus datos</div>
+          <div class="desc">RAG sobre tus documentos, base de datos, CRM. El agente sabe de TU negocio, no del mundo.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">04 · ACCIÓN</div>
+          <div class="title">Integraciones</div>
+          <div class="desc">Google Workspace, Airtable, HubSpot, Shopify, Zapier, APIs propias. Ejecuta, no solo responde.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">05 · GUARDRAILS</div>
+          <div class="title">Escalado humano</div>
+          <div class="desc">Cuando dudas, escala. Cuando importa, pide aprobación. Los humanos siempre en control final.</div>
+        </div>
+        <div class="explainer-step">
+          <div class="num">06 · AUDITORÍA</div>
+          <div class="title">Logs + métricas</div>
+          <div class="desc">Cada conversación, cada decisión, guardada. Dashboard con métricas de calidad, ROI y satisfacción.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing" class="container" style="padding: 20px 0 60px;">
+    <h2 style="font-size:32px;font-weight:700;margin-bottom:40px;text-align:center;">
+      Modelo <span style="background:linear-gradient(90deg,var(--accent),var(--accent-3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">transparente</span>
+    </h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">
+
+      <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 0</div>
+        <div style="font-size:24px;font-weight:700;margin:10px 0;">Auditoría</div>
+        <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+          Análisis de procesos, identificación de pain points, roadmap de agentes priorizados.
+        </div>
+        <div style="font-size:32px;font-weight:800;color:var(--accent);">$2,500</div>
+        <div style="color:var(--text-mute);font-size:12px;">2 semanas · fijo · incluye entregable escrito</div>
+      </div>
+
+      <div style="background:var(--bg-1);border:2px solid var(--border-hi);border-radius:16px;padding:28px;position:relative;box-shadow:var(--shadow);">
+        <div style="position:absolute;top:-12px;right:20px;background:var(--accent);color:var(--bg-0);padding:4px 12px;border-radius:10px;font-size:11px;font-weight:700;">MÁS ELEGIDO</div>
+        <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 1</div>
+        <div style="font-size:24px;font-weight:700;margin:10px 0;">Primer Agente</div>
+        <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+          Un agente en producción, integrado a tus sistemas, con KPI medible. Iteración incluida.
+        </div>
+        <div style="font-size:32px;font-weight:800;color:var(--accent);">$8,500</div>
+        <div style="color:var(--text-mute);font-size:12px;">4-6 semanas · fijo · + $450/mes mantenimiento</div>
+      </div>
+
+      <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 2+</div>
+        <div style="font-size:24px;font-weight:700;margin:10px 0;">Suite Completa</div>
+        <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+          Agentes 2 y 3, orquestados. Integraciones avanzadas, entrenamiento continuo.
+        </div>
+        <div style="font-size:32px;font-weight:800;color:var(--accent);">$18,000</div>
+        <div style="color:var(--text-mute);font-size:12px;">8-12 semanas · + $1,200/mes suite</div>
+      </div>
+
+    </div>
+    <div style="text-align:center;margin-top:24px;color:var(--text-mute);font-size:13px;">
+      Costes variables aparte: LLM ($0-30/mes), Twilio ($8/mes + minutos), APIs de terceros según uso.
+    </div>
+  </section>
+
+  <!-- CONTACTO -->
+  <section id="contacto" class="container" style="padding: 40px 0 80px;text-align:center;">
+    <h2 style="font-size:28px;font-weight:700;margin-bottom:16px;">
+      ¿Listos para <span style="background:linear-gradient(90deg,var(--accent),var(--accent-3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">automatizar?</span>
+    </h2>
+    <p style="color:var(--text-dim);margin-bottom:24px;">
+      Agenda una llamada. La primera consulta es gratis.
+    </p>
+    <a href="mailto:hola@fusecommerce.io" class="btn btn-primary" style="display:inline-block;text-decoration:none;">
+      Hablar con el equipo →
+    </a>
+  </section>
+
+  <footer class="fuse-footer">
+    <div class="container">
+      FUSE · Agentes de IA para negocios que quieren crecer sin contratar más.<br>
+      <span style="opacity:0.6;">Demo powered by Groq · gpt-oss-20b · Rate-limited</span>
+    </div>
+  </footer>
+
+</body>
+</html>
