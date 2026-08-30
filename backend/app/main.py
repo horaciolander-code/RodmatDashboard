@@ -37,6 +37,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── Open CORS for /api/fuse-demo/* — public demo, token-gated & rate-limited ───
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as _StarletteResponse
+
+class _FuseDemoOpenCORS(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.url.path.startswith("/api/fuse-demo/"):
+            if request.method == "OPTIONS":
+                return _StarletteResponse(status_code=200, headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, X-Demo-Token, Authorization",
+                    "Access-Control-Max-Age": "3600",
+                })
+            resp = await call_next(request)
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.headers["Access-Control-Expose-Headers"] = "*"
+            return resp
+        return await call_next(request)
+
+app.add_middleware(_FuseDemoOpenCORS)
+
 app.include_router(stores.router)
 app.include_router(products.router)
 app.include_router(combos.router)
