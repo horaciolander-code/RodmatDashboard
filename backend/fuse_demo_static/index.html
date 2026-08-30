@@ -61,7 +61,8 @@
       </div>
 
       <!-- CARLOS -->
-      <div class="agent-card coming">
+      <div class="agent-card coming-soon" onclick="showCarlosModal()">
+        <div class="soon-ribbon">PRÓXIMAMENTE</div>
         <div class="agent-avatar">📞</div>
         <div class="agent-name">Carlos</div>
         <div class="agent-role">Call Center IA</div>
@@ -75,7 +76,7 @@
           <span class="agent-feature">Voz natural (ES/EN)</span>
           <span class="agent-feature">CRM real-time</span>
         </div>
-        <div class="agent-cta">Disponible tras KYC Twilio (5 días)</div>
+        <div class="agent-cta">Ver detalles →</div>
       </div>
 
       <!-- ANA -->
@@ -206,6 +207,183 @@
       <span style="opacity:0.6;">Demo powered by Groq · gpt-oss-20b · Rate-limited</span>
     </div>
   </footer>
+
+
+  <!-- ─── MODAL "Próximamente" para Carlos ─── -->
+  <div id="carlos-modal" class="modal-backdrop" onclick="hideCarlosModal()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="hideCarlosModal()">×</button>
+      <div class="modal-icon">📞</div>
+      <div class="modal-eyebrow">CARLOS · CALL CENTER IA</div>
+      <h2 class="modal-title">Próximamente disponible</h2>
+      <p class="modal-body">
+        Carlos ya está desarrollado técnicamente. Su despliegue en producción requiere
+        <strong>verificación KYC de Twilio</strong> (3-5 días laborables) para activar
+        el número telefónico dedicado y la grabación cumpliendo normativa.
+      </p>
+
+      <div class="modal-stack">
+        <div class="modal-stack-title">Cómo funciona (cuando esté activo):</div>
+        <ul class="modal-stack-list">
+          <li>Cliente marca al número del negocio</li>
+          <li>Carlos responde con voz natural (ES/EN) en &lt;1 segundo</li>
+          <li>Consulta BD en vivo: estado de pedidos, saldos, citas</li>
+          <li>Escala a humano si detecta caso complejo o el cliente lo pide</li>
+          <li>Cada llamada queda grabada + transcrita para auditoría</li>
+        </ul>
+      </div>
+
+      <div class="modal-cta-row">
+        <div class="modal-price">
+          <div class="modal-price-lbl">Se activa en Fase 2</div>
+          <div class="modal-price-val">+$0.05-0.15/min</div>
+          <div class="modal-price-sub">coste variable Twilio</div>
+        </div>
+        <button class="btn btn-primary" onclick="hideCarlosModal()">Entendido</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* Ribbon "PRÓXIMAMENTE" */
+    .agent-card.coming-soon {
+      opacity: 1; cursor: pointer; position: relative;
+    }
+    .agent-card.coming-soon .agent-avatar {
+      background: linear-gradient(135deg, #7b5cff, #4d3fb8);
+      box-shadow: 0 0 30px rgba(123,92,255,0.35);
+    }
+    .agent-card.coming-soon .agent-cta {
+      background: rgba(123,92,255,0.12);
+      border-color: rgba(123,92,255,0.5);
+      color: #b8a5ff;
+    }
+    .agent-card.coming-soon:hover .agent-cta {
+      background: #7b5cff; color: var(--bg-0);
+    }
+    .soon-ribbon {
+      position: absolute; top: 16px; right: -34px;
+      background: linear-gradient(90deg, #ffb020, #ff8f20);
+      color: #1a1400;
+      padding: 6px 40px;
+      font-size: 11px; font-weight: 800; letter-spacing: 2px;
+      transform: rotate(35deg);
+      box-shadow: 0 4px 12px rgba(255,176,32,0.4);
+      z-index: 2;
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(5,8,20,0.85); backdrop-filter: blur(8px);
+      align-items: center; justify-content: center;
+      padding: 20px;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .modal-backdrop.show { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal-card {
+      background: linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 100%);
+      border: 1px solid var(--border-hi);
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 560px; width: 100%;
+      box-shadow: 0 20px 80px rgba(0,0,0,0.5), 0 0 60px rgba(123,92,255,0.15);
+      position: relative;
+      animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1);
+    }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .modal-close {
+      position: absolute; top: 14px; right: 18px;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: transparent; border: none; color: var(--text-dim);
+      font-size: 26px; cursor: pointer; line-height: 1;
+      transition: all 0.15s;
+    }
+    .modal-close:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+
+    .modal-icon {
+      width: 68px; height: 68px; border-radius: 50%;
+      background: linear-gradient(135deg, #7b5cff, #4d3fb8);
+      box-shadow: 0 0 40px rgba(123,92,255,0.5);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; margin-bottom: 20px;
+    }
+
+    .modal-eyebrow {
+      color: #b8a5ff; font-size: 11px; letter-spacing: 2px;
+      font-weight: 700; margin-bottom: 8px;
+    }
+    .modal-title {
+      font-size: 28px; font-weight: 700; margin-bottom: 16px;
+      background: linear-gradient(90deg, #b8a5ff, #7b5cff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .modal-body {
+      color: var(--text-dim); font-size: 15px; line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .modal-body strong { color: var(--text); }
+
+    .modal-stack {
+      background: rgba(0,0,0,0.25); border-radius: 12px;
+      padding: 18px 20px; margin-bottom: 24px;
+      border: 1px solid var(--border);
+    }
+    .modal-stack-title {
+      font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase;
+      color: var(--accent); font-weight: 600; margin-bottom: 12px;
+    }
+    .modal-stack-list {
+      list-style: none; padding: 0; margin: 0;
+    }
+    .modal-stack-list li {
+      padding: 6px 0 6px 22px; position: relative;
+      color: var(--text-dim); font-size: 13px; line-height: 1.5;
+    }
+    .modal-stack-list li::before {
+      content: "▸"; color: #7b5cff; position: absolute; left: 0; font-weight: 700;
+    }
+
+    .modal-cta-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 20px; padding-top: 8px;
+    }
+    .modal-price-lbl {
+      font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+      color: var(--text-mute);
+    }
+    .modal-price-val {
+      font-size: 22px; font-weight: 700; color: var(--text);
+      margin-top: 2px;
+    }
+    .modal-price-sub {
+      font-size: 11px; color: var(--text-dim); margin-top: 2px;
+    }
+
+    @media (max-width: 600px) {
+      .modal-card { padding: 28px 22px; }
+      .modal-title { font-size: 22px; }
+    }
+  </style>
+
+  <script>
+    function showCarlosModal() {
+      document.getElementById("carlos-modal").classList.add("show");
+      document.body.style.overflow = "hidden";
+    }
+    function hideCarlosModal() {
+      document.getElementById("carlos-modal").classList.remove("show");
+      document.body.style.overflow = "";
+    }
+    // ESC to close
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape") hideCarlosModal();
+    });
+  </script>
 
 </body>
 </html>
