@@ -1,9 +1,10 @@
 // FUSE API — cliente LLM compartido para los demos
 const FUSE_API = {
-  // Auto-detect base URL: if served from /fuse-demo/, use same origin. If local, hardcode.
-  baseUrl: (window.location.origin.includes("localhost") || window.location.protocol === "file:")
-    ? "https://rodmatdashboard-production.up.railway.app"
-    : window.location.origin,
+  // Backend LLM proxy — always Railway (CORS is open for /api/fuse-demo/*)
+  // Exception: when demo is served from the same Railway domain, use relative path.
+  baseUrl: window.location.hostname === "rodmatdashboard-production.up.railway.app"
+    ? window.location.origin
+    : "https://rodmatdashboard-production.up.railway.app",
   demoToken: "fuse-demo-2026",
 
   async chat(messages, opts = {}) {
