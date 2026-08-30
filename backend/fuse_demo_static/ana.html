@@ -55,7 +55,7 @@
             <div style="font-size:12px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">💡 O prueba con estas facturas de ejemplo:</div>
             <div style="display:grid;gap:8px;">
               <button class="btn btn-secondary" style="text-align:left;font-size:13px;" onclick="loadSample('esteemed')">
-                📄 Esteemed Brands · Invoice #32378 · Julio 2026
+                📄 Aurora Wholesale Partners · Invoice #45291 · Julio 2026
               </button>
               <button class="btn btn-secondary" style="text-align:left;font-size:13px;" onclick="loadSample('office')">
                 📄 Suministros de Oficina · Factura 8817 · Julio 2026
@@ -188,29 +188,29 @@
     // ─── Sample invoices (fake, but realistic) ───
     const SAMPLES = {
       esteemed: {
-        name: "esteemed_brands_inv32378.pdf",
-        text: `ESTEEMED BRANDS LLC
-1234 Perfume Blvd, Newark NJ 07105
-Tax ID: 82-1234567
+        name: "aurora_wholesale_inv45291.pdf",
+        text: `AURORA WHOLESALE PARTNERS
+2200 Commerce Way, Chicago IL 60607
+Tax ID: 47-9876543
 
-INVOICE #32378
-Bill To: RODMAT WAREHOUSE
+INVOICE #45291
+Bill To: DEMO WAREHOUSE CO.
 Date: 07/25/2026
 Terms: Net 30
 
 Item                                    Qty     Unit Price    Amount
 ────────────────────────────────────────────────────────────────────
-Avon Far Away EDP 1.7 oz                240      $12.50      $3,000.00
-Avon Imari EDP 1.7 oz                   120      $11.00      $1,320.00
-Avon Little Black Dress 1.7 oz          180      $13.00      $2,340.00
+Signature Fragrance EDP 100ml           240      $12.50      $3,000.00
+Body Mist Collection 200ml              120      $11.00      $1,320.00
+Premium Eau de Toilette 100ml           180      $13.00      $2,340.00
 Freight                                                          $85.00
                                                               ─────────
                                                 Subtotal:      $6,745.00
                                                 Sales Tax 0%:      $0.00
                                                 TOTAL:         $6,745.00
 
-Payment Instructions: Wire transfer to BofA acct #0091-2233-4455
-Questions: billing@esteemedbrands.com`
+Payment Instructions: Wire transfer to routing 021000021 acct #****4455
+Questions: billing@aurorawholesale.example.com`
       },
       office: {
         name: "suministros_oficina_8817.pdf",
@@ -247,7 +247,7 @@ Paseo de la Castellana 100, 28046 Madrid
 CIF: B-98765432 · Colegiado ICAM #12345
 
 MINUTA DE HONORARIOS Nº 2026/08-017
-Cliente: Rodmat Consulting S.L.
+Cliente: Demo Consulting S.L.
 Fecha emisión: 12/08/2026
 Vencimiento: 11/09/2026
 
@@ -262,7 +262,7 @@ Servicios profesionales prestados en el periodo:
                                             TOTAL A PAGAR: 2.120,00 €
 
 Cuenta bancaria: ES12 1234 5678 9012 3456 7890
-Concepto: Minuta 2026/08-017 Rodmat`
+Concepto: Minuta 2026/08-017 Cliente Demo`
       },
       hosting: {
         name: "cloudhost_pro_agosto.pdf",
@@ -270,7 +270,7 @@ Concepto: Minuta 2026/08-017 Rodmat`
 support@cloudhost.pro · https://cloudhost.pro
 
 Invoice #CH-2026-08-4471
-Customer: rodmatwh@gmail.com
+Customer: cliente-demo@example.com
 Billing Period: August 1-31, 2026
 Issue Date: August 1, 2026
 
@@ -279,7 +279,7 @@ Service                                    Amount
 Business Tier Plan (unlimited projects)   $49.00
 Extra bandwidth (150 GB @ $0.09/GB)        $13.50
 Managed Postgres (Pro tier)                $25.00
-Domain registration fee (fuse.commerce)    $12.99
+Domain registration fee (democompany.io)    $12.99
                                         ──────────
                                 Subtotal:  $100.49
                                 Tax (0%):    $0.00
