@@ -146,45 +146,99 @@
 
   <!-- PRICING -->
   <section id="pricing" class="container" style="padding: 20px 0 60px;">
-    <h2 style="font-size:32px;font-weight:700;margin-bottom:40px;text-align:center;">
+    <h2 style="font-size:32px;font-weight:700;margin-bottom:12px;text-align:center;">
       Modelo <span style="background:linear-gradient(90deg,var(--accent),var(--accent-3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">transparente</span>
     </h2>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">
+    <p style="color:var(--text-dim);text-align:center;margin-bottom:16px;">
+      Calibrado para el mercado centroamericano. Sin sorpresas, sin lock-in.
+    </p>
 
-      <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
-        <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 0</div>
-        <div style="font-size:24px;font-weight:700;margin:10px 0;">Auditoría</div>
-        <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
-          Análisis de procesos, identificación de pain points, roadmap de agentes priorizados.
-        </div>
-        <div style="font-size:32px;font-weight:800;color:var(--accent);">$2,500</div>
-        <div style="color:var(--text-mute);font-size:12px;">2 semanas · fijo · incluye entregable escrito</div>
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="display:inline-flex;background:var(--bg-2);border:1px solid var(--border);border-radius:12px;padding:6px;gap:6px;">
+        <button id="tab-a" class="pricing-tab active" onclick="switchPricing('a')">Pricing Estándar</button>
+        <button id="tab-b" class="pricing-tab" onclick="switchPricing('b')">🎉 Oferta Lanzamiento</button>
       </div>
-
-      <div style="background:var(--bg-1);border:2px solid var(--border-hi);border-radius:16px;padding:28px;position:relative;box-shadow:var(--shadow);">
-        <div style="position:absolute;top:-12px;right:20px;background:var(--accent);color:var(--bg-0);padding:4px 12px;border-radius:10px;font-size:11px;font-weight:700;">MÁS ELEGIDO</div>
-        <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 1</div>
-        <div style="font-size:24px;font-weight:700;margin:10px 0;">Primer Agente</div>
-        <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
-          Un agente en producción, integrado a tus sistemas, con KPI medible. Iteración incluida.
-        </div>
-        <div style="font-size:32px;font-weight:800;color:var(--accent);">$8,500</div>
-        <div style="color:var(--text-mute);font-size:12px;">4-6 semanas · fijo · + $450/mes mantenimiento</div>
-      </div>
-
-      <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
-        <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 2+</div>
-        <div style="font-size:24px;font-weight:700;margin:10px 0;">Suite Completa</div>
-        <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
-          Agentes 2 y 3, orquestados. Integraciones avanzadas, entrenamiento continuo.
-        </div>
-        <div style="font-size:32px;font-weight:800;color:var(--accent);">$18,000</div>
-        <div style="color:var(--text-mute);font-size:12px;">8-12 semanas · + $1,200/mes suite</div>
-      </div>
-
     </div>
+
+    <!-- Pricing A: Estándar -->
+    <div id="pricing-a" class="pricing-panel">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">
+        <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
+          <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 0</div>
+          <div style="font-size:24px;font-weight:700;margin:10px 0;">Auditoría + Roadmap</div>
+          <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+            Análisis de procesos, identificación de pain points, roadmap de agentes priorizados.
+          </div>
+          <div style="font-size:32px;font-weight:800;color:var(--accent);">$900 <span style="font-size:14px;color:var(--text-mute);">USD</span></div>
+          <div style="color:var(--text-mute);font-size:12px;">2 semanas · fijo · entregable escrito</div>
+        </div>
+        <div style="background:var(--bg-1);border:2px solid var(--border-hi);border-radius:16px;padding:28px;position:relative;box-shadow:var(--shadow);">
+          <div style="position:absolute;top:-12px;right:20px;background:var(--accent);color:var(--bg-0);padding:4px 12px;border-radius:10px;font-size:11px;font-weight:700;">MÁS ELEGIDO</div>
+          <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 1</div>
+          <div style="font-size:24px;font-weight:700;margin:10px 0;">Primer Agente</div>
+          <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+            Un agente en producción, integrado a tus sistemas, con KPI medible.
+          </div>
+          <div style="font-size:32px;font-weight:800;color:var(--accent);">$2,800 <span style="font-size:14px;color:var(--text-mute);">USD</span></div>
+          <div style="color:var(--text-mute);font-size:12px;">4-6 semanas · + $180/mes mantenimiento + SLA</div>
+        </div>
+        <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
+          <div style="color:var(--accent);font-size:12px;letter-spacing:2px;font-weight:600;">FASE 2+</div>
+          <div style="font-size:24px;font-weight:700;margin:10px 0;">Suite Completa</div>
+          <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+            3 agentes orquestados, RAG sobre tus docs, entrenamiento continuo.
+          </div>
+          <div style="font-size:32px;font-weight:800;color:var(--accent);">$7,500 <span style="font-size:14px;color:var(--text-mute);">USD</span></div>
+          <div style="color:var(--text-mute);font-size:12px;">8-12 semanas · + $490/mes suite</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricing B: Lanzamiento -->
+    <div id="pricing-b" class="pricing-panel" style="display:none;">
+      <div style="background:linear-gradient(135deg,rgba(255,176,32,0.08),rgba(255,176,32,0.02));border:1px solid rgba(255,176,32,0.4);border-radius:14px;padding:16px 24px;margin-bottom:20px;text-align:center;">
+        <div style="color:#ffb020;font-weight:700;font-size:14px;">🎉 OFERTA PRIMER CLIENTE — 30% de descuento</div>
+        <div style="color:var(--text-dim);font-size:13px;margin-top:6px;">
+          A cambio de: case study público + logo en referencias + derecho a mencionarte como cliente. Cupo limitado.
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">
+        <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;position:relative;">
+          <div style="color:#ffb020;font-size:12px;letter-spacing:2px;font-weight:600;">FASE 0</div>
+          <div style="font-size:24px;font-weight:700;margin:10px 0;">Auditoría + Roadmap</div>
+          <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+            Mismo entregable que estándar. Descuento agresivo para arrancar rápido.
+          </div>
+          <div style="font-size:32px;font-weight:800;color:#ffb020;">$500 <span style="font-size:14px;color:var(--text-mute);">USD</span></div>
+          <div style="color:var(--text-mute);font-size:12px;text-decoration:line-through;">antes $900</div>
+        </div>
+        <div style="background:var(--bg-1);border:2px solid rgba(255,176,32,0.5);border-radius:16px;padding:28px;position:relative;box-shadow:0 0 30px rgba(255,176,32,0.15);">
+          <div style="position:absolute;top:-12px;right:20px;background:#ffb020;color:#1a1400;padding:4px 12px;border-radius:10px;font-size:11px;font-weight:700;">RECOMENDADO</div>
+          <div style="color:#ffb020;font-size:12px;letter-spacing:2px;font-weight:600;">FASE 1</div>
+          <div style="font-size:24px;font-weight:700;margin:10px 0;">Primer Agente</div>
+          <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+            Un agente completo en producción con soporte los primeros 6 meses.
+          </div>
+          <div style="font-size:32px;font-weight:800;color:#ffb020;">$2,400 <span style="font-size:14px;color:var(--text-mute);">USD</span></div>
+          <div style="color:var(--text-mute);font-size:12px;">4-6 semanas · + <span style="color:#ffb020;font-weight:600;">$150/mes</span> SLA</div>
+          <div style="color:var(--text-mute);font-size:12px;text-decoration:line-through;">antes $2,800 setup + $180/mes</div>
+        </div>
+        <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:16px;padding:28px;">
+          <div style="color:#ffb020;font-size:12px;letter-spacing:2px;font-weight:600;">FASE 2+</div>
+          <div style="font-size:24px;font-weight:700;margin:10px 0;">Suite Completa</div>
+          <div style="color:var(--text-dim);font-size:14px;margin-bottom:20px;">
+            3 agentes orquestados con precio unificado. Máxima economía si vas all-in.
+          </div>
+          <div style="font-size:32px;font-weight:800;color:#ffb020;">$5,900 <span style="font-size:14px;color:var(--text-mute);">USD</span></div>
+          <div style="color:var(--text-mute);font-size:12px;">+ <span style="color:#ffb020;font-weight:600;">$380/mes</span> suite</div>
+          <div style="color:var(--text-mute);font-size:12px;text-decoration:line-through;">antes $7,500 + $490/mes</div>
+        </div>
+      </div>
+    </div>
+
     <div style="text-align:center;margin-top:24px;color:var(--text-mute);font-size:13px;">
-      Costes variables aparte: LLM ($0-30/mes), Twilio ($8/mes + minutos), APIs de terceros según uso.
+      💳 <strong style="color:var(--text-dim);">Términos:</strong> 50% al firmar + 50% al ir a producción · 15% descuento pago anual · Facturación en USD.<br>
+      Costes variables aparte: LLM ($0-30/mes), Twilio ($8/mes + minutos si voz), WhatsApp Business gratis hasta 1000 conv/mes.
     </div>
   </section>
 
@@ -379,6 +433,14 @@
       document.getElementById("carlos-modal").classList.remove("show");
       document.body.style.overflow = "";
     }
+
+    function switchPricing(which) {
+      document.getElementById("tab-a").classList.toggle("active", which === "a");
+      document.getElementById("tab-b").classList.toggle("active", which === "b");
+      document.getElementById("pricing-a").style.display = which === "a" ? "" : "none";
+      document.getElementById("pricing-b").style.display = which === "b" ? "" : "none";
+    }
+
     // ESC to close
     document.addEventListener("keydown", e => {
       if (e.key === "Escape") hideCarlosModal();
