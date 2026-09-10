@@ -1552,6 +1552,14 @@ def page_gestion_inventario():
 
     st.subheader("Pedidos actuales")
     st.caption("Para añadir un pedido nuevo, ve a la última fila vacía, elige el producto en el desplegable y rellena unidades + status.")
+    # Mensajes del último guardado: se guardan en session_state porque st.rerun()
+    # borraba el st.success/st.warning antes de que el usuario pudiera verlos.
+    _flash = st.session_state.pop("_inv_save_flash", None)
+    if _flash:
+        if _flash.get("ok"):
+            st.success(_flash["ok"])
+        if _flash.get("warn"):
+            st.warning(_flash["warn"])
     edited = st.data_editor(
         df_view, num_rows="dynamic",
         column_config={
@@ -1574,7 +1582,7 @@ def page_gestion_inventario():
     col_save, col_info = st.columns([1, 3])
     with col_save:
         if st.button("Guardar cambios", type="primary", key="save_pending"):
-            saved, created, errors = 0, 0, 0
+            saved, created, errors, skipped = 0, 0, 0, 0
             err_msgs = []
             for _, row in edited.iterrows():
                 record_id = row.get("id")
@@ -1597,8 +1605,14 @@ def page_gestion_inventario():
                     # INSERT de fila nueva — requiere product_name + qty_ordered
                     pname = row.get("product_name")
                     qty = row.get("qty_ordered")
-                    if not pname or pd.isna(pname) or qty is None or pd.isna(qty):
-                        continue  # fila vacía, skip silencioso
+                    _no_name = not pname or pd.isna(pname)
+                    _no_qty = qty is None or pd.isna(qty)
+                    if _no_name and _no_qty:
+                        continue  # fila totalmente vacía
+                    if _no_name or _no_qty:
+                        skipped += 1
+                        err_msgs.append("Fila nueva sin " + ("producto" if _no_name else "unidades") + " — no se guardó")
+                        continue
                     pid = _name_to_pid.get(pname)
                     if not pid:
                         errors += 1
@@ -1612,7 +1626,7 @@ def page_gestion_inventario():
                         "tracking": row.get("tracking") if pd.notna(row.get("tracking", None)) else None,
                         "cost": float(row["cost"]) if pd.notna(row.get("cost")) else None,
                         "notes": row.get("notes") if pd.notna(row.get("notes", None)) else None,
-                        "order_date": str(row["order_date"]) if pd.notna(row.get("order_date")) else None,
+                        "order_date": str(row["order_date"]) if pd.notna(row.get("order_date")) else str(pd.Timestamp.today().date()),
                         "expected_arrival": str(row["expected_arrival"]) if pd.notna(row.get("expected_arrival")) else None,
                     }
                     # Limpiar None en order_date/expected_arrival si vinieron como NaT
@@ -1626,9 +1640,14 @@ def page_gestion_inventario():
             msg = f"Guardado: {saved} actualizados"
             if created:
                 msg += f", {created} nuevos creados"
-            st.success(msg + ".")
-            if errors:
-                st.warning(f"{errors} errores: " + " | ".join(err_msgs[:5]))
+            _flash = {"ok": msg + "."}
+            if errors or skipped:
+                _flash["warn"] = f"{errors} errores, {skipped} filas omitidas: " + " | ".join(err_msgs[:5])
+            st.session_state["_inv_save_flash"] = _flash
+            try:
+                api_post("/analytics/clear-cache")  # stock recalculado al momento
+            except Exception:
+                pass
             st.cache_data.clear()
             st.rerun()
     with col_info:

@@ -19,6 +19,18 @@ from app.dependencies import get_current_user
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 
+def _invalidate_stock_cache(store_id: str) -> None:
+    """Tras escribir en incoming_stock, el stock cacheado (15 min) queda viejo.
+    Limpia la caché de analytics de la tienda para que el ajuste se vea al momento."""
+    try:
+        from app.services import analytics_service as _svc
+        for d in (_svc._cache, _svc._df_cache):
+            for k in [k for k in list(d.keys()) if k[0] == store_id]:
+                d.pop(k, None)
+    except Exception:
+        pass
+
+
 @router.post("/initial", response_model=InitialInventoryResponse, status_code=201)
 def create_initial_inventory(
     payload: InitialInventoryCreate,
@@ -46,11 +58,22 @@ def create_incoming_stock(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    record = IncomingStock(store_id=user.store_id, **payload.model_dump())
+    # brand_id se deriva SIEMPRE en servidor desde el producto (no se confía en el cliente).
+    # Sin esto, las filas nacían con brand_id NULL y el filtro de marca de GET /incoming
+    # (commit c3b8f7e, 15-ago) las ocultaba: "guardaba" pero no aparecían.
+    product = db.query(Product).filter(
+        Product.id == payload.product_id, Product.store_id == user.store_id
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found in this store")
+    record = IncomingStock(store_id=user.store_id, brand_id=product.brand_id, **payload.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
-    return record
+    _invalidate_stock_cache(user.store_id)
+    d = IncomingStockResponse.model_validate(record)
+    d.product_name = product.name
+    return d
 
 
 @router.get("/incoming", response_model=list[IncomingStockResponse])
@@ -88,8 +111,13 @@ def update_incoming_stock(
         raise HTTPException(status_code=404, detail="Incoming stock record not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(record, field, value)
+    if record.brand_id is None:
+        _p = db.query(Product).filter(Product.id == record.product_id).first()
+        if _p is not None:
+            record.brand_id = _p.brand_id
     db.commit()
     db.refresh(record)
+    _invalidate_stock_cache(user.store_id)
     return record
 
 
@@ -106,6 +134,7 @@ def delete_incoming_stock(
         raise HTTPException(status_code=404, detail="Incoming stock record not found")
     db.delete(record)
     db.commit()
+    _invalidate_stock_cache(user.store_id)
 
 
 @router.get("/incoming/export")
