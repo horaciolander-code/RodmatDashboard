@@ -631,6 +631,10 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
     product_map = {p.sku.lower(): p.id for p in products}
     for p in products:
         product_map[p.name.lower()] = p.id
+    # brand_id por producto: sin esto las filas nacen con brand_id NULL y el filtro
+    # de marca de GET /incoming las oculta — el mismo fallo que dejó 8 filas
+    # invisibles el 14-ago. Se deriva del producto, no se pide al fichero.
+    product_brand = {p.id: p.brand_id for p in products}
 
     inserted, errors = 0, 0
     unknown_skus: list[str] = []
@@ -681,6 +685,7 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
             db.add(IncomingStock(
                 store_id=store_id,
                 product_id=product_id,
+                brand_id=product_brand.get(product_id),
                 qty_ordered=qty,
                 order_date=order_date,
                 status=status_val,

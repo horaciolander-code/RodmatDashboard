@@ -162,7 +162,12 @@ async def import_initial_inventory(
 ):
     content = await file.read()
     _validate_upload(file, content, ".xlsx")
-    return parse_initial_inventory_excel(content, _target_store(user, store_id), db)
+    target = _target_store(user, store_id)
+    result = parse_initial_inventory_excel(content, target, db)
+    # Cambia el stock inicial: el stock cacheado (15 min) queda viejo.
+    from app.api.inventory import _invalidate_stock_cache
+    _invalidate_stock_cache(target)
+    return result
 
 
 @router.post("/incoming-stock", response_model=ImportResult)
@@ -174,7 +179,12 @@ async def import_incoming_stock(
 ):
     content = await file.read()
     _validate_upload(file, content, ".xlsx")
-    return parse_pending_inventory_excel(content, _target_store(user, store_id), db)
+    target = _target_store(user, store_id)
+    result = parse_pending_inventory_excel(content, target, db)
+    # Escribe en incoming_stock: el stock cacheado (15 min) queda viejo.
+    from app.api.inventory import _invalidate_stock_cache
+    _invalidate_stock_cache(target)
+    return result
 
 
 @router.post("/amazon", response_model=ImportResult)
