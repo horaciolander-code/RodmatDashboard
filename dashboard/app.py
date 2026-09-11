@@ -1550,8 +1550,6 @@ def page_gestion_inventario():
     _product_names = sorted([p.get("name") for p in _all_products if p.get("name")])
     _name_to_pid = {p["name"]: p["id"] for p in _all_products if p.get("name") and p.get("id")}
 
-    st.subheader("Pedidos actuales")
-    st.caption("Para añadir un pedido nuevo, ve a la última fila vacía, elige el producto en el desplegable y rellena unidades + status.")
     # Mensajes del último guardado: se guardan en session_state porque st.rerun()
     # borraba el st.success/st.warning antes de que el usuario pudiera verlos.
     _flash = st.session_state.pop("_inv_save_flash", None)
@@ -1560,6 +1558,86 @@ def page_gestion_inventario():
             st.success(_flash["ok"])
         if _flash.get("warn"):
             st.warning(_flash["warn"])
+
+    # ── Alta por formulario — vía fiable para meter un ajuste ─────────────────
+    # La rejilla de abajo también deja añadir filas, pero una fila a medias se
+    # descartaba sin avisar y el operador veía "Guardado" igualmente. Aquí se
+    # valida ANTES de enviar y se dice explícitamente si el servidor rechaza.
+    # El brand_id lo deriva el servidor del producto: no se pide al cliente.
+    with st.expander("➕ Añadir ajuste o pedido", expanded=False):
+        with st.form("form_add_incoming", clear_on_submit=True):
+            fa1, fa2, fa3 = st.columns([3, 1, 1])
+            with fa1:
+                _f_prod = st.selectbox("Producto", [""] + _product_names)
+            with fa2:
+                _f_qty = st.number_input("Unidades", value=0, step=1, format="%d",
+                                         help="En negativo para restar stock: merma, rotura o conteo a la baja")
+            with fa3:
+                _f_status = st.selectbox("Status", status_options,
+                                         index=status_options.index("Ajuste"))
+            fb1, fb2 = st.columns([1, 3])
+            with fb1:
+                _f_date = st.date_input("Fecha", value=pd.Timestamp.today().date())
+            with fb2:
+                _f_notes = st.text_input("Motivo / notas",
+                                         placeholder="p. ej. conteo de almacén 10-sep")
+            if st.form_submit_button("Guardar ajuste", type="primary"):
+                _pid = _name_to_pid.get(_f_prod)
+                if not _f_prod or not _pid:
+                    st.error("Elige un producto del catálogo.")
+                elif int(_f_qty) == 0:
+                    st.error("Las unidades no pueden ser 0.")
+                else:
+                    _payload = {
+                        "product_id": _pid,
+                        "qty_ordered": int(_f_qty),
+                        "status": _f_status,
+                        "order_date": str(_f_date),
+                        "notes": _f_notes or None,
+                        "supplier": "AJUSTE INVENTARIO" if _f_status == "Ajuste" else None,
+                    }
+                    _payload = {k: v for k, v in _payload.items() if v is not None}
+                    if api_post("/inventory/incoming", _payload):
+                        st.session_state["_inv_save_flash"] = {
+                            "ok": f"Ajuste guardado: {_f_prod} {int(_f_qty):+d} u."
+                        }
+                        try:
+                            api_post("/analytics/clear-cache")  # stock recalculado al momento
+                        except Exception:
+                            pass
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("El servidor rechazó el alta — NO se ha guardado nada. "
+                                 "Revisa que el producto pertenezca a tu tienda.")
+
+    st.subheader("Pedidos actuales")
+    st.caption("Para añadir un pedido nuevo usa el formulario de arriba. En la tabla se editan los existentes.")
+
+    def _inv_norm(v):
+        """Normaliza un valor para comparar: NaN/None/'' equivalen, y 3 == 3.0."""
+        try:
+            if v is None or pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        if isinstance(v, (int, float, np.integer, np.floating)):
+            return float(v)
+        s = str(v).strip()
+        return s if s and s.lower() not in ("nan", "none") else None
+
+    # Valores originales por id: abajo solo se hace PUT de lo que cambió de verdad.
+    # Antes se reenviaban las ~180 filas en CADA guardado, lo que llenaba el log y
+    # dejaba abierta la puerta a sobrescribir pedidos históricos sin querer.
+    _orig = {}
+    if "id" in df.columns:
+        for _, _r in df.iterrows():
+            _orig[str(_r.get("id"))] = {
+                "qty_ordered": _r.get("qty_ordered"), "status": _r.get("status"),
+                "supplier": _r.get("supplier"), "tracking": _r.get("tracking"),
+                "cost": _r.get("cost"), "notes": _r.get("notes"),
+            }
+
     edited = st.data_editor(
         df_view, num_rows="dynamic",
         column_config={
@@ -1596,11 +1674,18 @@ def page_gestion_inventario():
                         "cost": float(row["cost"]) if pd.notna(row.get("cost")) else None,
                         "notes": row.get("notes") if pd.notna(row.get("notes", None)) else None,
                     }
+                    _before = _orig.get(str(record_id))
+                    if _before is not None and all(
+                        _inv_norm(_before.get(_k)) == _inv_norm(_v)
+                        for _k, _v in update_data.items()
+                    ):
+                        continue  # fila sin cambios: no se reenvía
                     result = api_put(f"/inventory/incoming/{record_id}", update_data)
                     if result:
                         saved += 1
                     else:
                         errors += 1
+                        err_msgs.append(f"Error actualizando la línea {str(record_id)[:8]}")
                 else:
                     # INSERT de fila nueva — requiere product_name + qty_ordered
                     pname = row.get("product_name")
@@ -1637,12 +1722,19 @@ def page_gestion_inventario():
                     else:
                         errors += 1
                         err_msgs.append(f"Error creando línea de '{pname}'")
-            msg = f"Guardado: {saved} actualizados"
-            if created:
-                msg += f", {created} nuevos creados"
-            _flash = {"ok": msg + "."}
+            if saved or created:
+                msg = f"Guardado: {saved} actualizados"
+                if created:
+                    msg += f", {created} nuevos creados"
+                _flash = {"ok": msg + "."}
+            elif errors or skipped:
+                # Nada se guardó: no se anuncia éxito, que era justo el fallo anterior.
+                _flash = {}
+            else:
+                _flash = {"ok": "No había cambios que guardar."}
             if errors or skipped:
-                _flash["warn"] = f"{errors} errores, {skipped} filas omitidas: " + " | ".join(err_msgs[:5])
+                _flash["warn"] = (f"{errors} errores, {skipped} filas omitidas — NO se guardaron: "
+                                  + " | ".join(err_msgs[:5]))
             st.session_state["_inv_save_flash"] = _flash
             try:
                 api_post("/analytics/clear-cache")  # stock recalculado al momento
