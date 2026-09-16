@@ -67,13 +67,34 @@ def _today_has_sent_report(db: Session, store_id: str) -> bool:
 
 
 def _today_has_agent_run(db: Session, store_id: str, agent_name: str,
-                         status: str = "sent") -> bool:
-    return db.query(AgentRun).filter(
+                         status: str = "sent", brand_id: str | None = None) -> bool:
+    q = db.query(AgentRun).filter(
         AgentRun.store_id == store_id,
         AgentRun.agent_name == agent_name,
         AgentRun.status == status,
         AgentRun.run_at >= _today_start_utc(),
-    ).first() is not None
+    )
+    # Idempotencia por marca: el envio global (brand_id NULL) y el de cada marca
+    # son envios distintos y no deben bloquearse entre si.
+    q = q.filter(AgentRun.brand_id.is_(None) if brand_id is None
+                 else AgentRun.brand_id == brand_id)
+    return q.first() is not None
+
+
+def _brands_with_own_recipients(db: Session, store_id: str) -> list:
+    """Marcas con destinatarios propios configurados (brands.email_sender).
+
+    SOLO estas reciben envio brand-scoped. Una marca sin lista propia no recibe
+    nada por separado; sus datos siguen saliendo en el envio global de la store
+    igual que hasta ahora. El cambio es puramente aditivo.
+    """
+    from sqlalchemy import text as _text
+    rows = db.execute(_text(
+        "SELECT id, slug FROM brands "
+        "WHERE store_id = :sid AND is_active = true "
+        "AND email_sender IS NOT NULL AND btrim(email_sender) <> ''"
+    ), {"sid": store_id}).fetchall()
+    return [(r[0], r[1]) for r in rows]
 
 
 def _scheduler_already_attempted_report_today(db: Session, store_id: str) -> bool:
@@ -106,9 +127,11 @@ def _log_report(db: Session, store_id: str, status: str,
 
 def _log_agent_run(db: Session, store_id: str, agent_name: str, status: str,
                    reason: str | None = None,
-                   latest_import_at: Optional[datetime] = None) -> None:
+                   latest_import_at: Optional[datetime] = None,
+                   brand_id: str | None = None) -> None:
     rec = AgentRun(store_id=store_id, agent_name=agent_name, status=status,
-                   reason=reason, latest_import_at=latest_import_at)
+                   reason=reason, latest_import_at=latest_import_at,
+                   brand_id=brand_id)
     db.add(rec)
     db.commit()
 
@@ -254,6 +277,27 @@ def run_scheduled_agents(db: Session) -> dict:
 
                 agent = importlib.import_module(mod_path)
                 ran = agent.run(db, store.id)
+
+                # ── Envio adicional por marca ────────────────────────────────
+                # Solo marcas con destinatarios propios. El envio global de
+                # arriba NO se toca: esto suma, no sustituye.
+                for _bid, _bslug in _brands_with_own_recipients(db, store.id):
+                    if _today_has_agent_run(db, store.id, agent_name,
+                                            status="sent", brand_id=_bid):
+                        continue
+                    try:
+                        if agent.run(db, store.id, brand_slug=_bslug):
+                            _log_agent_run(db, store.id, agent_name, status="sent",
+                                           latest_import_at=f.latest_import_at,
+                                           brand_id=_bid)
+                            store_results[f"{agent_name}:{_bslug}"] = "sent"
+                    except Exception as _be:
+                        logger.exception("Agent %s brand %s failed: %s",
+                                         agent_name, _bslug, _be)
+                        _log_agent_run(db, store.id, agent_name, status="error",
+                                       reason=str(_be)[:500], brand_id=_bid)
+                        store_results[f"{agent_name}:{_bslug}"] = "error"
+
                 if ran:
                     _log_agent_run(db, store.id, agent_name, status="sent",
                                    latest_import_at=f.latest_import_at)

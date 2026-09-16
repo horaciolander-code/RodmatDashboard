@@ -251,6 +251,72 @@ def get_unknown_combo_skus(db: Session, store_id: str) -> list:
     return summary.sort_values('order_count', ascending=False).to_dict(orient='records')
 
 
+def get_sku_origins(db: Session, store_id: str) -> list:
+    """Todos los SKUs vistos en sales_orders con su PROCEDENCIA.
+
+    origin:
+      'Combo'        -> resuelto por combos.combo_sku (descuenta por desglose)
+      'Mapa Amazon'  -> resuelto por amazon_sku_map  (qty ya expandida en el parser)
+      'Mapa Walmart' -> resuelto por walmart_sku_map (qty ya expandida en el parser)
+      'Nombre'       -> el titulo del listing coincide con products.name (FRAGIL:
+                        si alguien edita el titulo en el marketplace deja de descontar)
+      'SIN ASIGNAR'  -> no descuenta stock
+
+    Pensado para la pantalla Gestion Combos: permite filtrar por plataforma y ver
+    por que via se esta resolviendo cada SKU, no solo los que faltan.
+    """
+    from sqlalchemy import text as _text
+    orders_df = _load_orders_df(db, store_id)
+    if orders_df.empty:
+        return []
+
+    combo_lower = {k.strip().lower() for k in _build_combo_dict(db, store_id)}
+    amz = {r[0].strip().lower() for r in db.execute(_text(
+        "SELECT amazon_sku FROM amazon_sku_map WHERE store_id = :sid"),
+        {"sid": store_id}).fetchall() if r[0]}
+    wmt = {r[0].strip().lower() for r in db.execute(_text(
+        "SELECT walmart_sku FROM walmart_sku_map WHERE store_id = :sid"),
+        {"sid": store_id}).fetchall() if r[0]}
+    prod_lower = {p.name.strip().lower()
+                  for p in db.query(Product).filter(Product.store_id == store_id).all()}
+
+    df = orders_df.copy()
+    if "Platform" not in df.columns:
+        df["Platform"] = "tiktok"
+    df["_plat"] = df["Platform"].astype(str).str.lower().fillna("tiktok")
+    df["_sku"] = df["SKU_ID_Clean"].astype(str).str.strip()
+    df = df[df["_sku"].ne("") & df["_sku"].ne("nan")]
+    if df.empty:
+        return []
+
+    summary = df.groupby(["_sku", "_plat"]).agg(
+        product_name=("Product Name", "first"),
+        order_count=("Order ID", "nunique"),
+        total_qty=("Quantity", "sum"),
+    ).reset_index()
+
+    def _origin(row) -> str:
+        sk = row["_sku"].lower()
+        plat = row["_plat"]
+        # el sku_map manda sobre el combo: el parser ya expandio la cantidad
+        if plat == "amazon" and sk in amz:
+            return "Mapa Amazon"
+        if plat == "walmart" and sk in wmt:
+            return "Mapa Walmart"
+        if sk in combo_lower:
+            return "Combo"
+        if str(row["product_name"]).strip().lower() in prod_lower:
+            return "Nombre"
+        return "SIN ASIGNAR"
+
+    summary["origin"] = summary.apply(_origin, axis=1)
+    summary["deducts"] = summary["origin"].ne("SIN ASIGNAR")
+    summary = summary.rename(columns={"_sku": "seller_sku", "_plat": "platform"})
+    return summary.sort_values(
+        ["deducts", "total_qty"], ascending=[True, False]
+    ).to_dict(orient="records")
+
+
 def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     import pandas as pd
     import numpy as np

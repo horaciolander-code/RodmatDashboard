@@ -193,6 +193,16 @@ def finances(
     return svc.get_finances(db, user.store_id, brand_slug=_bs)
 
 
+@router.get("/sku-origins")
+def sku_origins(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Todos los SKUs vendidos con su procedencia (Combo / Mapa / Nombre / SIN ASIGNAR)
+    y plataforma. Alimenta la tabla de Gestion Combos."""
+    return svc.get_sku_origin_list(db, user.store_id)
+
+
 @router.get("/unknown-combos")
 def unknown_combos(
     user: User = Depends(get_current_user),

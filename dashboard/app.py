@@ -346,6 +346,10 @@ def fetch_unknown_combos():
     return api_get("/analytics/unknown-combos") or []
 
 @st.cache_data(ttl=300)
+def fetch_sku_origins():
+    return api_get("/analytics/sku-origins") or []
+
+@st.cache_data(ttl=300)
 def fetch_combos(brand_slug=None):
     params = {}
     if brand_slug: params["brand_slug"] = brand_slug
@@ -1778,6 +1782,48 @@ def page_gestion_combos():
     # ═══════════════════════════════════════════════════════════════
     # BLOQUE 1 — SKUs sin asignar + asistente para asignarlos
     # ═══════════════════════════════════════════════════════════════
+    # ── Procedencia: TODOS los SKUs vendidos, no solo los sin asignar ─────────
+    origins = fetch_sku_origins()
+    if origins:
+        odf = pd.DataFrame(origins)
+        st.subheader("🔎 Procedencia de SKUs")
+        st.caption(
+            "**Combo** desglose propio · **Mapa Amazon/Walmart** mapeo 1-a-1 · "
+            "**Nombre** coincide por título del listing (frágil: si editan el título "
+            "en el marketplace deja de descontar) · **SIN ASIGNAR** no descuenta."
+        )
+        f1, f2, f3 = st.columns([1, 1, 2])
+        with f1:
+            plats = sorted(odf["platform"].dropna().unique().tolist())
+            fp = st.selectbox("Plataforma", ["Todas"] + plats, key="combo_filter_plat")
+        with f2:
+            ORDEN = ["SIN ASIGNAR", "Nombre", "Combo", "Mapa Amazon", "Mapa Walmart"]
+            origs = [o for o in ORDEN if o in set(odf["origin"])]
+            fo = st.selectbox("Procedencia", ["Todas"] + origs,
+                              index=(1 if origs and origs[0] == "SIN ASIGNAR" else 0),
+                              key="combo_filter_origin")
+        with f3:
+            ftxt = st.text_input("Buscar SKU o producto", key="combo_filter_txt")
+
+        v = odf.copy()
+        if fp != "Todas":
+            v = v[v["platform"] == fp]
+        if fo != "Todas":
+            v = v[v["origin"] == fo]
+        if ftxt:
+            q = ftxt.strip().lower()
+            v = v[v["seller_sku"].astype(str).str.lower().str.contains(q)
+                  | v["product_name"].astype(str).str.lower().str.contains(q)]
+
+        v = v.rename(columns={
+            "seller_sku": "SKU", "product_name": "Producto", "platform": "Plataforma",
+            "origin": "Procedencia", "order_count": "Órdenes", "total_qty": "Unidades",
+            "deducts": "Descuenta",
+        })[["SKU", "Plataforma", "Procedencia", "Producto", "Órdenes", "Unidades", "Descuenta"]]
+        st.dataframe(v, use_container_width=True, height=min(420, 60 + 35 * max(len(v), 1)))
+        st.caption(f"Mostrando {len(v)} de {len(odf)} SKUs vendidos")
+        st.markdown("---")
+
     unknown = fetch_unknown_combos()
     if unknown:
         n = len(unknown)

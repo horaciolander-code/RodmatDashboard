@@ -9,7 +9,7 @@ from typing import Optional
 
 from app.models.sales import SalesOrder, AffiliateSale
 from app.models.store import Store
-from app.services.stock_calculator import _load_orders_df, _build_combo_dict, decompose_orders, calculate_stock, get_unknown_combo_skus
+from app.services.stock_calculator import _load_orders_df, _build_combo_dict, decompose_orders, calculate_stock, get_unknown_combo_skus, get_sku_origins
 
 _cache: dict = {}
 _df_cache: dict = {}  # raw DataFrames; keyed by (store_id, coverage_days)
@@ -488,6 +488,10 @@ def get_finances(db: Session, store_id: str, brand_slug: str | None = None) -> l
 
 def get_unknown_combos(db: Session, store_id: str) -> list:
     return get_unknown_combo_skus(db, store_id)
+
+
+def get_sku_origin_list(db: Session, store_id: str) -> list:
+    return get_sku_origins(db, store_id)
 
 
 def get_filtered_affiliates(db: Session, store_id: str,
