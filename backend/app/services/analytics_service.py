@@ -532,12 +532,12 @@ def get_finances(db: Session, store_id: str, brand_slug: str | None = None) -> l
     return result.to_dict(orient="records")
 
 
-def get_unknown_combos(db: Session, store_id: str) -> list:
-    return get_unknown_combo_skus(db, store_id)
+def get_unknown_combos(db: Session, store_id: str, brand_slug: str | None = None) -> list:
+    return get_unknown_combo_skus(db, store_id, brand_slug=brand_slug)
 
 
-def get_sku_origin_list(db: Session, store_id: str) -> list:
-    return get_sku_origins(db, store_id)
+def get_sku_origin_list(db: Session, store_id: str, brand_slug: str | None = None) -> list:
+    return get_sku_origins(db, store_id, brand_slug=brand_slug)
 
 
 def get_filtered_affiliates(db: Session, store_id: str,
@@ -591,10 +591,12 @@ def get_filtered_affiliates(db: Session, store_id: str,
 
 
 def get_combo_sales_summary(db: Session, store_id: str,
-                             date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+                             date_from: Optional[str] = None, date_to: Optional[str] = None,
+                             brand_slug: str | None = None) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
-    if df.empty:
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)   # 2026-09-20: no tenia scoping
+    if df is None or df.empty:
         return []
     if date_from:
         df = df[df["Order_Date"] >= pd.to_datetime(date_from)]
@@ -622,12 +624,14 @@ def get_combo_sales_summary(db: Session, store_id: str,
 
 
 def get_monthly_product_sales(db: Session, store_id: str,
-                               product_name: Optional[str] = None) -> list:
+                               product_name: Optional[str] = None,
+                               brand_slug: str | None = None) -> list:
     import pandas as pd
     from app.services.stock_calculator import decompose_orders
     combo_dict = _build_combo_dict(db, store_id)
     orders_df = _load_orders_df(db, store_id)
-    if orders_df.empty:
+    orders_df = _filter_df_by_brand(db, store_id, orders_df, brand_slug)  # 2026-09-20
+    if orders_df is None or orders_df.empty:
         return []
 
     decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
@@ -665,12 +669,12 @@ def get_product_monthly_sales_pivot(db: Session, store_id: str,
         return {"years": [], "rows": []}
 
     # Filtro por brand si aplica
-    if brand_slug:
-        from sqlalchemy import text
-        bid_row = db.execute(text("SELECT id FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
-                             {"sid": store_id, "slug": brand_slug}).fetchone()
-        if bid_row and "brand_id" in orders_df.columns:
-            orders_df = orders_df[orders_df["brand_id"] == bid_row[0]]
+    # 2026-09-20 FIX: el guard era `if "brand_id" in orders_df.columns` y la columna
+    # real se llama "Brand ID" -> la condicion era SIEMPRE falsa y el filtro
+    # NO se aplicaba nunca. La tabla salia con los datos de todas las marcas.
+    orders_df = _filter_df_by_brand(db, store_id, orders_df, brand_slug)
+    if orders_df is None or orders_df.empty:
+        return {"years": [], "rows": []}
 
     decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
     if decomposed.empty:
@@ -726,12 +730,12 @@ def get_combo_monthly_sales_pivot(db: Session, store_id: str,
     df = _load_orders_df(db, store_id)
     if df.empty:
         return {"years": [], "rows": []}
-    if brand_slug:
-        from sqlalchemy import text
-        bid_row = db.execute(text("SELECT id FROM brands WHERE store_id=:sid AND slug=:slug LIMIT 1"),
-                             {"sid": store_id, "slug": brand_slug}).fetchone()
-        if bid_row and "brand_id" in df.columns:
-            df = df[df["brand_id"] == bid_row[0]]
+    # 2026-09-20 FIX: el guard era `if "brand_id" in df.columns` y la columna
+    # real se llama "Brand ID" -> la condicion era SIEMPRE falsa y el filtro
+    # NO se aplicaba nunca. La tabla salia con los datos de todas las marcas.
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
+    if df is None or df.empty:
+        return {"years": [], "rows": []}
 
     if "Order Status" in df.columns:
         df = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
@@ -947,10 +951,11 @@ def get_platform_summary(db: Session, store_id: str,
     }
 
 
-def get_pallet_orders(db: Session, store_id: str) -> list:
+def get_pallet_orders(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     import pandas as pd
     df = _load_orders_df(db, store_id)
-    if df.empty or "Fulfillment Type" not in df.columns:
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)   # 2026-09-20: no tenia scoping
+    if df is None or df.empty or "Fulfillment Type" not in df.columns:
         return []
     pallet = df[df["Fulfillment Type"].astype(str).str.contains("TikTok", case=False, na=False)].copy()
     if pallet.empty:

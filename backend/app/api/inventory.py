@@ -174,10 +174,17 @@ def create_fbt(
 
 @router.get("/fbt", response_model=list[FBTInventoryResponse])
 def list_fbt(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(FBTInventory).filter(FBTInventory.store_id == user.store_id).all()
+    # 2026-09-20: no tenia scoping. fbt_inventory.brand_id se creo y relleno hoy.
+    from app.dependencies import get_user_brand_id
+    q = db.query(FBTInventory).filter(FBTInventory.store_id == user.store_id)
+    bid = get_user_brand_id(user, db, brand_slug)
+    if bid:
+        q = q.filter(FBTInventory.brand_id == bid)
+    return q.all()
 
 
 @router.put("/fbt/{record_id}", response_model=FBTInventoryResponse)

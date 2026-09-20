@@ -263,10 +263,18 @@ async def get_import_history(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
+    brand_slug: str | None = None,
 ):
     q = db.query(ImportHistory)
     if user.role != "superadmin":
         q = q.filter(ImportHistory.store_id == user.store_id)
+    # 2026-09-20: import_history.brand_id creada hoy. Las cargas historicas la tienen
+    # a NULL (son previas al multi-marca): con marca seleccionada se muestran las de
+    # esa marca MAS las globales sin marca, que es lo que son de verdad.
+    from app.dependencies import get_user_brand_id
+    _bid = get_user_brand_id(user, db, brand_slug)
+    if _bid:
+        q = q.filter((ImportHistory.brand_id == _bid) | (ImportHistory.brand_id.is_(None)))
     rows = q.order_by(desc(ImportHistory.imported_at)).limit(limit).all()
     return [
         {

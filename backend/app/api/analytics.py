@@ -204,19 +204,23 @@ def finances(
 @router.get("/sku-origins")
 def sku_origins(
     db: Session = Depends(get_db),
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
 ):
     """Todos los SKUs vendidos con su procedencia (Combo / Mapa / Nombre / SIN ASIGNAR)
     y plataforma. Alimenta la tabla de Gestion Combos."""
-    return svc.get_sku_origin_list(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_sku_origin_list(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/unknown-combos")
 def unknown_combos(
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_unknown_combos(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_unknown_combos(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/affiliates/orders")
@@ -245,19 +249,23 @@ def filtered_affiliates(
 def combo_sales(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_combo_sales_summary(db, user.store_id, date_from, date_to)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_combo_sales_summary(db, user.store_id, date_from, date_to, brand_slug=_bs)
 
 
 @router.get("/product-monthly-sales")
 def product_monthly_sales(
     product_name: Optional[str] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_monthly_product_sales(db, user.store_id, product_name)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_monthly_product_sales(db, user.store_id, product_name, brand_slug=_bs)
 
 
 @router.get("/viral-alerts")
@@ -284,10 +292,12 @@ def creator_own_orders(
 
 @router.get("/pallet-orders")
 def pallet_orders(
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_pallet_orders(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_pallet_orders(db, user.store_id, brand_slug=_bs)
 
 
 @router.post("/clear-cache")

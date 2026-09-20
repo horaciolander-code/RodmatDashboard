@@ -58,6 +58,7 @@ def get_custom_lines(
     year:     int  = Query(...),
     period:   str  = Query(...),
     store_id: str  = Query(None),
+    brand_slug: str = Query(None),
     user:  User    = Depends(get_current_user),
     _:        None = Depends(require_finance_enabled),
     db:    Session = Depends(get_db),
@@ -65,7 +66,9 @@ def get_custom_lines(
     """Lista las líneas custom del período."""
     try:
         target = _target_store(user, store_id)
-        rows = svc.list_custom_lines(db, target, year, period)
+        from app.dependencies import get_user_brand_id
+        rows = svc.list_custom_lines(db, target, year, period,
+                                     brand_id=get_user_brand_id(user, db, brand_slug))
         return [
             {"id": r.id, "year_month": r.year_month, "description": r.description,
              "amount": float(r.amount), "sort_order": float(r.sort_order)}

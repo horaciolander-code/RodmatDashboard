@@ -71,9 +71,18 @@ def _validate_product(db: Session, product_id: str | None, store_id: str):
 @router.get("", response_model=list[SkuMapResponse])
 def list_sku_maps(
     platform: Literal["walmart", "amazon", "all"] = Query("all"),
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # 2026-09-20: no tenia scoping. sku_maps no lleva brand_id propio, pero apunta a
+    # product_id -> products.brand_id, asi que filtramos por los productos de la marca.
+    from app.dependencies import get_user_brand_id
+    _bid = get_user_brand_id(user, db, brand_slug)
+    _brand_pids = None
+    if _bid:
+        _brand_pids = {p.id for p in db.query(Product.id).filter(
+            Product.store_id == user.store_id, Product.brand_id == _bid).all()}
     result: list[SkuMapResponse] = []
     product_ids: set[str] = set()
     walmart_rows: list = []
@@ -90,6 +99,9 @@ def list_sku_maps(
     if product_ids:
         pmap = {p.id: p.name for p in db.query(Product).filter(Product.id.in_(list(product_ids))).all()}
 
+    if _brand_pids is not None:
+        walmart_rows = [r for r in walmart_rows if r.product_id in _brand_pids]
+        amazon_rows  = [r for r in amazon_rows  if r.product_id in _brand_pids]
     for r in walmart_rows:
         result.append(_row_to_response(r, "walmart", pmap))
     for r in amazon_rows:

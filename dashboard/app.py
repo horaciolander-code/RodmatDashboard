@@ -304,20 +304,28 @@ def fetch_stock_detail(coverage_days=30, brand_slug=None):
     return api_get("/analytics/stock-detail", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_top_creators(n=20):
-    return api_get("/analytics/creators/top", {"n": n}) or []
+def fetch_top_creators(n=20, brand_slug=None):
+    params = {"n": n}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/creators/top", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_creator_by_type():
-    return api_get("/analytics/creators/by-type") or []
+def fetch_creator_by_type(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/creators/by-type", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_creator_by_month():
-    return api_get("/analytics/creators/by-month") or []
+def fetch_creator_by_month(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/creators/by-month", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_frequent_buyers():
-    return api_get("/analytics/frequent-buyers") or []
+def fetch_frequent_buyers(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/frequent-buyers", params) or []
 
 @st.cache_data(ttl=300)
 def fetch_top_combos(n=15, brand_slug=None):
@@ -338,16 +346,22 @@ def fetch_incoming_stock(brand_slug=None):
     return api_get("/inventory/incoming", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_fbt_inventory():
-    return api_get("/inventory/fbt") or []
+def fetch_fbt_inventory(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/inventory/fbt", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_unknown_combos():
-    return api_get("/analytics/unknown-combos") or []
+def fetch_unknown_combos(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/unknown-combos", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_sku_origins():
-    return api_get("/analytics/sku-origins") or []
+def fetch_sku_origins(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/sku-origins", params) or []
 
 @st.cache_data(ttl=300)
 def fetch_combos(brand_slug=None):
@@ -357,9 +371,11 @@ def fetch_combos(brand_slug=None):
 
 
 @st.cache_data(ttl=60)
-def fetch_sku_maps(platform: str = "all"):
+def fetch_sku_maps(platform: str = "all", brand_slug=None):
     """Devuelve mapeos walmart_sku_map + amazon_sku_map unificados."""
-    return api_get("/sku-maps", {"platform": platform}) or []
+    params = {"platform": platform}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/sku-maps", params) or []
 
 @st.cache_data(ttl=300)
 def fetch_products(brand_slug=None):
@@ -400,28 +416,36 @@ def fetch_combo_monthly_sales_pivot(year=None, brand_slug=None):
     return api_get("/analytics/combo-monthly-sales-pivot", params) or {"years": [], "rows": []}
 
 
-def fetch_creator_monthly_pivot(year=None):
+def fetch_creator_monthly_pivot(year=None, brand_slug=None):
     params = {}
     if year: params["year"] = year
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/creator-monthly-pivot", params) or {"years": [], "rows": []}
 
 
-def fetch_product_monthly_sales(product_name=None):
+def fetch_product_monthly_sales(product_name=None, brand_slug=None):
     params = {}
     if product_name: params["product_name"] = product_name
+    if brand_slug: params["brand_slug"] = brand_slug
     return api_get("/analytics/product-monthly-sales", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_viral_alerts(threshold=20, days=5):
-    return api_get("/analytics/viral-alerts", {"threshold": threshold, "days": days}) or []
+def fetch_viral_alerts(threshold=20, days=5, brand_slug=None):
+    params = {"threshold": threshold, "days": days}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/viral-alerts", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_creator_own_orders():
-    return api_get("/analytics/creator-own-orders") or []
+def fetch_creator_own_orders(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/creator-own-orders", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_pallet_orders():
-    return api_get("/analytics/pallet-orders") or []
+def fetch_pallet_orders(brand_slug=None):
+    params = {}
+    if brand_slug: params["brand_slug"] = brand_slug
+    return api_get("/analytics/pallet-orders", params) or []
 
 
 
@@ -579,7 +603,7 @@ def page_overview():
     _platform = render_platform_selector("ov")
 
     if _platform != "amazon":
-        unknown = fetch_unknown_combos()
+        unknown = fetch_unknown_combos(brand_slug=_bs)
         if unknown:
             st.warning(f"{len(unknown)} SKU(s) en pedidos sin combo asignado. Ve a Gestion > Gestion Combos para revisarlos.")
 
@@ -743,7 +767,7 @@ def page_overview():
     col3, col4 = st.columns(2)
     with col3:
         st.subheader("Top 10 Creadores por GMV")
-        creators = fetch_top_creators(10)
+        creators = fetch_top_creators(10, brand_slug=_bs)
         if creators:
             df_c = pd.DataFrame(creators)
             fig = px.bar(df_c, x="GMV", y="Creator Username", orientation="h",
@@ -752,7 +776,7 @@ def page_overview():
             st.plotly_chart(fig, use_container_width=True, key="ov_creators")
     with col4:
         st.subheader("Distribución por Contenido")
-        ct = fetch_creator_by_type()
+        ct = fetch_creator_by_type(brand_slug=_bs)
         if ct:
             df_ct = pd.DataFrame(ct)
             fig = px.pie(df_ct, values="GMV", names="Content Type")
@@ -1082,7 +1106,7 @@ def page_restock_analysis():
         combo_start = st.date_input("Desde", value=pd.to_datetime("2026-01-01").date(), key="ra_combo_start")
     with col_cf2:
         combo_end = st.date_input("Hasta", value=pd.Timestamp.today().date(), key="ra_combo_end")
-    combo_sales = fetch_combo_sales(str(combo_start), str(combo_end))
+    combo_sales = fetch_combo_sales(str(combo_start), str(combo_end), brand_slug=_bs)
     if combo_sales:
         df_cs = pd.DataFrame(combo_sales)
         st.dataframe(df_cs, use_container_width=True, height=400)
@@ -1107,8 +1131,8 @@ def page_afiliados():
         st.warning("Los afiliados y creadores son exclusivos de TikTok Shop. No hay datos de creadores en Amazon. Selecciona **Todos** o **TikTok** para ver esta sección.")
         return
 
-    cr_monthly = fetch_creator_by_month()
-    ct_data = fetch_creator_by_type()
+    cr_monthly = fetch_creator_by_month(brand_slug=_bs)
+    ct_data = fetch_creator_by_type(brand_slug=_bs)
 
     # Filters row 1
     c1, c2, c3 = st.columns(3)
@@ -1118,7 +1142,7 @@ def page_afiliados():
             ct_opts += sorted({r.get("Content Type", "") for r in ct_data if r.get("Content Type")})
         ct_filter = st.selectbox("Tipo de Contenido", ct_opts, key="af_ct")
     with c2:
-        all_creators = fetch_top_creators(200)
+        all_creators = fetch_top_creators(200, brand_slug=_bs)
         cr_opts = ["Todos"] + sorted([r["Creator Username"] for r in all_creators if r.get("Creator Username")]) if all_creators else ["Todos"]
         cr_filter = st.selectbox("Nombre Creador", cr_opts, key="af_creator")
     with c3:
@@ -1149,6 +1173,7 @@ def page_afiliados():
     }
     params = {k: v for k, v in params.items() if v is not None}
 
+    if _bs: params["brand_slug"] = _bs          # 2026-09-20
     result = api_get("/analytics/affiliates/orders", params) or {"total": 0, "orders": []}
     total = result.get("total", 0)
     orders = result.get("orders", [])
@@ -1227,13 +1252,13 @@ def page_afiliados():
 
         st.subheader("Creadores por Mes (Pivot) — con muestras y ventas anuales")
         # NEW: pivot con muestras_gratis + muestras_compradas + ventas mes 01-12 + total
-        _cmp_first = fetch_creator_monthly_pivot()
+        _cmp_first = fetch_creator_monthly_pivot(brand_slug=_bs)
         years_cmp = _cmp_first.get("years", [])
         if years_cmp:
             col_y_af1, col_y_af2 = st.columns([1, 3])
             with col_y_af1:
                 year_af = st.selectbox("Año", years_cmp, index=0, key="cmp_year")
-            cmp_data = fetch_creator_monthly_pivot(year=year_af)
+            cmp_data = fetch_creator_monthly_pivot(year=year_af, brand_slug=_bs)
             rows_cmp = cmp_data.get("rows", [])
             if rows_cmp:
                 df_cmp = pd.DataFrame(rows_cmp)
@@ -1288,7 +1313,7 @@ def page_afiliados():
         va_threshold = st.number_input("Umbral mínimo de unidades", min_value=1, value=20, key="af_va_threshold")
     with col_va2:
         va_days = st.number_input("Últimos N días", min_value=1, max_value=30, value=5, key="af_va_days")
-    viral = fetch_viral_alerts(va_threshold, va_days)
+    viral = fetch_viral_alerts(va_threshold, va_days, brand_slug=_bs)
     if viral:
         st.dataframe(pd.DataFrame(viral), use_container_width=True, height=300)
     else:
@@ -1297,7 +1322,7 @@ def page_afiliados():
     st.markdown("---")
     st.subheader("Órdenes de Creadores (como compradores)")
     st.caption("Órdenes en AllBBDD donde el Buyer Username coincide con un Creator Username del panel de afiliados.")
-    own_orders = fetch_creator_own_orders()
+    own_orders = fetch_creator_own_orders(brand_slug=_bs)
     if own_orders:
         st.metric("Total órdenes encontradas", len(own_orders))
         st.dataframe(pd.DataFrame(own_orders).head(200), use_container_width=True, height=350)
@@ -1355,7 +1380,11 @@ def page_ordenes_check():
     with c5:
         oc_product = st.text_input("Product Name", "", key="oc_product")
 
+    # 2026-09-20: esta página NO mandaba la marca -> TOTAL COINCIDENTES salía 26.789
+    _u_oc = st.session_state.get("cached_user") or {}
+    _bs_oc = get_current_brand_slug() if _u_oc.get("brands_enabled") else None
     params = {"limit": 500}
+    if _bs_oc: params["brand_slug"] = _bs_oc
     if len(oc_date) >= 1: params["date_from"] = str(oc_date[0])
     if len(oc_date) == 2: params["date_to"] = str(oc_date[1])
     if oc_order: params["order_id"] = oc_order
@@ -1415,7 +1444,7 @@ def page_cupones():
         st.warning("Los compradores frecuentes y cupones son exclusivos de TikTok Shop. Selecciona **Todos** o **TikTok** para ver esta sección.")
         return
 
-    buyers_data = fetch_frequent_buyers()
+    buyers_data = fetch_frequent_buyers(brand_slug=_bs)
     if not buyers_data:
         st.warning("Sin datos.")
         return
@@ -1439,6 +1468,7 @@ def page_cupones():
     st.markdown("---")
     st.subheader("Detalle por Orden")
     params = {"limit": 200}
+    if _bs: params["brand_slug"] = _bs           # 2026-09-20
     if len(cup_date) >= 1: params["date_from"] = str(cup_date[0])
     if len(cup_date) == 2: params["date_to"] = str(cup_date[1])
     if buyer_filter != "All": params["buyer"] = buyer_filter
@@ -1473,7 +1503,10 @@ def page_full_detail():
     with c7: fd_fulfill = st.text_input("Fulfillment Type", "", key="fd_fulfill")
     with c8: fd_recipient = st.text_input("Recipient", "", key="fd_recipient")
 
+    _u_fd = st.session_state.get("cached_user") or {}
+    _bs_fd = get_current_brand_slug() if _u_fd.get("brands_enabled") else None
     params = {"limit": 500}
+    if _bs_fd: params["brand_slug"] = _bs_fd      # 2026-09-20
     if fd_buyer: params["buyer"] = fd_buyer
     if fd_order: params["order_id"] = fd_order
     if fd_status: params["status"] = fd_status
@@ -1550,7 +1583,7 @@ def page_gestion_inventario():
     df_view = df_view[col_order]
 
     # Cargar catálogo de productos para el dropdown del editor (multi-tenant: filtra por store del user)
-    _all_products = fetch_products() or []
+    _all_products = fetch_products(brand_slug=_bs) or []
     _product_names = sorted([p.get("name") for p in _all_products if p.get("name")])
     _name_to_pid = {p["name"]: p["id"] for p in _all_products if p.get("name") and p.get("id")}
 
@@ -1774,7 +1807,7 @@ def page_gestion_combos():
     _u_gc = st.session_state.get('cached_user') or {}
     _bs_gc = get_current_brand_slug() if _u_gc.get('brands_enabled') else None
     combos = fetch_combos(brand_slug=_bs_gc)
-    sku_maps = fetch_sku_maps("all")
+    sku_maps = fetch_sku_maps("all", brand_slug=_bs_gc)
     products_data = fetch_products(brand_slug=_bs_gc)
     product_names = sorted([p["name"] for p in products_data]) if products_data else []
     product_map = {p["name"]: p["id"] for p in products_data} if products_data else {}
@@ -1783,7 +1816,7 @@ def page_gestion_combos():
     # BLOQUE 1 — SKUs sin asignar + asistente para asignarlos
     # ═══════════════════════════════════════════════════════════════
     # ── Procedencia: TODOS los SKUs vendidos, no solo los sin asignar ─────────
-    origins = fetch_sku_origins()
+    origins = fetch_sku_origins(brand_slug=_bs_gc)
     if origins:
         odf = pd.DataFrame(origins)
         st.subheader("🔎 Procedencia de SKUs")
@@ -1824,7 +1857,7 @@ def page_gestion_combos():
         st.caption(f"Mostrando {len(v)} de {len(odf)} SKUs vendidos")
         st.markdown("---")
 
-    unknown = fetch_unknown_combos()
+    unknown = fetch_unknown_combos(brand_slug=_bs_gc)
     if unknown:
         n = len(unknown)
         st.warning(f"⚠️ {n} SKU(s) vendidos SIN mapear — asígnalos abajo o quedarán descontando 1 al azar")
@@ -2046,8 +2079,13 @@ def page_gestion_combos():
 def page_inventario_fbt():
     st.header("Gestión Inventario FBT")
     st.caption("Productos enviados al almacén de TikTok (FBT). Edita, agrega o elimina envíos.")
+    # 2026-09-20: esta página NO resolvía la marca -> enseñaba el FBT de todas.
+    _u_fbt = st.session_state.get("cached_user") or {}
+    _bs_fbt = get_current_brand_slug() if _u_fbt.get("brands_enabled") else None
+    if _bs_fbt:
+        st.caption(f"🏷 Filtrado por marca: {_bs_fbt}")
 
-    data = fetch_fbt_inventory()
+    data = fetch_fbt_inventory(brand_slug=_bs_fbt)
     if data:
         df = pd.DataFrame(data)
     else:
@@ -2117,7 +2155,7 @@ def page_inventario_fbt():
     st.markdown("---")
     st.subheader("Detalle Órdenes Pallet FBT")
     st.caption("Órdenes TikTok con Fulfillment Type FBT (enviadas desde almacén TikTok).")
-    pallet = fetch_pallet_orders()
+    pallet = fetch_pallet_orders(brand_slug=_bs_fbt)
     if pallet:
         st.dataframe(pd.DataFrame(pallet), use_container_width=True, height=400)
     else:
@@ -2205,7 +2243,10 @@ def page_finance_pl():
     year   = st.session_state.fin_year
     period = st.session_state.fin_period
     try:
-        pl = api_get(f"/finance/pl?year={year}&period={period}")
+        _u_fin = st.session_state.get("cached_user") or {}
+        _bs_fin = get_current_brand_slug() if _u_fin.get("brands_enabled") else None
+        _bq = f"&brand_slug={_bs_fin}" if _bs_fin else ""     # 2026-09-20
+        pl = api_get(f"/finance/pl?year={year}&period={period}{_bq}")
     except Exception as exc:
         st.error(f"Error cargando P&L: {exc}")
         return
@@ -2292,7 +2333,10 @@ def page_finance_pl():
 
         # Cargar líneas actuales para editar
         try:
-            lines = api_get(f"/finance/custom-lines?year={year}&period={period}")
+            _u_cl = st.session_state.get("cached_user") or {}
+            _bs_cl = get_current_brand_slug() if _u_cl.get("brands_enabled") else None
+            _bqc = f"&brand_slug={_bs_cl}" if _bs_cl else ""  # 2026-09-20
+            lines = api_get(f"/finance/custom-lines?year={year}&period={period}{_bqc}")
         except Exception as exc:
             st.error(f"Error cargando líneas: {exc}")
             lines = []
@@ -2481,7 +2525,11 @@ def page_import_history():
     if st.button("Actualizar historial", key="btn_hist_refresh"):
         st.cache_data.clear()
 
-    history = api_get("/import/history", {"limit": 100}) or []
+    _u_ih = st.session_state.get("cached_user") or {}
+    _bs_ih = get_current_brand_slug() if _u_ih.get("brands_enabled") else None
+    _pih = {"limit": 100}
+    if _bs_ih: _pih["brand_slug"] = _bs_ih        # 2026-09-20
+    history = api_get("/import/history", _pih) or []
 
     if not history:
         st.info("No hay cargas registradas todavía.")

@@ -205,7 +205,20 @@ def build_shipped_components(decomposed, initial_date):
     return shipped
 
 
-def get_unknown_combo_skus(db: Session, store_id: str) -> list:
+def _filter_orders_by_brand(db, store_id: str, df, brand_slug):
+    """Filtra un df de ordenes por marca usando la columna "Brand ID".
+    2026-09-20: fail-closed — marca desconocida devuelve vacio."""
+    if not brand_slug or df is None or df.empty:
+        return df
+    from sqlalchemy import text as _t
+    r = db.execute(_t("SELECT id FROM brands WHERE store_id=:sid AND slug=:s"),
+                   {"sid": store_id, "s": brand_slug}).fetchone()
+    if not r or "Brand ID" not in df.columns:
+        return df.iloc[0:0]
+    return df[df["Brand ID"].astype(str) == str(r[0])].reset_index(drop=True)
+
+
+def get_unknown_combo_skus(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     """Devuelve SKUs vistos en sales_orders que NO están mapeados a producto.
     Un SKU está 'mapeado' si está en combos.combo_sku, walmart_sku_map.walmart_sku,
     o amazon_sku_map.amazon_sku. (Comparación case-insensitive sobre el SKU literal.)
@@ -213,7 +226,8 @@ def get_unknown_combo_skus(db: Session, store_id: str) -> list:
     """
     from sqlalchemy import text as _text
     orders_df = _load_orders_df(db, store_id)
-    if orders_df.empty:
+    orders_df = _filter_orders_by_brand(db, store_id, orders_df, brand_slug)  # 2026-09-20
+    if orders_df is None or orders_df.empty:
         return []
 
     combo_dict = _build_combo_dict(db, store_id)
@@ -252,7 +266,7 @@ def get_unknown_combo_skus(db: Session, store_id: str) -> list:
     return summary.sort_values('order_count', ascending=False).to_dict(orient='records')
 
 
-def get_sku_origins(db: Session, store_id: str) -> list:
+def get_sku_origins(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     """Todos los SKUs vistos en sales_orders con su PROCEDENCIA.
 
     origin:
@@ -268,7 +282,8 @@ def get_sku_origins(db: Session, store_id: str) -> list:
     """
     from sqlalchemy import text as _text
     orders_df = _load_orders_df(db, store_id)
-    if orders_df.empty:
+    orders_df = _filter_orders_by_brand(db, store_id, orders_df, brand_slug)  # 2026-09-20
+    if orders_df is None or orders_df.empty:
         return []
 
     combo_lower = {k.strip().lower() for k in _build_combo_dict(db, store_id)}

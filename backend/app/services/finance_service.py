@@ -291,16 +291,23 @@ def compute_pl(db: Session, store_id: str, year: int, period: str, brand_slug: s
 
 # -------- Custom lines CRUD --------
 
-def list_custom_lines(db: Session, store_id: str, year: int, period: str) -> List[FinanceCustomLine]:
+def list_custom_lines(db: Session, store_id: str, year: int, period: str,
+                      brand_id: str | None = None) -> List[FinanceCustomLine]:
+    """2026-09-20: acepta brand_id. Con marca seleccionada se devuelven las lineas de
+    esa marca MAS las que no tienen marca (gastos compartidos del store). Las 76 lineas
+    ene-jul 2026 estan sin marca a proposito: son anteriores al lanzamiento de Atralia
+    (primera venta 25-ago). No se inventa un reparto: se muestran como compartidas."""
+    q = db.query(FinanceCustomLine).filter(FinanceCustomLine.store_id == store_id)
+    if brand_id:
+        q = q.filter((FinanceCustomLine.brand_id == brand_id) |
+                     (FinanceCustomLine.brand_id.is_(None)))
     if period.upper() == "YTD":
-        return db.query(FinanceCustomLine).filter(
-            FinanceCustomLine.store_id == store_id,
+        return q.filter(
             FinanceCustomLine.year_month.like(f"{year}-%"),
         ).order_by(FinanceCustomLine.year_month, FinanceCustomLine.sort_order).all()
     _, _, _, month = _period_bounds(year, period)
     ym = f"{year}-{month:02d}"
-    return db.query(FinanceCustomLine).filter(
-        FinanceCustomLine.store_id == store_id,
+    return q.filter(
         FinanceCustomLine.year_month == ym,
     ).order_by(FinanceCustomLine.sort_order, FinanceCustomLine.id).all()
 
