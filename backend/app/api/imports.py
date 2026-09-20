@@ -126,7 +126,22 @@ async def import_affiliates(
 ):
     content = await file.read()
     _validate_upload(file, content, ".csv")
-    return parse_affiliate_csv(content, _target_store(user, store_id), db)
+    target = _target_store(user, store_id)
+    # 2026-09-20: esta carga NO se registraba en import_history (las otras tres si).
+    # Por eso no habia forma de saber que los afiliados llevaban desde el 15-ago sin
+    # actualizar: el historial estaba vacio para este tipo.
+    import uuid as _uuid
+    batch_id = str(_uuid.uuid4())
+    history = ImportHistory(id=batch_id, store_id=target, import_type="affiliates",
+                            filename=file.filename, imported_by=user.email)
+    db.add(history); db.flush()
+    result = parse_affiliate_csv(content, target, db)
+    try:
+        history.rows_imported = result.get("inserted", 0)
+        db.add(history); db.commit()
+    except Exception:
+        db.rollback()
+    return result
 
 
 @router.post("/products", response_model=ImportResult)

@@ -215,6 +215,19 @@ def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
     df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig')
     df.columns = df.columns.str.strip()
 
+    # 2026-09-20 — affiliate_sales.brand_id se creo hoy y el parser no la rellenaba:
+    # la carga del 20-sep metio 313 filas con marca NULL, invisibles al filtrar por
+    # marca (el filtro es fail-closed). Resolvemos la marca por el SKU de la orden:
+    #   1) combos.combo_sku  -> combos.brand_id      (fuente principal)
+    #   2) sales_orders      -> brand_id de la orden (respaldo por order_id)
+    from sqlalchemy import text as _t
+    _combo_brand = {r[0].strip().lower(): r[1] for r in db.execute(_t(
+        "SELECT combo_sku, brand_id FROM combos WHERE store_id=:sid AND brand_id IS NOT NULL"),
+        {"sid": store_id}).fetchall() if r[0]}
+    _order_brand = {str(r[0]): r[1] for r in db.execute(_t(
+        "SELECT DISTINCT tiktok_order_id, brand_id FROM sales_orders "
+        "WHERE store_id=:sid AND brand_id IS NOT NULL"), {"sid": store_id}).fetchall() if r[0]}
+
     rows = []
     errors = 0
 
@@ -248,6 +261,8 @@ def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
                 time_created=_safe_datetime(row.get('Time Created'), dayfirst=True),
                 commission_rate=_safe_float(comm_rate_raw),
                 est_commission_base=_safe_float(row.get('Est. Commission Base')),
+                brand_id=(_combo_brand.get((sku or '').strip().lower())
+                          or _order_brand.get(order_id)),
                 raw_data=None,
             ))
         except Exception:
@@ -260,7 +275,7 @@ def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
     # No N+1 SELECT queries — one batch per 1000 rows
     update_cols = ['creator_username', 'product_name', 'quantity', 'commission',
                    'content_type', 'payment_amount', 'order_status', 'time_created',
-                   'commission_rate', 'est_commission_base']
+                   'commission_rate', 'est_commission_base', 'brand_id']
     BATCH = 1000
     total = 0
     for i in range(0, len(rows), BATCH):
