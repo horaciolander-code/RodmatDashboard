@@ -75,11 +75,18 @@ def resolve_brand_context(db, store_id: str, brand_slug: str | None) -> tuple[di
 
 
 def get_brand_recipients(db, store_id: str, brand_slug: str | None, fallback_recipients: list[str]) -> list[str]:
-    """Devuelve destinatarios específicos por brand.
+    """Destinatarios de un envío acotado a una marca.
 
-    Prioridad:
-      1. brands.email_sender si está definido para la brand
-      2. Fallback: recipients del store (los ya-configurados)
+    - Sin brand_slug  -> la lista global del store (comportamiento de siempre).
+    - Con brand_slug  -> SOLO brands.email_sender de esa marca.
+
+    🔴 2026-09-20 FAIL-CLOSED. Antes, si la marca no tenía email_sender, caía a la
+    lista global del store: un análisis de UNA marca acabava en el correo de todo
+    el equipo (en Rodmat: Antareslander, argibay49, inf@rodmatcorp...). Con un
+    socio externo por marca eso es enseñarle datos de otra marca.
+    Misma regla que run_store_report y que get_brand_recipients_legacy:
+    antes que mandarlo a la lista equivocada, no se manda.
+    Los previews siguen funcionando porque test_email tiene prioridad en run().
     """
     if not brand_slug:
         return fallback_recipients
@@ -90,7 +97,9 @@ def get_brand_recipients(db, store_id: str, brand_slug: str | None, fallback_rec
     ).fetchone()
     if row and row[0]:
         return [r.strip() for r in row[0].split(",") if r.strip()]
-    return fallback_recipients
+    print(f"[brand] '{brand_slug}' sin destinatarios propios en brands.email_sender "
+          f"-> NO se envia (fail-closed)")
+    return []
 
 
 def is_agent_enabled(store, agent_name: str) -> bool:
@@ -236,8 +245,19 @@ def get_brand_recipients_legacy(store, brand=None) -> list[str]:
 
     Regla operativa: los emails Atralia/LuxPerfumes NO se mezclan con Rodmat.
     Cuando brand se pasa, si no hay lista brand-específica, devuelve lista vacía
-    (mejor no enviar que enviar a la lista wrong)."""
+    (mejor no enviar que enviar a la lista wrong).
+
+    2026-09-20 — UNIFICACIÓN. Convivían DOS fuentes de destinatarios por marca:
+      · brands.email_sender                     (diario + prism/haiku/faraway/mesmerize/timeless)
+      · stores.settings['brands_recipients']    (khamrah, vía esta función)
+    Hoy coinciden, pero actualizar una y no la otra hace que unos correos vayan a
+    una lista y otros a otra. Fuente principal: brands.email_sender. El settings
+    queda como respaldo para no romper configuraciones antiguas.
+    """
     if brand is not None:
+        es = getattr(brand, "email_sender", None)
+        if es and es.strip():
+            return [r.strip() for r in es.split(",") if r.strip()]
         if store and store.settings:
             br = (store.settings.get("brands_recipients") or {})
             if isinstance(br, dict) and brand.slug in br:

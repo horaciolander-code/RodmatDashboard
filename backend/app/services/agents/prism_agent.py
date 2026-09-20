@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
-    call_groq, send_email, get_recipients, is_agent_enabled, get_business_context,
+    call_groq, send_email, send_email_branded, get_recipients, is_agent_enabled, get_business_context,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_kpis, load_creator_df,
     load_orders_df_branded, load_kpis_branded, load_creator_df_branded,
@@ -686,6 +686,6 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     subject = (f"PRISM · {snapshot['analysis_date']} · {store_name} · "
                f"{high_n} HIGH signals · "
                f"{len(snapshot['velocity'].get('accelerating',[]))} SKUs acelerando")
-    ok = send_email(html, subject, recipients)
+    ok = send_email_branded(html, subject, recipients, brand=brand_info)  # 2026-09-20: remitente/color de la marca
     print(f"[PRISM] Email {'sent' if ok else 'FAILED'} -> {recipients}")
     return ok

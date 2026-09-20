@@ -166,7 +166,14 @@ def build_report(db: Session, store_id: str,
     sections = []
 
     # ── STALE DATA WARNING ────────────────────────────────────────────────────
-    max_date = df["Order_Date"].dropna().max()
+    # 2026-09-20: la frescura se mide sobre TODO el store, nunca sobre la marca.
+    # Una marca pequeña puede pasar 3 días sin vender: eso NO es que los datos
+    # estén desactualizados, es que no hubo ventas. Medirlo sobre el df filtrado
+    # hacía que el informe de Atralia gritara "DATOS 3d DESACTUALIZADOS" con el
+    # CSV subido esa misma mañana — la forma más rápida de que alguien deje de
+    # fiarse del informe.
+    _fresh_df = _load_orders_df(db, store_id) if brand_id else df
+    max_date = _fresh_df["Order_Date"].dropna().max() if not _fresh_df.empty else pd.NaT
     data_lag_days = (today - max_date).days if pd.notna(max_date) else 999
     if data_lag_days >= 2:
         sections.append(f"""

@@ -13,10 +13,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/sales/orders').then(r => r.data.length).catch(() => 0),
-      api.get('/products').then(r => r.data.length).catch(() => 0),
-      api.get('/combos').then(r => r.data.length).catch(() => 0),
-      api.get('/sales/affiliates').then(r => r.data.length).catch(() => 0),
+      // 2026-09-20: /sales/orders y /sales/affiliates ahora devuelven
+      // { total, limit, offset, rows } en vez de un array suelto (antes volcaban
+      // 26.789 y 4.620 filas sin paginar). Leemos .total y dejamos .length como
+      // respaldo por si algun endpoint sigue devolviendo lista.
+      api.get('/sales/orders?limit=1').then(r => r.data?.total ?? r.data?.length ?? 0).catch(() => 0),
+      api.get('/products').then(r => r.data?.length ?? 0).catch(() => 0),
+      api.get('/combos').then(r => r.data?.length ?? 0).catch(() => 0),
+      api.get('/sales/affiliates?limit=1').then(r => r.data?.total ?? r.data?.length ?? 0).catch(() => 0),
     ]).then(([orders, products, combos, affiliates]) => {
       setStatus({ orders, products, combos, affiliates });
     });

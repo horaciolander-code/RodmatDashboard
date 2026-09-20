@@ -34,10 +34,20 @@ def create_initial_inventory(
 
 @router.get("/initial", response_model=list[InitialInventoryResponse])
 def list_initial_inventory(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(InitialInventory).filter(InitialInventory.store_id == user.store_id).all()
+    # 2026-09-20: no tenia scoping de marca. initial_inventory no lleva brand_id
+    # propio, asi que filtramos por los productos que pertenecen a la marca.
+    from app.dependencies import get_user_brand_id
+    q = db.query(InitialInventory).filter(InitialInventory.store_id == user.store_id)
+    bid = get_user_brand_id(user, db, brand_slug)
+    if bid:
+        q = q.filter(InitialInventory.product_id.in_(
+            db.query(Product.id).filter(Product.store_id == user.store_id,
+                                        Product.brand_id == bid)))
+    return q.all()
 
 
 @router.post("/incoming", response_model=IncomingStockResponse, status_code=201)
@@ -110,14 +120,25 @@ def delete_incoming_stock(
 
 @router.get("/incoming/export")
 def export_incoming_stock(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Descarga todos los registros de incoming stock como Excel."""
+    """Descarga los registros de incoming stock como Excel.
+
+    2026-09-20 FIX FUGA: no filtraba por marca. Un usuario acotado a una marca
+    podia descargarse un Excel con TODO el stock pendiente de la tienda — peor
+    que una pantalla, porque se lleva el fichero fuera.
+    """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
+    from app.dependencies import get_user_brand_id
 
-    records = db.query(IncomingStock).filter(IncomingStock.store_id == user.store_id).all()
+    _q = db.query(IncomingStock).filter(IncomingStock.store_id == user.store_id)
+    _bid = get_user_brand_id(user, db, brand_slug)
+    if _bid:
+        _q = _q.filter(IncomingStock.brand_id == _bid)
+    records = _q.all()
     product_ids = {r.product_id for r in records}
     pmap = {p.id: p.name for p in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
 

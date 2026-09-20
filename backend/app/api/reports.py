@@ -23,10 +23,20 @@ def _require_internal_key(x_api_key: str = Header(...)):
 
 @router.get("/preview", response_class=HTMLResponse)
 def preview_report(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    html, _ = build_report(db, user.store_id)
+    """2026-09-20: no aceptaba marca. Un usuario acotado a una marca (p.ej. la
+    socia de LuxPerfumes) veia aqui el informe COMPLETO del store."""
+    from app.dependencies import get_user_brand_id
+    _bid = get_user_brand_id(user, db, brand_slug)
+    _bname = None
+    if _bid:
+        from app.models import Brand
+        _b = db.query(Brand).filter(Brand.id == _bid).first()
+        _bname = _b.display_name if _b else None
+    html, _ = build_report(db, user.store_id, brand_id=_bid, brand_name=_bname)
     return HTMLResponse(content=html)
 
 
@@ -123,10 +133,16 @@ def run_all_stores_report(
 
 @router.get("/history")
 def report_history(
+    brand_slug: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    logs = db.query(ReportLog).filter(
-        ReportLog.store_id == user.store_id
-    ).order_by(ReportLog.sent_at.desc()).limit(50).all()
+    """2026-09-20: report_logs.brand_id se creo hoy. Con marca seleccionada se
+    muestran sus envios; sin marca, todos (incluido el global)."""
+    from app.dependencies import get_user_brand_id
+    q = db.query(ReportLog).filter(ReportLog.store_id == user.store_id)
+    _bid = get_user_brand_id(user, db, brand_slug)
+    if _bid:
+        q = q.filter(ReportLog.brand_id == _bid)
+    logs = q.order_by(ReportLog.sent_at.desc()).limit(50).all()
     return [{"id": l.id, "sent_at": str(l.sent_at), "recipients": l.recipients, "status": l.status} for l in logs]

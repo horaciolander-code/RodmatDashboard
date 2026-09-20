@@ -16,7 +16,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.services.agents._base import (
-    call_groq, send_email, get_recipients,
+    call_groq, send_email, send_email_branded, get_recipients,
     get_business_context, is_agent_enabled,
     resolve_brand_context, get_brand_recipients,
     load_orders_df, load_creator_df,
@@ -418,13 +418,20 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     if not is_agent_enabled(store, "timeless"):
         print(f"[TIMELESS] Disabled by tenant settings for store {store_id[:8]}")
         return False
-    recipients = [test_email] if test_email else get_recipients(store)
+    # 🔴 2026-09-20 FIX FUGA: TIMELESS importaba get_brand_recipients y NO lo usaba.
+    # Un cierre mensual acotado a una marca se mandaba a la lista ENTERA del store.
+    # Era el unico de los 5 agentes con este fallo.
+    brand_info, brand_ctx = resolve_brand_context(db, store_id, brand_slug)
+    if test_email:
+        recipients = [test_email]
+    else:
+        recipients = get_brand_recipients(db, store_id, brand_slug, get_recipients(store))
     if not recipients:
-        print(f"[TIMELESS] No recipients for store {store_id}")
+        print(f"[TIMELESS] No recipients for store {store_id} brand={brand_slug}")
         return False
 
-    store_name = store.name if store else "Store"
-    business_context = get_business_context(store)
+    store_name = (brand_info["display_name"] if brand_info else (store.name if store else "Store"))
+    business_context = brand_ctx + get_business_context(store)
 
     print(f"[TIMELESS] Extracting snapshot for {store_name}...")
     snapshot = extract_snapshot(db, store_id, brand_slug)
@@ -436,6 +443,6 @@ def run(db: Session, store_id: str, force: bool = False, test_email: str | None 
     html = build_email_html(analysis, snapshot, store_name)
     subject = (f"TIMELESS · {snapshot['closed_month_name']} · {store_name} · "
                f"Monthly Close ${snapshot['gmv_cur']:,.0f} ({mom}) · Proy año ~${sorted([snapshot['proj_linear'], snapshot['proj_runrate'], snapshot['proj_trend']])[1]:,.0f}")
-    ok = send_email(html, subject, recipients)
-    print(f"[TIMELESS] Email {'sent' if ok else 'FAILED'}")
+    ok = send_email_branded(html, subject, recipients, brand=brand_info)
+    print(f"[TIMELESS] Email {'sent' if ok else 'FAILED'} -> {len(recipients)} dest. brand={brand_slug}")
     return ok
