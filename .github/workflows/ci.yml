@@ -42,6 +42,20 @@ jobs:
           print(f'\nAll {len(list(api_dir.glob(\"*.py\")))-1} routers syntactically valid')
           "
 
+  brand-isolation:
+    name: Aislamiento multi-tenant / multi-marca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest
+      - name: Cada bug de marca que llego a produccion tiene aqui su test
+        run: |
+          cd backend
+          python -m pytest tests/ -q
+
   frontend-build:
     name: Frontend — vite build
     runs-on: ubuntu-latest
