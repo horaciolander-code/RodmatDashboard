@@ -111,26 +111,32 @@ def reorder_list(
 @router.get("/creators/top")
 def top_creators(
     n: int = 20,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_top_creators(db, user.store_id, n)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_top_creators(db, user.store_id, n, brand_slug=_bs)
 
 
 @router.get("/creators/by-type")
 def creators_by_type(
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_creator_by_type(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_creator_by_type(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/creators/by-month")
 def creators_by_month(
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_creator_by_month(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_creator_by_month(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/orders")
@@ -166,10 +172,12 @@ def filtered_orders(
 @router.get("/frequent-buyers")
 def frequent_buyers(
     n: int = 50,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_frequent_buyers(db, user.store_id, n)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_frequent_buyers(db, user.store_id, n, brand_slug=_bs)
 
 
 @router.get("/top-combos")
@@ -221,12 +229,15 @@ def filtered_affiliates(
     order_id: Optional[str] = None,
     order_status: Optional[str] = None,
     limit: int = Query(1000, le=5000),
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _bs = _resolve_brand_slug(user, db, brand_slug)
     return svc.get_filtered_affiliates(
         db, user.store_id, date_from, date_to,
         content_type, creator, product, order_id, order_status, limit,
+        brand_slug=_bs,
     )
 
 
@@ -253,18 +264,22 @@ def product_monthly_sales(
 def viral_alerts(
     threshold: int = 20,
     days: int = 5,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_viral_alerts(db, user.store_id, threshold, days)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_viral_alerts(db, user.store_id, threshold, days, brand_slug=_bs)
 
 
 @router.get("/creator-own-orders")
 def creator_own_orders(
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_creator_own_orders(db, user.store_id)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_creator_own_orders(db, user.store_id, brand_slug=_bs)
 
 
 @router.get("/pallet-orders")
@@ -323,7 +338,9 @@ def combo_monthly_sales_pivot(
 @router.get("/creator-monthly-pivot")
 def creator_monthly_pivot(
     year: Optional[int] = None,
+    brand_slug: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return svc.get_creator_monthly_pivot(db, user.store_id, year)
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    return svc.get_creator_monthly_pivot(db, user.store_id, year, brand_slug=_bs)

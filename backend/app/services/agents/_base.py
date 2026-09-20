@@ -254,68 +254,75 @@ def get_brand_sender(brand=None) -> str:
     return "reportes@rodmatcenter.com"
 
 
+def _brand_id_of(db: Session, store_id: str, brand_slug: str | None):
+    if not brand_slug:
+        return None
+    from sqlalchemy import text as _t
+    r = db.execute(_t("SELECT id FROM brands WHERE store_id=:sid AND slug=:s"),
+                   {"sid": store_id, "s": brand_slug}).fetchone()
+    return r[0] if r else "NEVER_MATCH"   # fail-closed
+
+
 def load_orders_df_branded(db: Session, store_id: str, brand_slug: str | None = None):
-    """Wrapper that filters orders by brand when brand_slug provided.
-    Uses the SKU→brand map from products.brand_id (client-side filter after load
-    to avoid touching stock_calculator._load_orders_df signature).
-    When brand_slug is None → passthrough (current behavior)."""
+    """Ordenes filtradas por marca.
+
+    🔴 2026-09-20 REESCRITO. La version anterior cruzaba products.sku contra el SKU
+    de la orden, que es un SKU de COMBO -> no solapan. Resultado medido: luxperfumes
+    0 filas y avon 46 de 26.770. Los 5 agentes de IA llevaban semanas analizando
+    un dataset practicamente vacio cuando corrian brand-scoped.
+    Fuente correcta: sales_orders.brand_id, expuesto como columna "Brand ID".
+    """
     df = load_orders_df(db, store_id)
     if not brand_slug or df is None or df.empty:
         return df
-    # Build sku→slug map for this store
-    from app.models import Product, Brand
-    rows = db.query(Product.sku, Brand.slug).select_from(Product).outerjoin(
-        Brand, Brand.id == Product.brand_id
-    ).filter(Product.store_id == store_id).all()
-    bmap = {r[0]: r[1] for r in rows}
-    # Filter df by SKU column (case: 'Seller SKU' o 'SKU ID' o 'sku')
-    sku_col = None
-    for candidate in ("Seller SKU", "SKU ID", "sku", "SKU"):
-        if candidate in df.columns:
-            sku_col = candidate
-            break
-    if not sku_col:
-        return df  # no way to filter, passthrough
-    mask = df[sku_col].astype(str).map(lambda s: bmap.get(s) == brand_slug)
-    return df[mask].reset_index(drop=True)
+    bid = _brand_id_of(db, store_id, brand_slug)
+    if "Brand ID" in df.columns:
+        return df[df["Brand ID"].astype(str) == str(bid)].reset_index(drop=True)
+    return df.iloc[0:0]
 
 
 def load_kpis_branded(db: Session, store_id: str, brand_slug: str | None = None) -> pd.DataFrame:
-    """Wrapper: filtra KPIs stock por brand cuando brand_slug != None."""
+    """KPIs de stock filtrados por marca via Brand_ID (products.brand_id).
+    🔴 2026-09-20: antes filtraba por una columna 'SKU' que el df de stock NO tiene
+    -> devolvia el df entero (fuga) o vacio segun el caso."""
     df = load_kpis(db, store_id)
     if not brand_slug or df is None or df.empty:
         return df
+    bid = _brand_id_of(db, store_id, brand_slug)
+    if "Brand_ID" in df.columns:
+        return df[df["Brand_ID"].astype(str) == str(bid)].reset_index(drop=True)
+    # fallback por nombre de producto
     from app.models import Product, Brand
-    rows = db.query(Product.sku, Brand.slug).select_from(Product).outerjoin(
-        Brand, Brand.id == Product.brand_id
-    ).filter(Product.store_id == store_id).all()
-    bmap = {r[0]: r[1] for r in rows}
-    sku_col = None
-    for candidate in ("SKU", "sku", "Seller SKU", "SKU_ID"):
-        if candidate in df.columns:
-            sku_col = candidate; break
-    if not sku_col:
-        return df
-    mask = df[sku_col].astype(str).map(lambda s: bmap.get(s) == brand_slug)
-    return df[mask].reset_index(drop=True)
+    rows = db.query(Product.name, Brand.slug).select_from(Product).outerjoin(
+        Brand, Brand.id == Product.brand_id).filter(Product.store_id == store_id).all()
+    names = {r[0].strip().lower() for r in rows if r[1] == brand_slug}
+    if not names or "ProductoNombre" not in df.columns:
+        return df.iloc[0:0]
+    return df[df["ProductoNombre"].astype(str).str.strip().str.lower().isin(names)].reset_index(drop=True)
 
 
 def load_creator_df_branded(db: Session, store_id: str, brand_slug: str | None = None):
-    """Wrapper: filtra affiliate_sales por brand cuando brand_slug != None.
-    Filtra por product_name (los affiliate_sales no tienen brand_id directo)
-    matching con products.name where products.brand_id = brand."""
-    df = load_creator_df(db, store_id)
-    if not brand_slug or df is None or df.empty:
-        return df
-    from app.models import Product, Brand
-    rows = db.query(Product.name, Brand.slug).select_from(Product).outerjoin(
-        Brand, Brand.id == Product.brand_id
-    ).filter(Product.store_id == store_id).all()
-    brand_products = {r[0].strip().lower() for r in rows if r[1] == brand_slug}
-    if not brand_products or "Product Name" not in df.columns:
-        return df
-    mask = df["Product Name"].astype(str).str.strip().str.lower().isin(brand_products)
-    return df[mask].reset_index(drop=True)
+    """Afiliados filtrados por marca via affiliate_sales.brand_id (columna creada 2026-09-20).
+    Antes se filtraba por nombre de producto y, si no habia match, hacia `return df`
+    -> devolvia TODAS las marcas (fuga silenciosa). Ahora fail-closed."""
+    import pandas as pd
+    from app.models.sales import AffiliateSale
+    q = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id)
+    if brand_slug:
+        q = q.filter(AffiliateSale.brand_id == _brand_id_of(db, store_id, brand_slug))
+    rows = q.all()
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame([{
+        "Order ID":         a.order_id,
+        "Creator Username": a.creator_username,
+        "Payment Amount":   a.payment_amount or 0,
+        "Product Name":     a.product_name,
+        "Order Status":     a.order_status or "COMPLETED",
+        "Time Created":     pd.to_datetime(a.time_created) if a.time_created else pd.NaT,
+        "Content Type":     a.content_type,
+        "Commission":       a.commission or 0,
+    } for a in rows])
 
 
 def send_email_branded(html: str, subject: str, recipients: list[str], brand=None) -> bool:

@@ -125,18 +125,28 @@ def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
       <div style="margin-top:8px;font-size:10px;color:#576177;text-align:right;">📊 Semanal detalle → KHAMRAH lunes · Dashboard: Finance → ⚡ TikTok Statements</div>
     </div>"""
 
-def build_report(db: Session, store_id: str) -> tuple[str, str]:
-    """Build full HTML report. Returns (html, subject)."""
+def build_report(db: Session, store_id: str,
+                 brand_id: str | None = None,
+                 brand_name: str | None = None) -> tuple[str, str]:
+    """Build full HTML report. Returns (html, subject).
+
+    2026-09-20: acepta brand_id. Cuando viene, el informe se calcula SOLO con las
+    ordenes de esa marca (sales_orders.brand_id) y el asunto lleva el nombre de la
+    marca. Sin brand_id el comportamiento es el de siempre: todo el store.
+    """
     today     = pd.Timestamp.now().normalize()
     yesterday = today - timedelta(days=1)
     day_before = today - timedelta(days=2)
 
     df = _load_orders_df(db, store_id)
+    if brand_id and not df.empty and "Brand ID" in df.columns:
+        df = df[df["Brand ID"].astype(str) == str(brand_id)].reset_index(drop=True)
     if df.empty:
-        return "<p>No order data available.</p>", "Reporte Diario - sin datos"
+        _n = f" {brand_name}" if brand_name else ""
+        return "<p>No order data available.</p>", f"Reporte Diario{_n} - sin datos"
 
     store = db.query(Store).filter(Store.id == store_id).first()
-    store_name   = store.name if store else "Store"
+    store_name   = (brand_name or (store.name if store else "Store"))
     low_threshold = store.settings.get("low_stock_threshold", LOW_STOCK_THRESHOLD) if store and store.settings else LOW_STOCK_THRESHOLD
     stale_days    = store.settings.get("stale_order_days",    STALE_ORDER_DAYS)    if store and store.settings else STALE_ORDER_DAYS
 
@@ -520,21 +530,58 @@ def send_report(html: str, recipients: list[str], store_name: str, subject: str 
         return False
 
 
-def run_store_report(db: Session, store_id: str) -> bool:
-    """Build and send report for a single store."""
+def brands_with_own_recipients(db: Session, store_id: str) -> list:
+    """Marcas del store que tienen destinatarios propios en brands.email_sender (CSV).
+
+    Solo estas reciben informe diario propio. Una marca sin destinatarios NO genera
+    envio: preferimos no mandar nada antes que mandarlo a la lista global (que
+    incluye gente que no debe ver datos de esa marca).
+    """
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT id, slug, display_name, email_sender FROM brands
+        WHERE store_id = :sid AND is_active = true
+          AND email_sender IS NOT NULL AND btrim(email_sender) <> ''
+        ORDER BY display_name
+    """), {"sid": store_id}).fetchall()
+    return [(r[0], r[1], r[2], r[3]) for r in rows]
+
+
+def run_store_report(db: Session, store_id: str, brand_slug: str | None = None) -> bool:
+    """Build and send report for a single store, optionally scoped to one brand.
+
+    2026-09-20: con brand_slug, los destinatarios salen de brands.email_sender (CSV).
+    Si la marca no tiene destinatarios -> return False SIN enviar (fail-closed):
+    mandar el informe de Atralia a la lista de Avon seria una fuga.
+    """
     store = db.query(Store).filter(Store.id == store_id).first()
     if not store:
         return False
     settings = store.settings or {}
     if not settings.get("report_enabled", False):
         return False
-    recipients = settings.get("report_recipients") or (
-        [os.getenv("SMTP_USER")] if os.getenv("SMTP_USER") else []
-    )
+
+    brand_id = brand_name = None
+    if brand_slug:
+        from sqlalchemy import text as _t
+        r = db.execute(_t("SELECT id, display_name, email_sender FROM brands "
+                          "WHERE store_id=:sid AND slug=:s"),
+                       {"sid": store_id, "s": brand_slug}).fetchone()
+        if not r:
+            return False
+        brand_id, brand_name = r[0], r[1]
+        recipients = [e.strip() for e in (r[2] or "").split(",") if e.strip()]
+        if not recipients:
+            print(f"[daily] marca {brand_slug} sin destinatarios propios -> no se envia")
+            return False
+    else:
+        recipients = settings.get("report_recipients") or (
+            [os.getenv("SMTP_USER")] if os.getenv("SMTP_USER") else []
+        )
     if not recipients:
         return False
-    html, subject = build_report(db, store_id)
-    return send_report(html, recipients, store.name, subject)
+    html, subject = build_report(db, store_id, brand_id=brand_id, brand_name=brand_name)
+    return send_report(html, recipients, brand_name or store.name, subject)
 
 
 def run_all_reports(db: Session) -> dict:

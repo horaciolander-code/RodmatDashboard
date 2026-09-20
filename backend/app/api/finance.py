@@ -40,11 +40,14 @@ def get_pl(
     """Devuelve P&L estructurado para el período seleccionado (mes o YTD)."""
     try:
         target = _target_store(user, store_id)
-        # Si el user está brand-scoped, forzar brand_slug al suyo (no puede ver otras)
-        if user.brand_id and not brand_slug:
+        # 2026-09-20 FIX FUGA: antes era `if user.brand_id and not brand_slug`.
+        # El `and not brand_slug` invertía la intención: bastaba con llamar
+        # ?brand_slug=avon para SALTARSE el forzado y ver el P&L de otra marca.
+        # Ahora la marca del usuario gana SIEMPRE sobre el query param.
+        if user.brand_id:
             from app.models import Brand
             ub = db.query(Brand).filter(Brand.id == user.brand_id).first()
-            if ub: brand_slug = ub.slug
+            brand_slug = ub.slug if ub else "__NEVER__"   # fail-closed
         return svc.compute_pl(db, target, year, period, brand_slug=brand_slug)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

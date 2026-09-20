@@ -208,13 +208,24 @@ def statements(
 ):
     """Lista de payouts (uno por bank deposit)."""
     _require_flag(db, user.store_id)
-    _resolve_brand_slug(user, db, brand_slug)  # forces user brand if scoped
+    # 2026-09-20 FIX FUGA: se llamaba a _resolve_brand_slug y se DESCARTABA el retorno.
+    # El SQL filtraba solo por store_id → payouts, ingreso, coste y margen de TODAS las marcas.
+    _bs = _resolve_brand_slug(user, db, brand_slug)
+    _bid = None
+    if _bs:
+        _r = db.execute(text("SELECT id FROM brands WHERE slug=:s AND store_id=:sid"),
+                        {"s": _bs, "sid": user.store_id}).fetchone()
+        _bid = _r[0] if _r else "NEVER_MATCH"   # fail-closed
     rows = db.execute(text("""
-        SELECT statement_id, payout_id, total_income, total_cost, total_margin, total_fees,
-               total_orders, period_start, period_end, settled_date
-        FROM tiktok_statements WHERE store_id = :sid
-        ORDER BY settled_date DESC NULLS LAST, period_end DESC LIMIT 200
-    """), {"sid": user.store_id}).fetchall()
+        SELECT s.statement_id, s.payout_id, s.total_income, s.total_cost, s.total_margin,
+               s.total_fees, s.total_orders, s.period_start, s.period_end, s.settled_date
+        FROM tiktok_statements s
+        WHERE s.store_id = :sid
+          AND (:bid IS NULL OR EXISTS (
+                SELECT 1 FROM tiktok_statement_lines l
+                WHERE l.statement_id = s.statement_id AND l.brand_id = :bid))
+        ORDER BY s.settled_date DESC NULLS LAST, s.period_end DESC LIMIT 200
+    """), {"sid": user.store_id, "bid": _bid}).fetchall()
     return [{
         "statement_id": r.statement_id, "payout_id": r.payout_id,
         "total_income": float(r.total_income or 0), "total_cost": float(r.total_cost or 0),

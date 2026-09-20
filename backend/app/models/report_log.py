@@ -18,3 +18,4 @@ class ReportLog(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     recipients: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="sent")
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)  # 2026-09-20

@@ -17,6 +17,7 @@ class FBTInventory(Base):
     goods_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     total_units: Mapped[int] = mapped_column(Integer, default=0)
     fecha_envio: Mapped[date | None] = mapped_column(Date, nullable=True)
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)  # 2026-09-20
 
 
 class InitialInventory(Base):

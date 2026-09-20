@@ -78,5 +78,6 @@ class AffiliateSale(Base):
     time_created: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     commission_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     est_commission_base: Mapped[float | None] = mapped_column(Float, nullable=True)
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)  # 2026-09-20
 
     raw_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)

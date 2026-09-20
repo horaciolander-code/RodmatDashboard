@@ -20,6 +20,7 @@ class ImportHistory(Base):
     rows_imported: Mapped[int] = mapped_column(Integer, default=0)
     rows_deleted: Mapped[int] = mapped_column(Integer, default=0)
     imported_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    brand_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("brands.id"), nullable=True)  # 2026-09-20
     imported_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

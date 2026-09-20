@@ -57,13 +57,23 @@ def _today_start_utc() -> datetime:
     )
 
 
-def _today_has_sent_report(db: Session, store_id: str) -> bool:
+def _today_has_sent_report(db: Session, store_id: str,
+                           brand_id: str | None = None) -> bool:
+    """Idempotencia POR MARCA (report_logs.brand_id creada 2026-09-20).
+
+    El envio global (brand_id NULL) y el de cada marca se cuentan por separado.
+    Sin esta separacion el diario global marcaba el dia como 'ya enviado' y el de
+    Atralia no salia nunca.
+    """
     start_naive = _today_start_utc().replace(tzinfo=None)  # ReportLog.sent_at is naive
-    return db.query(ReportLog).filter(
+    q = db.query(ReportLog).filter(
         ReportLog.store_id == store_id,
         ReportLog.status == "sent",
         ReportLog.sent_at >= start_naive,
-    ).first() is not None
+    )
+    q = q.filter(ReportLog.brand_id.is_(None) if brand_id is None
+                 else ReportLog.brand_id == brand_id)
+    return q.first() is not None
 
 
 def _today_has_agent_run(db: Session, store_id: str, agent_name: str,
@@ -119,8 +129,10 @@ def _scheduler_already_attempted_agent_today(db: Session, store_id: str,
 
 
 def _log_report(db: Session, store_id: str, status: str,
-                recipients: str | None = None) -> None:
-    log = ReportLog(store_id=store_id, status=status, recipients=recipients)
+                recipients: str | None = None,
+                brand_id: str | None = None) -> None:
+    log = ReportLog(store_id=store_id, status=status, recipients=recipients,
+                    brand_id=brand_id)
     db.add(log)
     db.commit()
 
@@ -215,6 +227,26 @@ def run_scheduled_reports(db: Session) -> dict:
         else:
             _log_report(db, store.id, status="failed")
             results[store.name] = "failed"
+
+        # ── 2026-09-20 · informe diario POR MARCA ────────────────────────────
+        # Aditivo: el envio global de arriba no cambia. Cada marca con
+        # destinatarios propios en brands.email_sender recibe ademas su propio
+        # informe, calculado solo con sus ordenes. Marca sin destinatarios -> nada.
+        for _bid, _bslug in _brands_with_own_recipients(db, store.id):
+            if _today_has_sent_report(db, store.id, brand_id=_bid):
+                results[f"{store.name}:{_bslug}"] = "skipped_already_sent_today"
+                continue
+            try:
+                _bok = run_store_report(db, store.id, brand_slug=_bslug)
+            except Exception as _bexc:
+                logger.exception("[scheduled_reports] %s/%s failed: %s",
+                                 store.name, _bslug, _bexc)
+                _log_report(db, store.id, status="failed", brand_id=_bid)
+                results[f"{store.name}:{_bslug}"] = "failed"
+                continue
+            _log_report(db, store.id, status="sent" if _bok else "failed",
+                        brand_id=_bid)
+            results[f"{store.name}:{_bslug}"] = "sent" if _bok else "failed"
 
     for store_name, items in skipped_by_store.items():
         send_freshness_alert(
@@ -392,6 +424,23 @@ def trigger_pending_jobs(store_id: str) -> dict:
                                  store_id[:8], exc)
                 _log_report(db, store_id, status="failed")
                 out["daily_report"] = f"error: {type(exc).__name__}"
+
+            # 2026-09-20 · catch-up del diario POR MARCA (mismas reglas que el global)
+            for _bid, _bslug in _brands_with_own_recipients(db, store_id):
+                _k = f"daily_report:{_bslug}"
+                if _today_has_sent_report(db, store_id, brand_id=_bid):
+                    out[_k] = "already_sent_today"
+                    continue
+                try:
+                    _bok = run_store_report(db, store_id, brand_slug=_bslug)
+                    _log_report(db, store_id, status="sent" if _bok else "failed",
+                                brand_id=_bid)
+                    out[_k] = "sent_catchup" if _bok else "failed"
+                except Exception as _bexc:
+                    logger.exception("[trigger] daily %s/%s failed: %s",
+                                     store_id[:8], _bslug, _bexc)
+                    _log_report(db, store_id, status="failed", brand_id=_bid)
+                    out[_k] = f"error: {type(_bexc).__name__}"
 
         # ── 2) Agents — same catch-up-only semantics, per agent ───────
         for agent_name, mod_path in AGENT_MODULES.items():

@@ -5,6 +5,7 @@ pandas imported lazily inside functions to reduce Railway startup memory.
 from __future__ import annotations
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy import true as sa_true
 from typing import Optional
 
 from app.models.sales import SalesOrder, AffiliateSale
@@ -66,32 +67,62 @@ def _get_stock_df(db: Session, store_id: str, coverage_days: int = 30):
 # ═════════════════════════════════════════════════════════════════════════════
 #  BRAND filter helper — filtra un DataFrame de orders por brand_slug
 # ═════════════════════════════════════════════════════════════════════════════
+def _resolve_brand_id(db: Session, store_id: str, brand_slug):
+    """slug → brand_id. Devuelve None si no existe (caller decide fail-open/closed)."""
+    if not brand_slug:
+        return None
+    from sqlalchemy import text
+    r = db.execute(text("SELECT id FROM brands WHERE slug = :slug AND store_id = :sid"),
+                   {"slug": brand_slug, "sid": store_id}).fetchone()
+    return r[0] if r else None
+
+
+def _aff_q(db: Session, store_id: str, brand_slug=None):
+    """Query base de affiliate_sales YA filtrada por marca.
+
+    2026-09-20 — affiliate_sales.brand_id se creo hoy y se relleno (4.307 filas, todas avon).
+    Antes, las 10 funciones de afiliados/creadores sumaban las ventas de TODAS las marcas
+    aunque hubiera una seleccionada. FAIL-CLOSED: marca desconocida -> cero filas.
+    """
+    q = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id)
+    if brand_slug:
+        bid = _resolve_brand_id(db, store_id, brand_slug)
+        q = q.filter(AffiliateSale.brand_id == (bid or "NEVER_MATCH"))
+    return q
+
+
 def _filter_df_by_brand(db: Session, store_id: str, df, brand_slug):
-    """Filtra un DataFrame de orders (con columnas Seller SKU/SKU ID) por brand.
-    - brand_slug None o vacío → passthrough
-    - brand_slug X → keep rows cuyo SKU pertenezca a la brand (via products.brand_id)
-    Rows con SKU no mapeado a ningún product de la brand son eliminadas."""
+    """Filtra un DataFrame de orders por brand usando sales_orders.brand_id.
+
+    🔴 2026-09-20 — REESCRITO. La version anterior cruzaba products.sku contra el
+    SKU de la orden. Las ordenes llevan SKU de COMBO (AT-AEI, LT-GMS/4) y products
+    lleva SKU de PRODUCTO (AT-ABS-CHILL-100): no solapan. Medido en produccion:
+    con marca seleccionada Avon veia 46 de 26.770 filas (0,17%) y LuxPerfumes 0 de 19.
+    Por eso TODAS las pestanas salian vacias o a cero al elegir marca.
+    La fuente correcta es sales_orders.brand_id, que el ETL rellena en el import.
+
+    - brand_slug vacio  -> passthrough (admin sin filtro)
+    - brand desconocida -> vacio (FAIL-CLOSED: nunca ensenar datos de otra marca)
+    """
     if not brand_slug or df is None or df.empty:
         return df
+    bid = _resolve_brand_id(db, store_id, brand_slug)
+    if not bid:
+        return df.iloc[0:0]
+    if "Brand ID" in df.columns:
+        return df[df["Brand ID"].astype(str) == str(bid)].reset_index(drop=True)
+    # Fallback (cache viejo sin la columna): resolver por par (orden, SKU) en BD
     from sqlalchemy import text
     rows = db.execute(text("""
-        SELECT p.sku FROM products p
-        JOIN brands b ON b.id = p.brand_id
-        WHERE p.store_id = :sid AND b.slug = :slug
-    """), {"sid": store_id, "slug": brand_slug}).fetchall()
-    skus = {r[0] for r in rows}
-    if not skus:
-        # Brand sin productos → resultado vacío
+        SELECT tiktok_order_id, COALESCE(seller_sku, sku) AS s
+        FROM sales_orders WHERE store_id = :sid AND brand_id = :bid
+    """), {"sid": store_id, "bid": bid}).fetchall()
+    keys = {(str(a), str(b)) for a, b in rows}
+    if not keys:
         return df.iloc[0:0]
-    # Buscar columna SKU
-    sku_col = None
-    for c in ("SKU_ID_Clean", "Seller SKU", "SKU ID", "sku"):
-        if c in df.columns:
-            sku_col = c
-            break
-    if not sku_col:
-        return df  # no way to filter
-    return df[df[sku_col].astype(str).isin(skus)].reset_index(drop=True)
+    sku_col = "SKU_ID_Clean" if "SKU_ID_Clean" in df.columns else "Seller SKU"
+    mask = [ (str(o), str(s)) in keys for o, s in zip(df["Order ID"], df[sku_col]) ]
+    return df[mask].reset_index(drop=True)
 
 
 def get_overview_metrics(db: Session, store_id: str, brand_slug: str | None = None) -> dict:
@@ -130,7 +161,7 @@ def get_overview_metrics(db: Session, store_id: str, brand_slug: str | None = No
     platform_discount = df["SKU Platform Discount"].sum()
     shipping_discount = 0.0
 
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     creator_commission = sum(a.commission or 0 for a in affiliates)
     creator_payment = sum(a.payment_amount or 0 for a in affiliates)
     creator_order_count = len(set(a.order_id for a in affiliates if a.order_id))
@@ -190,6 +221,7 @@ def get_sales_by_month(db: Session, store_id: str,
     try:
         rows = db.query(AffiliateSale.order_id).filter(
             AffiliateSale.store_id == store_id,
+            (AffiliateSale.brand_id == _resolve_brand_id(db, store_id, brand_slug)) if brand_slug else sa_true(),
             AffiliateSale.order_id.isnot(None)
         ).all()
         aff_order_ids = {r[0] for r in rows if r[0]}
@@ -254,6 +286,13 @@ def _filter_stock_df_by_brand(db: Session, store_id: str, stock, brand_slug):
         WHERE p.store_id = :sid AND b.slug = :slug
     """), {"sid": store_id, "slug": brand_slug}).fetchall()
     names = {r[0] for r in rows}
+    # 2026-09-20: preferimos Brand_ID (lo trae calculate_stock desde products.brand_id).
+    # El match por nombre se queda solo como fallback: se rompe si alguien renombra un producto.
+    if "Brand_ID" in stock.columns:
+        bid = _resolve_brand_id(db, store_id, brand_slug)
+        if not bid:
+            return stock.iloc[0:0]
+        return stock[stock["Brand_ID"].astype(str) == str(bid)].reset_index(drop=True)
     if not names:
         return stock.iloc[0:0]
     if "ProductoNombre" in stock.columns:
@@ -311,9 +350,9 @@ def get_reorder_list(db: Session, store_id: str, coverage_days: int = 30, brand_
     return reorder[available].fillna(0).sort_values("Unid_a_comprar", ascending=False).to_dict(orient="records")
 
 
-def get_top_creators(db: Session, store_id: str, n: int = 20) -> list:
+def get_top_creators(db: Session, store_id: str, n: int = 20, brand_slug: str | None = None) -> list:
     import pandas as pd
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return []
     rows = [{"Creator Username": a.creator_username, "Payment Amount": a.payment_amount or 0,
@@ -327,9 +366,9 @@ def get_top_creators(db: Session, store_id: str, n: int = 20) -> list:
     return top.to_dict(orient="records")
 
 
-def get_creator_by_type(db: Session, store_id: str) -> list:
+def get_creator_by_type(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     import pandas as pd
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return []
     rows = [{"Content Type": a.content_type, "Payment Amount": a.payment_amount or 0,
@@ -343,9 +382,9 @@ def get_creator_by_type(db: Session, store_id: str) -> list:
     return result.to_dict(orient="records")
 
 
-def get_creator_by_month(db: Session, store_id: str) -> list:
+def get_creator_by_month(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     import pandas as pd
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return []
     rows = [{"Time Created": a.time_created, "Creator Username": a.creator_username,
@@ -441,9 +480,12 @@ def get_filtered_orders(db: Session, store_id: str,
     return {"total": total, "orders": rows}
 
 
-def get_frequent_buyers(db: Session, store_id: str, n: int = 50) -> list:
+def get_frequent_buyers(db: Session, store_id: str, n: int = 50,
+                        brand_slug: str | None = None) -> list:
     df = _load_orders_df(db, store_id)
-    if df.empty or "Buyer Username" not in df.columns:
+    # 2026-09-20: no tenia scoping de marca ninguno.
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
+    if df is None or df.empty or "Buyer Username" not in df.columns:
         return []
     # OrderAmount is order-level (same value on all SKU lines) — deduplicate before summing
     order_level = df.drop_duplicates(subset=["Buyer Username", "Order ID"])
@@ -458,7 +500,9 @@ def get_frequent_buyers(db: Session, store_id: str, n: int = 50) -> list:
 
 def get_top_combos(db: Session, store_id: str, n: int = 15, brand_slug: str | None = None) -> list:
     df = _load_orders_df(db, store_id)
-    if df.empty:
+    # 2026-09-20 FIX FUGA: aceptaba brand_slug y NO lo usaba -> top combos de todas las marcas.
+    df = _filter_df_by_brand(db, store_id, df, brand_slug)
+    if df is None or df.empty:
         return []
     if "Order Status" in df.columns:
         df = df[~df["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
@@ -477,7 +521,9 @@ def get_top_combos(db: Session, store_id: str, n: int = 15, brand_slug: str | No
 
 def get_finances(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     stock = _get_stock_df(db, store_id)
-    if stock.empty:
+    # 2026-09-20 FIX FUGA: aceptaba brand_slug y NO lo usaba -> valor de inventario mezclado.
+    stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
+    if stock is None or stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "StockActualizado", "Coste", "PRECIO", "ValorInventario"]
     available = [c for c in cols if c in stock.columns]
@@ -499,9 +545,10 @@ def get_filtered_affiliates(db: Session, store_id: str,
                              content_type: Optional[str] = None, creator: Optional[str] = None,
                              product: Optional[str] = None, order_id: Optional[str] = None,
                              order_status: Optional[str] = None,
-                             limit: int = 1000) -> dict:
+                             limit: int = 1000,
+                             brand_slug: str | None = None) -> dict:
     import pandas as pd
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return {"total": 0, "orders": []}
 
@@ -725,7 +772,8 @@ def get_combo_monthly_sales_pivot(db: Session, store_id: str,
 
 
 def get_creator_monthly_pivot(db: Session, store_id: str,
-                               year: Optional[int] = None) -> dict:
+                               year: Optional[int] = None,
+                               brand_slug: str | None = None) -> dict:
     """Pivot creators × [muestras_gratis, muestras_compradas, m01..m12, total_ventas_año].
     - muestras_gratis: órdenes en sales_orders con buyer_username == creator_username y order_amount == 0
     - muestras_compradas: idem pero order_amount > 0
@@ -735,7 +783,7 @@ def get_creator_monthly_pivot(db: Session, store_id: str,
     from sqlalchemy import func
     from app.models import SalesOrder
 
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return {"years": [], "rows": []}
     aff = pd.DataFrame([{
@@ -814,9 +862,9 @@ def get_creator_monthly_pivot(db: Session, store_id: str,
     return {"years": years_available, "rows": rows, "year_active": int(year) if year else None}
 
 
-def get_viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5) -> list:
+def get_viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5, brand_slug: str | None = None) -> list:
     import pandas as pd
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return []
     rows = [{"Creator Username": a.creator_username, "Product Name": a.product_name,
@@ -836,9 +884,9 @@ def get_viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int 
     return grp[grp["Unidades"] >= threshold].sort_values("Unidades", ascending=False).to_dict(orient="records")
 
 
-def get_creator_own_orders(db: Session, store_id: str) -> list:
+def get_creator_own_orders(db: Session, store_id: str, brand_slug: str | None = None) -> list:
     import pandas as pd
-    affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+    affiliates = _aff_q(db, store_id, brand_slug).all()
     if not affiliates:
         return []
     creators_lower = {a.creator_username.strip().lower() for a in affiliates if a.creator_username}
@@ -966,7 +1014,7 @@ def get_overview_metrics_filtered(db: Session, store_id: str,
 
     # Affiliate data is TikTok-specific — skip when filtering to Amazon only
     if platform != 'amazon':
-        affiliates = db.query(AffiliateSale).filter(AffiliateSale.store_id == store_id).all()
+        affiliates = _aff_q(db, store_id, brand_slug).all()
         aff_rows = []
         for a in affiliates:
             aff_rows.append({

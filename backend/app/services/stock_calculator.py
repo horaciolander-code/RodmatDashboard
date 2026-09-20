@@ -99,7 +99,8 @@ def _load_orders_df(db: Session, store_id: str):
             variation                AS "Variation",
             state                    AS "State",
             city                     AS "City",
-            COALESCE(platform, 'tiktok') AS "Platform"
+            COALESCE(platform, 'tiktok') AS "Platform",
+            brand_id                 AS "Brand ID"
         FROM sales_orders
         WHERE store_id = :sid
     """), {"sid": store_id})
@@ -350,7 +351,7 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
 
     from sqlalchemy import text as _text
     _inv = db.execute(_text("""
-        SELECT p.name AS product_name, p.id AS product_id, p.category, ii.quantity
+        SELECT p.name AS product_name, p.id AS product_id, p.category, p.brand_id, ii.quantity
         FROM initial_inventory ii
         JOIN products p ON p.id = ii.product_id
         WHERE ii.store_id = :sid
@@ -360,15 +361,17 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
                      "ProductoNombre": r.product_name,
                      "Initial_Stock": r.quantity,
                      "Tipo": r.category,
+                     "Brand_ID": r.brand_id,
                      "product_id": r.product_id} for r in _inv]
         inv_stock = pd.DataFrame(inv_rows).groupby("ProductKey").agg(
             Initial_Stock=("Initial_Stock", "sum"),
             Tipo=("Tipo", "first"),
             ProductoNombre=("ProductoNombre", "first"),
+            Brand_ID=("Brand_ID", "first"),
             product_id=("product_id", "first"),
         ).reset_index()
     else:
-        inv_stock = pd.DataFrame(columns=["ProductKey", "Initial_Stock", "Tipo", "ProductoNombre", "product_id"])
+        inv_stock = pd.DataFrame(columns=["ProductKey", "Initial_Stock", "Tipo", "ProductoNombre", "Brand_ID", "product_id"])
     _inc = db.execute(_text("""
         SELECT p.name AS product_name, COALESCE(i.status, 'pending') AS status, i.qty_ordered
         FROM incoming_stock i
