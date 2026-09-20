@@ -46,7 +46,11 @@ def _viral_alerts(db: Session, store_id: str, threshold: int = 20, days: int = 5
 
 
 
-def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
+def _bank_deposit_summary_html(db: Session, store_id: str,
+                               brand_slug: str | None = None) -> str:
+    """2026-09-20: con brand_slug el bloque se limita a esa marca. Antes enseñaba
+    SIEMPRE el desglose Avon / LuxPerfumes lado a lado — en el informe de una marca
+    eso es filtrar la cifra de la otra."""
     """Bloque compacto al inicio del daily con dinero settled del ÚLTIMO DÍA disponible
     (típicamente ayer, se actualiza al subir el statement). Desglose por brand
     Avon / LuxPerfumes. Solo si el store tiene tiktok_statements habilitado."""
@@ -86,6 +90,10 @@ def _bank_deposit_summary_html(db: Session, store_id: str) -> str:
     avon = float(row.avon or 0)
     lux = float(row.lux or 0)
     total = float(row.total or 0)
+    if brand_slug == 'avon':
+        lux = 0.0; total = avon
+    elif brand_slug == 'luxperfumes':
+        avon = 0.0; total = lux
     n = int(row.n_orders or 0)
     # Etiqueta legible: "ayer" si es CURRENT_DATE-1, si no fecha
     from datetime import date as _date, timedelta as _td
@@ -147,6 +155,11 @@ def build_report(db: Session, store_id: str,
 
     store = db.query(Store).filter(Store.id == store_id).first()
     store_name   = (brand_name or (store.name if store else "Store"))
+    _report_brand_slug = None
+    if brand_id:
+        from sqlalchemy import text as _t2
+        _r2 = db.execute(_t2("SELECT slug FROM brands WHERE id=:b"), {"b": brand_id}).fetchone()
+        _report_brand_slug = _r2[0] if _r2 else None
     low_threshold = store.settings.get("low_stock_threshold", LOW_STOCK_THRESHOLD) if store and store.settings else LOW_STOCK_THRESHOLD
     stale_days    = store.settings.get("stale_order_days",    STALE_ORDER_DAYS)    if store and store.settings else STALE_ORDER_DAYS
 
@@ -251,6 +264,11 @@ def build_report(db: Session, store_id: str,
     try:
         from app.services.analytics_service import _get_stock_df
         stock = _get_stock_df(db, store_id)
+        # 2026-09-20 FIX: la seccion de stock NO estaba filtrada por marca. El informe
+        # de LuxPerfumes listaba 18 productos cuando la marca solo tiene 11 -> incluia
+        # productos de Avon. Detectado en el preview antes del primer envio.
+        if brand_id and stock is not None and not stock.empty and "Brand_ID" in stock.columns:
+            stock = stock[stock["Brand_ID"].astype(str) == str(brand_id)].reset_index(drop=True)
     except Exception:
         stock = pd.DataFrame()
 
@@ -473,7 +491,7 @@ def build_report(db: Session, store_id: str,
         <h1 style="margin:0;font-size:24px;">{store_name} - Daily Report</h1>
         <p style="margin:8px 0 0;font-size:14px;opacity:0.9;">{now.strftime('%A %d de %B, %Y')}</p>
       </div>
-      {_bank_deposit_summary_html(db, store_id)}
+      {_bank_deposit_summary_html(db, store_id, brand_slug=_report_brand_slug)}
       {"".join(sections)}
       <div style="text-align:center;padding:20px;color:#8892b0;font-size:11px;">
         Generado automaticamente por {store_name} Dashboard<br>
