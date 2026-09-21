@@ -179,3 +179,42 @@ def test_los_agentes_respetan_la_marca():
         if not usa_marca:
             fallos.append(f"{f.name}: elige destinatarios sin tener en cuenta la marca")
     assert not fallos, "Agentes con el scoping de marca incompleto:\n  - " + "\n  - ".join(fallos)
+
+
+def test_el_resolutor_de_marca_mira_los_combos():
+    """Bug del 21-sep — el peor de todos porque no rompe nada, solo pierde filas.
+
+    `_resolve_brand_id` buscaba el SKU de la venta en products.sku. Pero las ordenes
+    traen SKU de COMBO. Para Atralia colaba por el prefijo (AT-), para Lattafa no:
+    sus combos son LT-* y la nota de la marca decia LAT-* (prefijo de PRODUCTO).
+    Cada carga de Lattafa entraba sin marca y desaparecia del P&L de LuxPerfumes,
+    sin un solo error en los logs. Se descubrio porque finanzas cuadro a mano y
+    le salia otro numero.
+    """
+    src = (ROOT / "app" / "services" / "import_service.py").read_text(encoding="utf-8")
+    ini = src.index("def _get_brand_maps(")
+    fin = src.index("def _resolve_brand_id(")
+    cuerpo = src[ini:fin]
+    assert "FROM combos" in cuerpo, (
+        "_get_brand_maps no consulta la tabla combos. Las ordenes traen SKU de combo: "
+        "si solo se mira products.sku, las marcas cuyo prefijo de combo no coincide "
+        "con el de producto entran sin marca y desaparecen de los filtros.")
+    assert "combo_sku" in cuerpo, "falta el mapeo combos.combo_sku -> brand_id"
+
+
+def test_los_parsers_que_escriben_marca_la_resuelven():
+    """Cada parser que inserta en una tabla con brand_id debe resolverlo.
+    Se olvido en afiliados (20-sep) y en ordenes/statements (21-sep)."""
+    src = (ROOT / "app" / "services" / "import_service.py").read_text(encoding="utf-8")
+    fallos = []
+    for parser in ("parse_orders_csv", "parse_affiliate_csv",
+                   "parse_tiktok_statement_xlsx", "parse_amazon_txt", "parse_walmart_xlsx"):
+        if f"def {parser}(" not in src:
+            continue
+        ini = src.index(f"def {parser}(")
+        sig = src.find("\ndef ", ini + 1)
+        cuerpo = src[ini: sig if sig > 0 else len(src)]
+        if "brand_id=" not in cuerpo:
+            fallos.append(f"{parser}: no asigna brand_id al insertar")
+    assert not fallos, ("Parsers que escriben sin marca (la fila entra en NULL y "
+                        "desaparece de los filtros):\n  - " + "\n  - ".join(fallos))

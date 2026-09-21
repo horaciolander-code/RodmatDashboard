@@ -24,8 +24,14 @@ _BRAND_MAP_CACHE: dict[str, tuple[dict, dict]] = {}  # store_id → (sku_to_bran
 
 def _get_brand_maps(db, store_id: str):
     """Return (sku_to_brand_id, prefix_to_brand_id) for the store.
-    Cached per-call to avoid N queries during bulk import.
-    Empty dicts if brands_enabled=False for the store."""
+
+    2026-09-21 — el sku_map se construia SOLO con products.sku, pero las ordenes
+    traen SKU de COMBO. Para Atralia colaba de milagro por el prefijo (AT-), y
+    para Lattafa NO: sus combos son LT-* y la nota de la marca decia LAT-* (que
+    es el prefijo de los PRODUCTOS). Resultado: cada carga nueva de Lattafa
+    entraba con brand_id NULL y desaparecia del filtro de LuxPerfumes.
+    Ahora combos.combo_sku -> combos.brand_id es la fuente principal para combos.
+    """
     if store_id in _BRAND_MAP_CACHE:
         return _BRAND_MAP_CACHE[store_id]
     from sqlalchemy import text as _t
@@ -36,6 +42,16 @@ def _get_brand_maps(db, store_id: str):
         WHERE p.store_id = :sid AND p.brand_id IS NOT NULL
     """), {"sid": store_id}).fetchall()
     sku_map = {r[0]: r[1] for r in rows if r[0]}
+    # Los SKU que llegan en las ordenes son de COMBO: esta es la fuente correcta.
+    combo_rows = db.execute(_t("""
+        SELECT c.combo_sku, c.brand_id
+        FROM combos c
+        WHERE c.store_id = :sid AND c.brand_id IS NOT NULL
+    """), {"sid": store_id}).fetchall()
+    for csku, bid in combo_rows:
+        if csku:
+            sku_map.setdefault(csku, bid)          # no pisa un match de producto
+            sku_map.setdefault(csku.upper(), bid)
     # Prefix fallback: build from brands.sku_prefixes_note (comma-separated prefixes like 'AV-*, LAT-*')
     prefix_map: dict[str, str] = {}
     brand_rows = db.execute(_t("""
@@ -52,14 +68,18 @@ def _get_brand_maps(db, store_id: str):
 
 
 def _resolve_brand_id(sku: str | None, sku_map: dict, prefix_map: dict) -> str | None:
-    """Resolve brand_id for a SKU:
-    1) Exact SKU match in products → use products.brand_id (source of truth)
-    2) Prefix match (AV-*, AT-*, LAT-*) → fallback for combos/variants no dados de alta
-    3) None → row stays NULL (log-worthy)"""
+    """Resuelve el brand_id de un SKU de venta:
+    1) Coincidencia exacta en el mapa (products.sku + combos.combo_sku)
+    2) Igual pero en mayusculas, por si el fichero viene con otra caja
+    3) Fallback por prefijo desde brands.sku_prefixes_note
+    4) None -> la fila se queda sin marca y desaparece de los filtros
+    """
     if not sku:
         return None
     if sku in sku_map:
         return sku_map[sku]
+    if sku.upper() in sku_map:
+        return sku_map[sku.upper()]
     # Prefix fallback: extraer "AV" de "AV-RG" o "AV-RPG/2"
     import re as _re
     m = _re.match(r"^([A-Z]{2,5})-", sku.upper())
@@ -921,8 +941,18 @@ def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batc
         if not oid: continue
         pay_map[(str(oid), str(sid) if sid else None)] = row
 
-    # Cargar brand map (SKU→brand_id) para resolver via sales_orders JOIN
+    # Cargar brand map (SKU→brand_id) para resolver via sales_orders JOIN.
+    # 2026-09-21: esto dependia al 100% de que la orden YA tuviera marca. Si la
+    # orden entro sin marca (bug del prefijo LT-), la linea del statement heredaba
+    # el NULL y el P&L de la marca se quedaba corto sin avisar. Ahora hay respaldo
+    # por SKU contra products+combos.
     from sqlalchemy import text
+    # Respaldo: SKU numerico de TikTok -> marca, tomado de cualquier orden del
+    # store que ya la tenga resuelta. Se auto-cura en cuanto las ordenes estan bien.
+    _brand_by_sku = {str(r[0]): r[1] for r in db.execute(text("""
+        SELECT DISTINCT sku, brand_id FROM sales_orders
+        WHERE store_id = :sid AND brand_id IS NOT NULL AND sku IS NOT NULL
+    """), {"sid": store_id}).fetchall() if r[0]}
     brand_by_order = {}
     order_ids = list(set(str(r[idx["Order ID"]]) for r in ws1.iter_rows(min_row=7, values_only=True) if r[idx["Order ID"]]))
     if order_ids:
@@ -1000,7 +1030,8 @@ def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batc
             sku_subtotal_after=_num(g2(pay, "SKU Subtotal After Discount")),
             order_amount=_num(g2(pay, "Order Amount")),
             taxes=_num(g2(pay, "Taxes")),
-            brand_id=brand_by_order.get(oid),
+            brand_id=(brand_by_order.get(oid)
+                      or _brand_by_sku.get(str(sid) if sid else "")),
             import_batch_id=batch_id,
         )
         lines.append(line)
