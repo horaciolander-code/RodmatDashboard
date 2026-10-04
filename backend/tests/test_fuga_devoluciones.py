@@ -7,19 +7,36 @@ fugaba 620 u en el catálogo 2026 (Far Away Original 101, Imari Skin Softener 85
 Sin BD: se stubean sqlalchemy y app.models para poder importar el módulo suelto.
     python backend/tests/test_fuga_devoluciones.py
 """
-import sys, types, pathlib
+import importlib, sys, types, pathlib
 
 _BACKEND = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BACKEND))
 
+def _stub(nombre):
+    """Inyecta un módulo falso SOLO si el real no se puede importar.
+
+    Los stubs viven en sys.modules el resto de la sesión de pytest, así que un
+    test posterior que importe sqlalchemy de verdad se comería el falso sin
+    enterarse. Comprobando antes, en un entorno con las dependencias instaladas
+    no se inyecta nada y no hay contaminación posible.
+    """
+    if nombre in sys.modules:
+        return
+    try:
+        importlib.import_module(nombre)
+        return
+    except Exception:
+        pass
+    m = types.ModuleType(nombre)
+    for attr in ("Session", "SalesOrder", "Combo", "ComboItem", "Product",
+                 "InitialInventory", "IncomingStock", "text"):
+        setattr(m, attr, object)
+    sys.modules[nombre] = m
+
+
 for _name in ("sqlalchemy", "sqlalchemy.orm", "app.models.sales", "app.models.combo",
               "app.models.product", "app.models.inventory"):
-    if _name not in sys.modules:
-        _m = types.ModuleType(_name)
-        for _attr in ("Session", "SalesOrder", "Combo", "ComboItem", "Product",
-                      "InitialInventory", "IncomingStock", "text"):
-            setattr(_m, _attr, object)
-        sys.modules[_name] = _m
+    _stub(_name)
 
 import pandas as pd
 from app.services.stock_calculator import build_shipped_components
@@ -48,10 +65,24 @@ def test_enviada_con_devolucion_si_descuenta():
     assert _qty(df) == 3, "orden enviada con devolución debe descontar"
 
 
-def test_cancelada_antes_de_enviar_no_descuenta():
-    """Cancelada sin salir del almacén: no descuenta."""
+def test_cancelada_con_estado_canceled_no_descuenta():
+    """Guardia de regresión del filtro de estado previo, NO del filtro de
+    devoluciones: 'Canceled' se descarta antes de llegar a él."""
     df = pd.DataFrame([_fila("2026-08-25", "Canceled", None, "Cancel", qty=3)])
     assert _qty(df) == 0, "cancelación previa al envío no debe descontar"
+
+
+def test_cancelada_sin_enviar_pero_con_estado_de_envio_no_descuenta():
+    """EL CASO QUE DECIDE si el filtro de devoluciones sirve de algo.
+
+    Estado de envío pero SIN Shipped Time y con cancelación: nunca salió del
+    almacén, así que no puede descontar. Si `_ya_salio_del_almacen` vuelve a
+    mirar el estado además de la marca de tiempo, reconstruye el filtro previo,
+    el bloque entero pasa a ser un no-op y este caso devuelve 5 en vez de 0.
+    """
+    for estado in ("Completed", "Delivered", "Shipped"):
+        df = pd.DataFrame([_fila("2026-08-25", estado, None, "Cancel", qty=5)])
+        assert _qty(df) == 0, f"'{estado}' sin Shipped Time y cancelada no debe descontar"
 
 
 def test_venta_normal_descuenta():
