@@ -180,6 +180,32 @@ def decompose_orders(df, combo_dict: dict, db: Session = None, store_id: str = N
     return non_combo
 
 
+def _sin_cancelar(df):
+    """True donde la orden no tiene tipo de cancelación/devolución registrado."""
+    col = df["Cancelation/Return Type"]
+    return col.isin(["nan", "", "None", None]) | col.isna()
+
+
+def _ya_salio_del_almacen(df):
+    """True donde consta que la mercancía salió físicamente: hay Shipped Time.
+
+    Solo cuenta la marca de tiempo, NO el estado. El estado no vale como prueba
+    aquí: cuando se llama a esta función el frame ya está filtrado a
+    `Shipped Time notna | estado de envío`, así que mirar también el estado
+    devolvería todo True y el filtro de devoluciones no descartaría nada —
+    equivaldría a borrarlo. Con solo Shipped Time, una orden cancelada antes de
+    salir sigue sin descontar aunque arrastre un estado de envío.
+
+    Sin la columna no hay prueba de salida: se devuelve False y manda
+    `_sin_cancelar`. Amazon y Walmart no escriben Shipped Time, pero tampoco
+    escriben cancelación, así que no les afecta.
+    """
+    import pandas as pd
+    if "Shipped Time" not in df.columns:
+        return pd.Series(False, index=df.index)
+    return df["Shipped Time"].notna()
+
+
 def build_shipped_components(decomposed, initial_date):
     import pandas as pd
     df = decomposed.copy()
@@ -198,8 +224,12 @@ def build_shipped_components(decomposed, initial_date):
         df = df[mask_status]
 
     if "Cancelation/Return Type" in df.columns:
-        df = df[df["Cancelation/Return Type"].isin(["nan", "", "None", None]) |
-                df["Cancelation/Return Type"].isna()]
+        # Una orden que YA salió del almacén descuenta stock aunque después se
+        # registre Return/Refund: la mercancía se envió físicamente. Descartarla
+        # fugaba 620 u en 2026 (Far Away Original 101, Imari Skin Softener 85,
+        # Far Away Skin Softener 67, Imari EDP 35, Wild Country Deo 34...).
+        # Solo se ignoran las cancelaciones PREVIAS al envío, que nunca salieron.
+        df = df[_sin_cancelar(df) | _ya_salio_del_almacen(df)]
 
     shipped = df.groupby("ComponentKey").agg(QtyShipped=("ComponentQty", "sum")).reset_index()
     return shipped
@@ -447,7 +477,9 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
             else:
                 _sd = _sd[_mask_s]
         if "Cancelation/Return Type" in _sd.columns:
-            _sd = _sd[_sd["Cancelation/Return Type"].isin(["nan", "", "None", None]) | _sd["Cancelation/Return Type"].isna()]
+            # Mismo criterio que build_shipped_components: lo enviado descuenta
+            # aunque luego haya Return/Refund (ver comentario allí).
+            _sd = _sd[_sin_cancelar(_sd) | _ya_salio_del_almacen(_sd)]
         _is_fbt_mask = _sd["Is_FBT"] if "Is_FBT" in _sd.columns else pd.Series(False, index=_sd.index)
         _wh_agg = _sd[~_is_fbt_mask].groupby("ComponentKey").agg(QtyShipped_WH=("ComponentQty", "sum")).reset_index()
         _wh_agg["ProductKey"] = _wh_agg["ComponentKey"].str.strip().str.lower()
