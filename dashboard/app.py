@@ -1880,9 +1880,16 @@ def page_gestion_combos():
             )
 
             if plataforma.startswith("tiktok"):
+                # El tope estaba en 12 y dejaba fuera combos reales: el "Classics
+                # Collection SET of 15" (5 fragancias x 3 formatos) no se podía dar
+                # de alta, así que su SKU nunca descontó stock — ni en TikTok
+                # (av-ccs/15) ni en TEMU. 30 da margen de sobra: el combo más
+                # grande que existía hasta hoy tenía 10 componentes.
                 n_products = st.number_input(
                     "¿Cuántos productos DISTINTOS contiene este combo?",
-                    min_value=1, max_value=12, value=1, step=1, key="combo_n_prods",
+                    min_value=1, max_value=30, value=1, step=1, key="combo_n_prods",
+                    help="Productos distintos, no unidades. Si el combo lleva el mismo "
+                         "producto varias veces, ponlo una vez y sube su Cantidad.",
                 )
                 selected_products = []
                 selected_qtys = []
