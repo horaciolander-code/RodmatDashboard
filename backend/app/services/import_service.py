@@ -1132,3 +1132,231 @@ def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batc
         "matched_to_orders": matched,
         "unmatched": len(lines) - matched,
     }
+
+
+# ─── TEMU ────────────────────────────────────────────────────────────────────
+# El extracto de TEMU no es un export de pedidos: es un listado de transacciones
+# donde cada concepto va en su propia fila, unidas por "ID del pedido".
+#
+#   · Order Payment ............ la venta
+#   · Shipping label purchase .. NUESTRO coste de envío, en fila aparte
+#   · Shipping label purchase adjustment .. corrección de la anterior
+#   · Refund ................... espejo negativo de una venta
+#   · Delayed fulfillment deduction .. penalización por enviar tarde
+#   · Transfer ................. dinero saliendo a nuestro banco.
+#                                NO ES UN COSTE: sumarlo duplica el gasto en
+#                                el P&L. Se ignora a propósito.
+#
+# La parte de construcción de filas vive aparte de la de base de datos para
+# poder probarla sin conexión (ver backend/tests/test_temu_import.py).
+
+TEMU_COLUMNAS_MINIMAS = {
+    "Tipo de transacción", "ID del pedido", "SKU ID", "Cantidad", "Subtotal", "Total",
+}
+
+
+def construir_filas_temu(df, store_id: str, batch_id: str | None,
+                         marca_por_sku: dict) -> tuple[list[dict], dict]:
+    """Convierte el extracto de TEMU en filas de sales_orders. Sin tocar la BD.
+
+    Devuelve (filas, resumen). `marca_por_sku` mapea el SKU ID de TEMU al
+    brand_id de su combo: la marca se toma de ahí y no se adivina por prefijo.
+    """
+    import uuid as _uuid
+
+    tipo = df["Tipo de transacción"].astype(str).str.strip()
+
+    # 1ª pasada: coste de etiqueta y fecha de salida, por pedido.
+    # La compra de la etiqueta es la única prueba de que la mercancía salió del
+    # almacén — TEMU no informa fecha de envío — y el cálculo de stock la mira
+    # para decidir si una orden con devolución posterior descuenta o no.
+    envios: dict[str, float] = {}
+    fecha_envio: dict[str, datetime] = {}
+    for _, row in df[tipo.str.startswith("Shipping label")].iterrows():
+        pedido = _safe_str(row.get("ID del pedido"))
+        if not pedido:
+            continue
+        # Los costes vienen en negativo y los abonos en positivo: hay que
+        # invertir el signo, NO tomar el valor absoluto. Un "Shipping label
+        # purchase adjustment" de +0,58 es dinero que nos devuelven, así que
+        # baja el coste; con abs() lo subiría.
+        envios[pedido] = envios.get(pedido, 0.0) - (_safe_float(row.get("Total")) or 0.0)
+        f = _safe_datetime(row.get("Fecha/hora"))
+        if f and (pedido not in fecha_envio or f < fecha_envio[pedido]):
+            fecha_envio[pedido] = f
+
+    devoluciones: dict[tuple, float] = {}
+    for _, row in df[tipo == "Refund"].iterrows():
+        clave = (_safe_str(row.get("ID del pedido")), _safe_str(row.get("SKU ID")))
+        devoluciones[clave] = devoluciones.get(clave, 0.0) + abs(_safe_float(row.get("Subtotal")) or 0.0)
+
+    ventas = df[tipo == "Order Payment"]
+
+    # Para prorratear el coste de la etiqueta entre las líneas de un mismo pedido
+    subtotal_pedido: dict[str, float] = {}
+    for _, row in ventas.iterrows():
+        p = _safe_str(row.get("ID del pedido"))
+        if p:
+            subtotal_pedido[p] = subtotal_pedido.get(p, 0.0) + abs(_safe_float(row.get("Subtotal")) or 0.0)
+
+    filas: list[dict] = []
+    errores = 0
+    sin_combo: set[str] = set()
+
+    for _, row in ventas.iterrows():
+        try:
+            pedido = _safe_str(row.get("ID del pedido"))
+            sku_id = _safe_str(row.get("SKU ID"))
+            if not pedido or not sku_id:
+                errores += 1
+                continue
+
+            qty = _safe_int(row.get("Cantidad")) or 1
+            subtotal = _safe_float(row.get("Subtotal")) or 0.0
+            total_pedido = subtotal_pedido.get(pedido) or 0.0
+            parte = (abs(subtotal) / total_pedido) if total_pedido else 1.0
+            devuelto = devoluciones.get((pedido, sku_id), 0.0)
+
+            if sku_id not in marca_por_sku:
+                sin_combo.add(sku_id)
+
+            filas.append(dict(
+                id=str(_uuid.uuid4()),
+                store_id=store_id,
+                tiktok_order_id=pedido,
+                order_date=_safe_datetime(row.get("Fecha/hora")),
+                # El identificador real del anuncio es "SKU ID" (numérico); la
+                # columna "SKU" es el TÍTULO. Se guarda en ambas porque el stock
+                # empareja por `Seller SKU ?? SKU ID` (stock_calculator).
+                sku=sku_id,
+                seller_sku=sku_id,
+                product_name=_safe_str(row.get("SKU")),
+                quantity=qty,
+                status="Completed",
+                substatus=None,
+                price=(subtotal / qty) if qty else subtotal,
+                shipped_time=fecha_envio.get(pedido),
+                created_time=_safe_datetime(row.get("Fecha/hora")),
+                sku_subtotal_after_discount=subtotal,
+                order_amount=_safe_float(row.get("Total")) or 0.0,
+                order_refund_amount=devuelto,
+                # lo que paga el comprador vs lo que nos cuesta a nosotros: el
+                # P&L resta `original_shipping_fee` como coste de transportista.
+                shipping_fee_after_discount=_safe_float(row.get("Envío")) or 0.0,
+                original_shipping_fee=round(envios.get(pedido, 0.0) * parte, 2),
+                sku_seller_discount=abs(_safe_float(row.get("Descuento del vendedor")) or 0.0),
+                sku_platform_discount=abs(_safe_float(row.get("Descuento en la plataforma")) or 0.0),
+                cancelation_return_type="Refund" if devuelto else None,
+                fulfillment_type="Seller",
+                buyer_username=None,
+                variation=None,
+                recipient=None,
+                city=_safe_str(row.get("Ciudad de envío")),
+                state=_safe_str(row.get("Estado del envío")),
+                platform="temu",
+                import_batch_id=batch_id,
+                raw_data=None,
+                brand_id=marca_por_sku.get(sku_id),
+            ))
+        except Exception:
+            logger.exception("TEMU: fila ilegible")
+            errores += 1
+
+    pedidos_con_venta = {f["tiktok_order_id"] for f in filas}
+    resumen = {
+        "errores": errores,
+        "sin_combo": sorted(sin_combo),
+        "envios": envios,
+        "envios_huerfanos": {p: c for p, c in envios.items() if p not in pedidos_con_venta},
+        "devoluciones": len(devoluciones),
+        "penalizaciones": float(sum(
+            abs(_safe_float(r.get("Total")) or 0.0)
+            for _, r in df[tipo == "Delayed fulfillment deduction"].iterrows())),
+        "transferencias": int((tipo == "Transfer").sum()),
+    }
+    return filas, resumen
+
+
+def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
+    """Importa el extracto de TEMU. UPSERT por (store_id, pedido, SKU): subirlo
+    dos veces no duplica, y subir un mes suelto no borra el histórico."""
+    import pandas as pd
+    from sqlalchemy import text as _text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig',
+                     dtype=str, keep_default_na=False, on_bad_lines='skip')
+    df.columns = df.columns.str.strip()
+
+    faltan = TEMU_COLUMNAS_MINIMAS - set(df.columns)
+    if faltan:
+        return {"total_rows": len(df), "inserted": 0, "updated": 0, "errors": len(df),
+                "unknown_skus": [],
+                "warning": f"No parece un extracto de TEMU: faltan las columnas {sorted(faltan)}"}
+
+    # La marca sale del combo del anuncio, no de adivinar por prefijo.
+    marca_por_sku = {
+        str(r.combo_sku).strip(): r.brand_id
+        for r in db.execute(_text(
+            "SELECT combo_sku, brand_id FROM combos WHERE store_id = :sid"),
+            {"sid": store_id}).fetchall()
+    }
+
+    filas, resumen = construir_filas_temu(df, store_id, batch_id, marca_por_sku)
+
+    _cols = [
+        'product_name', 'quantity', 'status', 'price', 'shipped_time',
+        'sku_subtotal_after_discount', 'order_amount', 'order_refund_amount',
+        'shipping_fee_after_discount', 'original_shipping_fee',
+        'sku_seller_discount', 'sku_platform_discount', 'cancelation_return_type',
+        'city', 'state', 'import_batch_id', 'brand_id', 'seller_sku',
+    ]
+    BATCH = 500
+    insertadas = 0
+    for i in range(0, len(filas), BATCH):
+        lote = filas[i:i + BATCH]
+        stmt = pg_insert(SalesOrder).values(lote)
+        stmt = stmt.on_conflict_do_update(
+            constraint='uq_store_order_sku',
+            set_={c: getattr(stmt.excluded, c) for c in _cols},
+        )
+        db.execute(stmt)
+        db.flush()
+        insertadas += len(lote)
+
+    # Etiquetas de pedidos que no vienen en este fichero (son de meses
+    # anteriores). Si el pedido ya está cargado se le añade el coste; si no,
+    # se informa para que no se pierda en silencio.
+    aplicadas, sin_pedido = 0, 0
+    for pedido, coste in resumen["envios_huerfanos"].items():
+        lineas = db.execute(_text(
+            "SELECT id, COALESCE(ABS(sku_subtotal_after_discount), 0) AS sub "
+            "FROM sales_orders WHERE store_id = :sid AND tiktok_order_id = :p"),
+            {"sid": store_id, "p": pedido}).fetchall()
+        if not lineas:
+            sin_pedido += 1
+            continue
+        total = sum(float(l.sub) for l in lineas)
+        for l in lineas:
+            parte = (float(l.sub) / total) if total else (1.0 / len(lineas))
+            db.execute(_text("UPDATE sales_orders SET original_shipping_fee = :c WHERE id = :i"),
+                       {"c": round(coste * parte, 2), "i": l.id})
+        aplicadas += 1
+
+    db.commit()
+
+    return {
+        "total_rows": len(df),
+        "inserted": insertadas,
+        "updated": 0,
+        "errors": resumen["errores"],
+        "unknown_skus": resumen["sin_combo"],
+        "detalle": (
+            f"{insertadas} líneas de venta · "
+            f"{len(resumen['envios'])} etiquetas ({sum(resumen['envios'].values()):.2f} $), "
+            f"{aplicadas} aplicadas a pedidos anteriores y {sin_pedido} sin pedido cargado · "
+            f"{resumen['devoluciones']} devoluciones · "
+            f"{resumen['penalizaciones']:.2f} $ de penalizaciones · "
+            f"{resumen['transferencias']} transferencias al banco ignoradas (no son coste)"
+        ),
+    }

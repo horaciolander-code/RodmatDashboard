@@ -43,7 +43,7 @@ interface ExternalStep {
   endpoint: string;
   accept: string;
   desc: string;
-  platform: 'tiktok' | 'amazon' | 'walmart';
+  platform: 'tiktok' | 'amazon' | 'walmart' | 'temu';
 }
 
 const RODMAT_STEPS: RodmatStep[] = [
@@ -59,6 +59,7 @@ const EXTERNAL_STEPS: ExternalStep[] = [
   { key: 'amazon',    label: '7. Amazon Orders',   endpoint: '/import/amazon',     accept: '.txt,.tsv,.csv', desc: 'Amazon order report .txt (Seller Central → Reports → Order Reports → All Orders)', platform: 'amazon' },
   { key: 'walmart',   label: '8. Walmart Orders',  endpoint: '/import/walmart',    accept: '.xlsx,.xls',     desc: 'Walmart Seller Center PO Data export (.xlsx). Sube SellerFulfilled y WFSFulfilled por separado.', platform: 'walmart' },
   { key: 'tiktok_stmt',label: '9. TikTok Merchant Statement', endpoint: '/import/tiktok-statement', accept: '.xlsx', desc: 'TikTok Seller Center → Finance → Merchant Statement (Profit & Loss) → Export XLSX. Dedup automático por order_id+sku_id.', platform: 'tiktok' },
+  { key: 'temu',      label: '10. TEMU Informes',  endpoint: '/import/temu',       accept: '.csv',           desc: 'TEMU Seller Center → Informes → exportar CSV. Extracto financiero: la venta, el coste de envío y la devolución van en filas distintas. Las transferencias al banco se ignoran, no son coste. UPSERT por pedido+SKU: subirlo dos veces no duplica.', platform: 'temu' },
 ];
 
 export default function DataImport() {

@@ -46,9 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const activeStoreId = activeStore?.id ?? user?.store_id ?? '';
   const activeStoreName = activeStore?.name ?? '';
   // Superadmin viewing any store gets ALL enabled; non-superadmin gets store-scoped from /auth/me.
+  // La lista va aquí a fuego: si se añade una plataforma al backend y no se toca
+  // esto, el superadmin no la ve y el tenant sin configurar tampoco.
+  const TODAS_LAS_PLATAFORMAS = ['tiktok', 'amazon', 'walmart', 'temu'];
   const platformsEnabled: string[] = isSuperadmin
-    ? ['tiktok', 'amazon', 'walmart']
-    : (user?.platforms_enabled ?? ['tiktok', 'amazon', 'walmart']);
+    ? TODAS_LAS_PLATAFORMAS
+    : (user?.platforms_enabled ?? TODAS_LAS_PLATAFORMAS);
   const modulesEnabled: Record<string, boolean> = isSuperadmin
     ? {}
     : (user?.modules_enabled ?? {});
