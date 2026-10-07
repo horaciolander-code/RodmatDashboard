@@ -21,6 +21,7 @@ from app.services.import_service import (
     parse_pending_inventory_excel,
     parse_amazon_txt,
     parse_walmart_xlsx,
+    parse_temu_csv,
     parse_tiktok_statement_xlsx,
 )
 
@@ -259,6 +260,51 @@ async def import_walmart_orders(
     db.flush()
 
     result = parse_walmart_xlsx(content, target, db, batch_id=batch_id)
+
+    history.rows_imported = result["inserted"]
+    history.rows_deleted = result.get("rows_deleted", 0)
+    db.commit()
+
+    _cache.clear()
+    _df_cache.clear()
+    from app.services.stock_calculator import clear_orders_df_cache
+    clear_orders_df_cache(target)
+    from app.services.scheduled_jobs import trigger_pending_jobs
+    background_tasks.add_task(trigger_pending_jobs, target)
+    return result
+
+
+@router.post("/temu", response_model=ImportResult)
+async def import_temu_orders(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    store_id: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Importa el extracto de transacciones de TEMU (.csv).
+
+    Es un extracto financiero, no un export de pedidos: la venta, el coste de
+    envío y la devolución van en filas distintas unidas por el ID del pedido.
+    Las transferencias al banco se ignoran a propósito — no son un coste.
+
+    UPSERT por pedido+SKU: subirlo dos veces no duplica, y subir un mes suelto
+    no borra el histórico."""
+    from app.services.analytics_service import _cache, _df_cache
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large.")
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=415, detail="Se espera el .csv de informes de TEMU.")
+
+    target = _target_store(user, store_id)
+    batch_id = str(uuid.uuid4())
+    history = ImportHistory(id=batch_id, store_id=target, import_type="temu",
+                            filename=file.filename, imported_by=user.email)
+    db.add(history)
+    db.flush()
+
+    result = parse_temu_csv(content, target, db, batch_id=batch_id)
 
     history.rows_imported = result["inserted"]
     history.rows_deleted = result.get("rows_deleted", 0)

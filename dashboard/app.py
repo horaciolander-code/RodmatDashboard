@@ -514,7 +514,7 @@ def apply_brand_filter_records(records, sku_key: str = "sku"):
 # ================================================================== #
 #  Per-tenant enabled platforms (defaults to all if not configured)
 # ================================================================== #
-ALL_PLATFORMS = ["tiktok", "amazon", "walmart"]
+ALL_PLATFORMS = ["tiktok", "amazon", "walmart", "temu"]
 
 def get_enabled_platforms() -> list[str]:
     """Returns list of platform keys enabled for the active tenant.
@@ -537,6 +537,7 @@ _PS = {
     "tiktok": {"bg": "#010101", "text": "white",   "emoji": "🎵", "label": "TikTok Shop"},
     "amazon": {"bg": "#FF9900", "text": "#232F3E", "emoji": "🛒", "label": "Amazon"},
     "walmart": {"bg": "#0071CE", "text": "#FFC220", "emoji": "🏬", "label": "Walmart"},
+    "temu":   {"bg": "#FB7701", "text": "white",   "emoji": "🧡", "label": "TEMU"},
 }
 
 def render_platform_selector(page_key: str) -> str | None:
@@ -1875,11 +1876,15 @@ def page_gestion_combos():
 
             plataforma = st.selectbox(
                 "Plataforma de este SKU",
-                options=["tiktok (combo multi-producto)", "amazon (SKU con units_per_sale)", "walmart (SKU con units_per_sale)"],
+                options=["tiktok (combo multi-producto)", "temu (combo multi-producto)",
+                         "amazon (SKU con units_per_sale)", "walmart (SKU con units_per_sale)"],
                 key="combo_assign_platform",
             )
 
-            if plataforma.startswith("tiktok"):
+            # TikTok y TEMU usan combos multi-producto; Amazon y Walmart usan
+            # sku_map con units_per_sale. Si TEMU cayera en la rama de abajo se
+            # crearía un mapeo de un solo producto y el combo no descompondría.
+            if plataforma.startswith("tiktok") or plataforma.startswith("temu"):
                 n_products = st.number_input(
                     "¿Cuántos productos DISTINTOS contiene este combo?",
                     min_value=1, max_value=12, value=1, step=1, key="combo_n_prods",
@@ -2491,6 +2496,29 @@ def page_import_upload():
                     st.success(f"Walmart: {result.get('inserted', 0)} filas importadas, "
                                f"{result.get('errors', 0)} errores. "
                                "El reporte por email se dispara solo en 1-2 min.")
+                    _refresh_after_import()
+
+            st.markdown("---")
+        if "temu" in get_enabled_platforms():
+            st.markdown("#### TEMU — Informes")
+            st.caption("CSV de informes de TEMU Seller. Es un extracto financiero: la venta, el coste de "
+                       "envío y la devolución van en filas distintas. Las transferencias al banco se "
+                       "ignoran a propósito, no son un coste.")
+            f_temu = st.file_uploader("Fichero TEMU (.csv)", type=["csv"], key="up_temu")
+            if st.button("Importar TEMU", key="btn_temu") and f_temu:
+                with st.spinner("Importando..."):
+                    result = api_post("/import/temu",
+                                      files={"file": (f_temu.name, f_temu.getvalue(), "text/csv")})
+                if result:
+                    st.success(f"TEMU: {result.get('inserted', 0)} líneas importadas, "
+                               f"{result.get('errors', 0)} errores.")
+                    if result.get("detalle"):
+                        st.info(result["detalle"])
+                    if result.get("unknown_skus"):
+                        st.warning(
+                            f"{len(result['unknown_skus'])} anuncio(s) de TEMU sin combo asignado — "
+                            "sus ventas NO descuentan stock hasta que los mapees en Gestión Combos: "
+                            + ", ".join(result["unknown_skus"][:10]))
                     _refresh_after_import()
 
             st.markdown("---")
