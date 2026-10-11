@@ -292,15 +292,17 @@ def fetch_platform_summary(date_from=None, date_to=None, brand_slug=None):
     return api_get("/analytics/platform-summary", params) or {}
 
 @st.cache_data(ttl=300)
-def fetch_stock_summary(coverage_days=30, brand_slug=None):
+def fetch_stock_summary(coverage_days=30, brand_slug=None, platform=None):
     params = {"coverage_days": coverage_days}
     if brand_slug: params["brand_slug"] = brand_slug
+    if platform: params["platform"] = platform
     return api_get("/analytics/stock-summary", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_stock_detail(coverage_days=30, brand_slug=None):
+def fetch_stock_detail(coverage_days=30, brand_slug=None, platform=None):
     params = {"coverage_days": coverage_days}
     if brand_slug: params["brand_slug"] = brand_slug
+    if platform: params["platform"] = platform
     return api_get("/analytics/stock-detail", params) or []
 
 @st.cache_data(ttl=300)
@@ -402,17 +404,19 @@ def fetch_combo_sales(date_from=None, date_to=None, brand_slug=None):
     return api_get("/analytics/combo-sales", params) or []
 
 @st.cache_data(ttl=300)
-def fetch_product_monthly_sales_pivot(year=None, brand_slug=None):
+def fetch_product_monthly_sales_pivot(year=None, brand_slug=None, platform=None):
     params = {}
     if year: params["year"] = year
     if brand_slug: params["brand_slug"] = brand_slug
+    if platform: params["platform"] = platform
     return api_get("/analytics/product-monthly-sales-pivot", params) or {"years": [], "rows": []}
 
 
-def fetch_combo_monthly_sales_pivot(year=None, brand_slug=None):
+def fetch_combo_monthly_sales_pivot(year=None, brand_slug=None, platform=None):
     params = {}
     if year: params["year"] = year
     if brand_slug: params["brand_slug"] = brand_slug
+    if platform: params["platform"] = platform
     return api_get("/analytics/combo-monthly-sales-pivot", params) or {"years": [], "rows": []}
 
 
@@ -588,6 +592,24 @@ def render_platform_selector(page_key: str) -> str | None:
                 st.session_state["platform_filter"] = platform_key
                 st.rerun()
     return p
+
+
+def render_platform_selector_bloqueado(motivo: str) -> None:
+    """Barra de canal visible pero FIJA en «todas», con el porqué escrito.
+
+    Para las pantallas cuyas cifras no se pueden partir por canal. Antes,
+    Finances pintaba el selector de verdad y luego pedía los datos sin canal:
+    pulsabas TEMU, los números no se movían y parecía una pantalla rota. Un
+    botón que no hace nada es peor que no tener botón.
+    """
+    sty = _PS[None]
+    st.markdown(f"""
+    <div style="background:{sty['bg']};color:{sty['text']};padding:8px 16px;border-radius:8px;
+         margin-bottom:4px;font-weight:700;font-size:14px;letter-spacing:0.4px;
+         box-shadow:0 2px 6px rgba(0,0,0,.25);opacity:.75;">
+      🔒 &nbsp; CANAL: todas las plataformas
+    </div>""", unsafe_allow_html=True)
+    st.caption(motivo)
 
 
 # ================================================================== #
@@ -790,10 +812,15 @@ def page_overview():
 # ================================================================== #
 def page_inventario_summary():
     st.header("Resumen de Inventario")
+    _platform = render_platform_selector("inv")
+    if _platform:
+        st.caption("Las ventas y la cobertura son solo de este canal. "
+                   "El stock, el valor y lo pendiente de recibir son los de la tienda entera: "
+                   "el almacen es uno solo y no se reparte por canal.")
 
     _u = st.session_state.get("cached_user") or {}
     _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
-    data = fetch_stock_summary(brand_slug=_bs)
+    data = fetch_stock_summary(brand_slug=_bs, platform=_platform)
     if not data:
         st.warning("Sin datos de inventario.")
         return
@@ -871,13 +898,13 @@ def page_inventario_summary():
     st.caption("Unidades vendidas por mes tras descomponer combos. Filtro por producto/categoría y año.")
 
     # Cargar datos (año actual por defecto)
-    _pmsp_first = fetch_product_monthly_sales_pivot(brand_slug=_bs)
+    _pmsp_first = fetch_product_monthly_sales_pivot(brand_slug=_bs, platform=_platform)
     years_pmsp = _pmsp_first.get("years", [])
     if years_pmsp:
         col_y1, col_y2, col_y3 = st.columns([1, 2, 2])
         with col_y1:
             year_sel = st.selectbox("Año", years_pmsp, index=0, key="pmsp_year")
-        pmsp_data = fetch_product_monthly_sales_pivot(year=year_sel, brand_slug=_bs)
+        pmsp_data = fetch_product_monthly_sales_pivot(year=year_sel, brand_slug=_bs, platform=_platform)
         rows_p = pmsp_data.get("rows", [])
         if rows_p:
             df_p = pd.DataFrame(rows_p)
@@ -910,13 +937,13 @@ def page_inventario_summary():
     st.subheader("📅 Ventas Mensuales por Combo")
     st.caption("Unidades vendidas por combo (Seller SKU + descripción, nivel de orden sin descomponer). Filtro por SKU/descripción y año.")
 
-    _cmsp_first = fetch_combo_monthly_sales_pivot(brand_slug=_bs)
+    _cmsp_first = fetch_combo_monthly_sales_pivot(brand_slug=_bs, platform=_platform)
     years_cmsp = _cmsp_first.get("years", [])
     if years_cmsp:
         col_c1, col_c2 = st.columns([1, 3])
         with col_c1:
             year_c = st.selectbox("Año", years_cmsp, index=0, key="cmsp_year")
-        cmsp_data = fetch_combo_monthly_sales_pivot(year=year_c, brand_slug=_bs)
+        cmsp_data = fetch_combo_monthly_sales_pivot(year=year_c, brand_slug=_bs, platform=_platform)
         rows_c = cmsp_data.get("rows", [])
         if rows_c:
             df_c = pd.DataFrame(rows_c)
@@ -948,6 +975,11 @@ def page_inventario_summary():
 # ================================================================== #
 def page_restock_analysis():
     st.header("Análisis de Reabastecimiento")
+    render_platform_selector_bloqueado(
+        "Lo que hay que comprar se calcula con la venta TOTAL, no la de un canal. "
+        "Filtrando por uno, la velocidad baja, la cobertura se dispara y las unidades "
+        "a comprar salen cortas: comprarias para ese canal y te quedarias sin stock "
+        "para los demas. Para ver la venta de un canal suelto, Resumen de Inventario.")
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -1128,8 +1160,14 @@ def page_afiliados():
         _bn = next((b["display_name"] for b in (_u.get("available_brands") or []) if b["slug"] == _bs), _bs)
         st.info(f"ℹ️ Filtro marca activo: **{_bn}**. Las métricas de creators/afiliados son agregadas del store (los creators pueden generar ventas cross-brand).")
     _platform = render_platform_selector("afl")
-    if _platform == "amazon":
-        st.warning("Los afiliados y creadores son exclusivos de TikTok Shop. No hay datos de creadores en Amazon. Selecciona **Todos** o **TikTok** para ver esta sección.")
+    # Antes esto solo bloqueaba Amazon: con Walmart o TEMU seleccionados se
+    # pintaban los datos de creadores de TikTok como si fueran de ese canal.
+    # Los creadores son exclusivos de TikTok Shop, asi que se bloquea TODO lo
+    # que no sea TikTok.
+    if _platform and _platform != "tiktok":
+        _nombre = _PS.get(_platform, {}).get("label", _platform)
+        st.warning(f"Los afiliados y creadores son exclusivos de TikTok Shop: no hay datos de "
+                   f"creadores en {_nombre}. Selecciona **Todos** o **TikTok** para ver esta sección.")
         return
 
     cr_monthly = fetch_creator_by_month(brand_slug=_bs)
@@ -1336,7 +1374,10 @@ def page_afiliados():
 # ================================================================== #
 def page_finances():
     st.header("Finances")
-    render_platform_selector("fin")
+    render_platform_selector_bloqueado(
+        "Esta pantalla es valoracion de inventario (unidades x coste): no lleva ni una "
+        "cifra de ventas, asi que no hay nada que partir por canal. Un bote de perfume "
+        "en el almacen vale lo mismo lo venda quien lo venda.")
     _u = st.session_state.get("cached_user") or {}
     _bs = get_current_brand_slug() if _u.get("brands_enabled") else None
     _raw = fetch_finances(brand_slug=_bs)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models.user import User
 from app.dependencies import get_current_user
 from app.services import analytics_service as svc
+from app.services.stock_calculator import PLATAFORMAS
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -21,6 +22,21 @@ def _resolve_brand_slug(user: User, db: Session, brand_slug: Optional[str]) -> O
     return brand_slug or None
 
 
+
+
+def _validar_plataforma(platform: Optional[str]) -> Optional[str]:
+    """Un canal mal escrito tiene que fallar, no devolver ceros en silencio.
+
+    Sin esto, `?platform=tenu` sale con 200 y todas las ventas a 0, y eso se
+    lee como «este mes no hemos vendido nada».
+    """
+    if not platform:
+        return None
+    p = platform.strip().lower()
+    if p not in PLATAFORMAS:
+        raise HTTPException(status_code=400,
+                            detail=f"Canal desconocido: {platform!r}. Validos: {', '.join(PLATAFORMAS)}")
+    return p
 
 @router.get("/overview")
 def overview(
@@ -79,22 +95,26 @@ def platform_summary(
 def stock_summary(
     coverage_days: int = 30,
     brand_slug: Optional[str] = None,
+    platform: Optional[str] = Query(None, description="Acota SOLO las ventas a un canal; el stock fisico sigue siendo el de todos"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _bs = _resolve_brand_slug(user, db, brand_slug)
-    return svc.get_stock_summary(db, user.store_id, coverage_days, brand_slug=_bs)
+    return svc.get_stock_summary(db, user.store_id, coverage_days, brand_slug=_bs,
+                           platform=_validar_plataforma(platform))
 
 
 @router.get("/stock-detail")
 def stock_detail(
     coverage_days: int = 30,
     brand_slug: Optional[str] = None,
+    platform: Optional[str] = Query(None, description="Acota SOLO las ventas a un canal; el stock fisico sigue siendo el de todos"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _bs = _resolve_brand_slug(user, db, brand_slug)
-    return svc.get_stock_detail(db, user.store_id, coverage_days, brand_slug=_bs)
+    return svc.get_stock_detail(db, user.store_id, coverage_days, brand_slug=_bs,
+                           platform=_validar_plataforma(platform))
 
 
 @router.get("/reorder-list")
@@ -318,6 +338,7 @@ def clear_cache(user: User = Depends(get_current_user)):
 def product_monthly_sales_pivot(
     year: Optional[int] = None,
     brand_slug: Optional[str] = None,
+    platform: Optional[str] = Query(None, description="Acota las ventas a un canal"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -327,13 +348,15 @@ def product_monthly_sales_pivot(
         row = db.execute(text("SELECT slug FROM brands WHERE id=:bid"), {"bid": user.brand_id}).fetchone()
         if row:
             brand_slug = row[0]
-    return svc.get_product_monthly_sales_pivot(db, user.store_id, year, brand_slug)
+    return svc.get_product_monthly_sales_pivot(db, user.store_id, year, brand_slug,
+                                               platform=_validar_plataforma(platform))
 
 
 @router.get("/combo-monthly-sales-pivot")
 def combo_monthly_sales_pivot(
     year: Optional[int] = None,
     brand_slug: Optional[str] = None,
+    platform: Optional[str] = Query(None, description="Acota las ventas a un canal"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -342,7 +365,8 @@ def combo_monthly_sales_pivot(
         row = db.execute(text("SELECT slug FROM brands WHERE id=:bid"), {"bid": user.brand_id}).fetchone()
         if row:
             brand_slug = row[0]
-    return svc.get_combo_monthly_sales_pivot(db, user.store_id, year, brand_slug)
+    return svc.get_combo_monthly_sales_pivot(db, user.store_id, year, brand_slug,
+                                             platform=_validar_plataforma(platform))
 
 
 @router.get("/creator-monthly-pivot")

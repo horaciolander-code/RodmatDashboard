@@ -180,6 +180,35 @@ def decompose_orders(df, combo_dict: dict, db: Session = None, store_id: str = N
     return non_combo
 
 
+PLATAFORMAS = ("tiktok", "amazon", "walmart", "temu")
+
+
+def _solo_plataforma(df, plataforma):
+    """Deja solo las ventas de un canal. Sin canal, devuelve el frame entero.
+
+    Se usa únicamente sobre las filas de VENTA, nunca sobre el stock: el
+    almacén es uno solo y no se puede partir por canal. Lo que cambia al
+    filtrar son las unidades vendidas y todo lo que se deriva de ellas.
+
+    Las filas de combo se construyen con `order.copy()`, así que conservan su
+    `Platform`: filtrar aquí no se come las ventas de packs.
+
+    Sin la columna `Platform` el histórico es de TikTok, que es de donde viene
+    todo lo anterior a la multiplataforma — es lo mismo que asume el SQL con
+    `COALESCE(platform, 'tiktok')`.
+    """
+    import pandas as pd
+    if not plataforma:
+        return df
+    if df.empty:
+        return df
+    if "Platform" in df.columns:
+        col = df["Platform"].astype(str).str.strip().str.lower()
+    else:
+        col = pd.Series("tiktok", index=df.index)
+    return df[col == str(plataforma).strip().lower()]
+
+
 def _sin_cancelar(df):
     """True donde la orden no tiene tipo de cancelación/devolución registrado."""
     col = df["Cancelation/Return Type"]
@@ -363,7 +392,19 @@ def get_sku_origins(db: Session, store_id: str, brand_slug: str | None = None) -
     ).to_dict(orient="records")
 
 
-def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
+def calculate_stock(db: Session, store_id: str, coverage_days: int = 30, platform: str | None = None):
+    """Stock e indicadores de venta por producto.
+
+    `platform` acota SOLO las columnas de venta (Sales_*, AvgVentas*,
+    SellThroughRate y la cobertura que se deriva de ellas). El stock físico
+    —Initial_Stock, QtyShipped, StockActualizado, Stock_Warehouse, Stock_FBT,
+    ValorInventario— se calcula SIEMPRE con todos los canales: el almacén es
+    uno solo y repartirlo por canal sería inventarse un número.
+
+    Ojo con usarlo para decidir compras: con un canal seleccionado la
+    velocidad baja, la cobertura sube y `Unid_a_comprar` sale corto. Por eso
+    la pestaña de reabastecimiento del dashboard va fija en «todas».
+    """
     import pandas as pd
     import numpy as np
 
@@ -523,10 +564,18 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30):
     stock["UNIDADES POR CAJA"] = stock["ProductKey"].map(lambda k: cat_map.get(k, {}).get("UNIDADES POR CAJA", 1))
     stock["ValorInventario"] = stock["StockActualizado"] * stock["Coste"]
 
-    if not decomposed.empty:
+    # El canal se aplica AQUI y solo aqui: de este punto en adelante todo lo
+    # que se calcula son ventas. El stock fisico ya quedo calculado arriba con
+    # todos los canales, y asi se queda.
+    if decomposed.empty:
+        active = decomposed
+    else:
         active = decomposed[decomposed["Order_Date"] >= initial_date].copy()
         if "Order Status" in active.columns:
             active = active[~active["Order Status"].astype(str).str.contains("Cancel", case=False, na=False)]
+        active = _solo_plataforma(active, platform).copy()
+
+    if not active.empty:
         active["_pk"] = active["ComponentKey"].str.strip().str.lower()
 
         def sales_in_period(days):
