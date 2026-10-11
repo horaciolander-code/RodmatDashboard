@@ -1,5 +1,20 @@
-streamlit>=1.30.0
-plotly>=5.18.0
-pandas>=2.0.0
-requests>=2.31.0
-numpy>=1.24.0
+# Versiones FIJAS, no minimos. Mismo criterio que backend/requirements.txt.
+#
+# El 11-oct el backend dejo de arrancar tres despliegues seguidos por tener
+# `>=` sin tope: el primer rebuild desde el 21-sep arrastro SQLAlchemy 2.1.4,
+# que cambio el driver por defecto de postgresql://. Build en verde,
+# healthcheck fallido, produccion congelada en el codigo del 21-sep.
+#
+# Aqui estaba la misma mina sin cebar. Estas son las versiones que corren hoy,
+# no una suposicion: el dashboard desplego bien el 11-oct a las 13:12 UTC y la
+# ultima publicacion de los cinco paquetes en PyPI es ANTERIOR a esa hora, asi
+# que ese build instalo exactamente esto. Comprobado ademas que streamlit 1.65
+# admite numpy<3, pandas<4 y requests<3, de modo que pip no bajo ninguna.
+#
+# Subir cualquiera de estas vuelve a ser una decision, no un efecto secundario
+# de desplegar otra cosa.
+streamlit==1.65.0
+plotly==7.1.0
+pandas==3.0.6
+requests==2.34.2
+numpy==2.5.4
