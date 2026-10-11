@@ -1286,7 +1286,7 @@ def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | N
     """Importa el extracto de TEMU. UPSERT por (store_id, pedido, SKU): subirlo
     dos veces no duplica, y subir un mes suelto no borra el histórico."""
     import pandas as pd
-    from sqlalchemy import text as _text
+    from sqlalchemy import literal_column, text as _text
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig',
@@ -1317,7 +1317,7 @@ def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | N
         'city', 'state', 'import_batch_id', 'brand_id', 'seller_sku',
     ]
     BATCH = 500
-    insertadas = 0
+    insertadas = actualizadas = 0
     for i in range(0, len(filas), BATCH):
         lote = filas[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(lote)
@@ -1325,9 +1325,17 @@ def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | N
             constraint='uq_store_order_sku',
             set_={c: getattr(stmt.excluded, c) for c in _cols},
         )
-        db.execute(stmt)
+        # xmax vale 0 solo en las filas que ha creado ESTE comando; en las que
+        # venía a actualizar lleva el id de la transacción. Es la forma de
+        # distinguir alta de actualización en un ON CONFLICT.
+        # Sin esto el panel decía "45 insertados, 0 actualizados" tambien al
+        # resubir el mismo fichero: el dato estaba bien y el mensaje mentia.
+        for (es_alta,) in db.execute(stmt.returning(literal_column("(xmax = 0)"))):
+            if es_alta:
+                insertadas += 1
+            else:
+                actualizadas += 1
         db.flush()
-        insertadas += len(lote)
 
     # Etiquetas de pedidos que no vienen en este fichero (son de meses
     # anteriores). Si el pedido ya está cargado se le añade el coste; si no,
@@ -1353,11 +1361,12 @@ def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | N
     return {
         "total_rows": len(df),
         "inserted": insertadas,
-        "updated": 0,
+        "updated": actualizadas,
         "errors": resumen["errores"],
         "unknown_skus": resumen["sin_combo"],
         "detalle": (
-            f"{insertadas} líneas de venta · "
+            f"{insertadas + actualizadas} líneas de venta "
+            f"({insertadas} nuevas, {actualizadas} ya estaban) · "
             f"{len(resumen['envios'])} etiquetas ({sum(resumen['envios'].values()):.2f} $), "
             f"{aplicadas} aplicadas a pedidos anteriores y {sin_pedido} sin pedido cargado · "
             f"{resumen['devoluciones']} devoluciones · "
