@@ -315,6 +315,7 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30, brand
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "StockActualizado",
+            "PendienteDeEnviar", "StockDisponible",
             "PedidosPendiente", "StockConPedidos", "FBT_Sent", "Stock_Warehouse", "Stock_FBT",
             "Sales_7d", "Sales_30d", "Sales_60d", "AvgVentas30d", "WeeklyAvg_30d",
             "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "SellThroughRate",
@@ -332,7 +333,8 @@ def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30, brand_
     if stock.empty:
         return []
     cols = ["ProductoNombre", "Tipo", "Initial_Stock", "QtyShipped", "SalesInPeriod",
-            "StockActualizado", "PedidosPendiente", "StockConPedidos", "FBT_Sent",
+            "StockActualizado", "PendienteDeEnviar", "StockDisponible",
+            "PedidosPendiente", "StockConPedidos", "FBT_Sent",
             "Stock_Warehouse", "Stock_FBT",
             "Sales_7d", "Sales_30d", "Sales_60d", "AvgVentas30d", "AvgVentas60d",
             "WeeklyAvg_30d", "WeeklyAvg_60d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT",
