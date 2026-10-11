@@ -21,7 +21,7 @@ from app.services.import_service import (
     parse_pending_inventory_excel,
     parse_amazon_txt,
     parse_walmart_xlsx,
-    parse_temu_csv,
+    parse_temu_csv, parse_temu_orders_csv,
     parse_tiktok_statement_xlsx,
 )
 
@@ -285,21 +285,24 @@ async def import_walmart_orders(
 
 
 @router.post("/temu", response_model=ImportResult)
-async def import_temu_orders(
+async def import_temu_statement(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     store_id: str | None = Query(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Importa el extracto de transacciones de TEMU (.csv).
+    """Importa el extracto financiero de TEMU (.csv). NO crea pedidos.
 
-    Es un extracto financiero, no un export de pedidos: la venta, el coste de
-    envío y la devolución van en filas distintas unidas por el ID del pedido.
-    Las transferencias al banco se ignoran a propósito — no son un coste.
+    Es el espejo del merchant statement de TikTok: trae dinero, no inventario.
+    La venta, el coste de envio y la devolucion van en filas distintas unidas
+    por el ID del pedido. Las transferencias al banco se ignoran a proposito:
+    no son un coste.
 
-    UPSERT por pedido+SKU: subirlo dos veces no duplica, y subir un mes suelto
-    no borra el histórico."""
+    Solo ENRIQUECE con sus costes las lineas que ya existen, cargadas por el
+    export de pedidos (/import/temu-orders). Si un pedido no esta cargado, se
+    informa — nunca se inventa una fila, porque descontaria stock que no le
+    corresponde."""
     from app.services.analytics_service import _cache, _df_cache
     content = await file.read()
     if len(content) > MAX_UPLOAD_SIZE:
@@ -320,6 +323,50 @@ async def import_temu_orders(
     history.rows_deleted = result.get("rows_deleted", 0)
     db.commit()
 
+    _cache.clear()
+    _df_cache.clear()
+    from app.services.stock_calculator import clear_orders_df_cache
+    clear_orders_df_cache(target)
+    from app.services.scheduled_jobs import trigger_pending_jobs
+    background_tasks.add_task(trigger_pending_jobs, target)
+    return result
+
+
+@router.post("/temu-orders", response_model=ImportResult)
+async def import_temu_order_export(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    store_id: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Importa el export de PEDIDOS de TEMU (.csv). Esto es lo que mueve stock.
+
+    Es el equivalente de AllBBDD en TikTok. El extracto financiero (Informes)
+    va por /import/temu y solo aporta costes: no crea pedidos ni descuenta.
+
+    Solo descuentan las lineas Shipped / Delivered / Completed, la misma regla
+    que ya aplica TikTok. UPSERT por pedido+SKU: subirlo dos veces no duplica.
+    """
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large.")
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=415, detail="Se espera el .csv de pedidos de TEMU.")
+
+    target = _target_store(user, store_id)
+    batch_id = str(uuid.uuid4())
+    history = ImportHistory(id=batch_id, store_id=target, import_type="temu_orders",
+                            filename=file.filename, imported_by=user.email)
+    db.add(history)
+    db.flush()
+
+    result = parse_temu_orders_csv(content, target, db, batch_id=batch_id)
+
+    history.rows_imported = result["inserted"] + result.get("updated", 0)
+    db.commit()
+
+    from app.services.analytics_service import _cache, _df_cache
     _cache.clear()
     _df_cache.clear()
     from app.services.stock_calculator import clear_orders_df_cache
@@ -374,7 +421,9 @@ async def delete_import_batch(
         raise HTTPException(status_code=404, detail="Import batch not found")
     if user.role != "superadmin" and history.store_id != user.store_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    if history.import_type not in ("tiktok", "amazon"):
+    # Los tipos que escriben en sales_orders se pueden deshacer por lote:
+    # borrar por import_batch_id devuelve el inventario al estado anterior.
+    if history.import_type not in ("tiktok", "amazon", "walmart", "temu", "temu_orders"):
         raise HTTPException(status_code=400, detail=f"Cannot rollback import type '{history.import_type}'")
 
     del_result = db.execute(_text("DELETE FROM sales_orders WHERE import_batch_id = :bid"), {"bid": batch_id})

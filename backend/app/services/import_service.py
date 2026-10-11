@@ -1316,26 +1316,42 @@ def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | N
         'sku_seller_discount', 'sku_platform_discount', 'cancelation_return_type',
         'city', 'state', 'import_batch_id', 'brand_id', 'seller_sku',
     ]
-    BATCH = 500
-    insertadas = actualizadas = 0
-    for i in range(0, len(filas), BATCH):
-        lote = filas[i:i + BATCH]
-        stmt = pg_insert(SalesOrder).values(lote)
-        stmt = stmt.on_conflict_do_update(
-            constraint='uq_store_order_sku',
-            set_={c: getattr(stmt.excluded, c) for c in _cols},
-        )
-        # xmax vale 0 solo en las filas que ha creado ESTE comando; en las que
-        # venía a actualizar lleva el id de la transacción. Es la forma de
-        # distinguir alta de actualización en un ON CONFLICT.
-        # Sin esto el panel decía "45 insertados, 0 actualizados" tambien al
-        # resubir el mismo fichero: el dato estaba bien y el mensaje mentia.
-        for (es_alta,) in db.execute(stmt.returning(literal_column("(xmax = 0)"))):
-            if es_alta:
-                insertadas += 1
-            else:
-                actualizadas += 1
-        db.flush()
+    # ESTE FICHERO NO CREA PEDIDOS. Es el espejo del merchant statement de
+    # TikTok: trae dinero (comisiones, envio, devoluciones, penalizaciones),
+    # no inventario. Quien crea las filas y descuenta stock es el export de
+    # pedidos (parse_temu_orders_csv).
+    #
+    # Hasta el 11-oct este importador SI las creaba, y por eso septiembre
+    # entro con el SKU interno de TEMU en vez del SKU de combo de la casa.
+    # Ahora solo enriquece lo que ya existe: si el pedido no esta cargado, se
+    # informa — nunca se inventa.
+    _COSTES = [
+        "sku_subtotal_after_discount", "order_amount", "order_refund_amount",
+        "shipping_fee_after_discount", "original_shipping_fee",
+        "sku_seller_discount", "sku_platform_discount", "cancelation_return_type",
+    ]
+    actualizadas = 0
+    huerfanas = []
+    for f in filas:
+        datos = {c: f.get(c) for c in _COSTES if f.get(c) is not None}
+        if not datos:
+            continue
+        sets = ", ".join(f"{c} = :{c}" for c in datos)
+        params = dict(datos, sid=store_id, p=f["tiktok_order_id"], s=f["sku"])
+        # Por (pedido, sku interno de TEMU) o, si el pedido se cargo con el
+        # SKU de combo, por pedido a secas cuando solo tiene una linea.
+        r = db.execute(_text(
+            f"UPDATE sales_orders SET {sets} "
+            "WHERE store_id = :sid AND tiktok_order_id = :p AND sku = :s"), params)
+        if r.rowcount == 0:
+            r = db.execute(_text(
+                f"UPDATE sales_orders SET {sets} "
+                "WHERE store_id = :sid AND tiktok_order_id = :p AND seller_sku = :s"), params)
+        if r.rowcount:
+            actualizadas += r.rowcount
+        else:
+            huerfanas.append(f["tiktok_order_id"])
+    insertadas = 0
 
     # Etiquetas de pedidos que no vienen en este fichero (son de meses
     # anteriores). Si el pedido ya está cargado se le añade el coste; si no,
@@ -1365,12 +1381,223 @@ def parse_temu_csv(content: bytes, store_id: str, db: Session, batch_id: str | N
         "errors": resumen["errores"],
         "unknown_skus": resumen["sin_combo"],
         "detalle": (
-            f"{insertadas + actualizadas} líneas de venta "
-            f"({insertadas} nuevas, {actualizadas} ya estaban) · "
+            f"{actualizadas} líneas de pedido enriquecidas con sus costes · "
+            f"{len(set(huerfanas))} pedidos del extracto que NO estan cargados "
+            f"(sube antes su export de pedidos) · "
             f"{len(resumen['envios'])} etiquetas ({sum(resumen['envios'].values()):.2f} $), "
             f"{aplicadas} aplicadas a pedidos anteriores y {sin_pedido} sin pedido cargado · "
             f"{resumen['devoluciones']} devoluciones · "
             f"{resumen['penalizaciones']:.2f} $ de penalizaciones · "
             f"{resumen['transferencias']} transferencias al banco ignoradas (no son coste)"
+        ),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  TEMU · PEDIDOS (order_export)
+#
+#  Esto es lo que descuenta inventario. Es el equivalente de AllBBDD en
+#  TikTok, no el extracto financiero: el extracto va aparte y solo aporta
+#  costes (ver parse_temu_csv).
+#
+#  La clave buena es `contribution sku`, que ES el SKU de combo de la casa
+#  (AV-MBB/2). El `SKU ID` numerico es el identificador interno de TEMU y se
+#  guarda aparte para que el extracto sepa a que fila engancharse.
+# ──────────────────────────────────────────────────────────────────────────
+
+TEMU_PEDIDOS_COLUMNAS_MINIMAS = {
+    "Order ID", "order item status", "contribution sku", "SKU ID",
+    "quantity purchased", "purchase date",
+}
+
+# Solo estos salieron fisicamente del almacen. Es la MISMA regla que aplica
+# build_shipped_components para TikTok: no se inventa nada para TEMU.
+TEMU_ESTADOS_QUE_DESCUENTAN = {"shipped", "delivered", "completed"}
+
+
+def _fecha_temu(valor):
+    """'Oct 11, 2026, 4:43 pm CEST(UTC+2)' -> datetime sin zona.
+
+    Se corta en la zona horaria a proposito: el resto del sistema guarda las
+    fechas sin zona, y mezclar unas con zona y otras sin ella rompe las
+    comparaciones de fechas del calculador de stock.
+    """
+    import re
+    s = str(valor or "").replace("\t", "").strip()
+    if not s:
+        return None
+    s = re.split(r"\s+(?:[A-Z]{2,5}|UTC|GMT)\b", s)[0].strip().rstrip(",")
+    for formato in ("%b %d, %Y, %I:%M %p", "%b %d, %Y %I:%M %p", "%b %d, %Y"):
+        try:
+            return datetime.strptime(s, formato)
+        except ValueError:
+            continue
+    return None
+
+
+def construir_filas_temu_pedidos(df, store_id: str, batch_id: str | None,
+                                 marca_por_sku: dict) -> tuple[list[dict], dict]:
+    """Convierte el export de pedidos de TEMU en filas de sales_orders.
+
+    Sin tocar la BD, para poder probarlo (ver test_temu_pedidos.py).
+
+    Dos cosas que no son obvias y hay que respetar:
+
+    1. Un pedido puede traer el MISMO sku en dos lineas distintas (dos
+       `Order item ID`). El UPSERT va por (store, pedido, sku), asi que si no
+       se suman aqui, la segunda linea pisa a la primera y se pierden
+       unidades. Pasa de verdad: el pedido PO-211-18704138184313299 trae
+       AV-MBB/2 dos veces, una unidad cada una.
+    2. Los campos vienen con tabuladores pegados detras del valor.
+    """
+    import uuid as _uuid
+
+    def _txt(v):
+        return str(v or "").replace("\t", "").strip()
+
+    def _ent(v):
+        try:
+            return int(float(_txt(v) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _dinero(v):
+        return _safe_float(_txt(v).replace("$", "").replace(",", ""))
+
+    acumulado = {}
+    errores = 0
+    sin_combo = set()
+    estados = {}
+
+    for _, r in df.iterrows():
+        try:
+            pedido = _txt(r.get("Order ID"))
+            combo_sku = _txt(r.get("contribution sku"))
+            sku_temu = _txt(r.get("SKU ID"))
+            if not pedido or not (combo_sku or sku_temu):
+                continue
+
+            estado = _txt(r.get("order item status"))
+            estados[estado] = estados.get(estado, 0) + 1
+            cantidad = _ent(r.get("quantity purchased"))
+            if cantidad <= 0:
+                continue
+
+            if combo_sku and combo_sku.lower() not in marca_por_sku:
+                sin_combo.add(combo_sku)
+
+            clave = (pedido, sku_temu or combo_sku)
+            fila = acumulado.get(clave)
+            if fila is not None:
+                # Misma (pedido, sku) otra vez: se SUMA, no se pisa.
+                fila["quantity"] += cantidad
+                continue
+
+            acumulado[clave] = {
+                "id": str(_uuid.uuid4()),
+                "store_id": store_id,
+                "tiktok_order_id": pedido,
+                "order_date": _fecha_temu(r.get("purchase date")),
+                "sku": sku_temu or combo_sku,
+                "seller_sku": combo_sku or sku_temu,
+                "product_name": _txt(r.get("product name"))[:255] or None,
+                "quantity": cantidad,
+                "status": estado or None,
+                "price": _dinero(r.get("goods base price")),
+                "variation": _txt(r.get("variation"))[:255] or None,
+                "city": _txt(r.get("ship city"))[:255] or None,
+                "state": _txt(r.get("ship state"))[:100] or None,
+                "fulfillment_type": _txt(r.get("Fulfillment mode"))[:100] or None,
+                "platform": "temu",
+                "import_batch_id": batch_id,
+                "brand_id": marca_por_sku.get((combo_sku or "").lower()),
+            }
+        except Exception:
+            logger.exception("TEMU pedidos: fila ilegible")
+            errores += 1
+
+    filas = list(acumulado.values())
+    descuentan = sum(f["quantity"] for f in filas
+                     if (f["status"] or "").lower() in TEMU_ESTADOS_QUE_DESCUENTAN)
+    return filas, {
+        "errores": errores,
+        "sin_combo": sorted(sin_combo),
+        "estados": estados,
+        "lineas_agrupadas": max(0, int(len(df)) - len(filas) - errores),
+        "unidades_que_descuentan": int(descuentan),
+    }
+
+
+def parse_temu_orders_csv(content: bytes, store_id: str, db: Session,
+                          batch_id: str | None = None) -> dict:
+    """Importa el export de PEDIDOS de TEMU. Esto es lo que mueve inventario.
+
+    UPSERT por (store, pedido, sku): subirlo dos veces no duplica, y subir un
+    mes suelto no borra el historico.
+    """
+    import pandas as pd
+    from sqlalchemy import literal_column, text as _text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    df = pd.read_csv(io.BytesIO(content), encoding="utf-8-sig",
+                     dtype=str, keep_default_na=False, on_bad_lines="skip")
+    df.columns = df.columns.str.strip()
+
+    faltan = TEMU_PEDIDOS_COLUMNAS_MINIMAS - set(df.columns)
+    if faltan:
+        return {"total_rows": len(df), "inserted": 0, "updated": 0, "errors": len(df),
+                "unknown_skus": [],
+                "warning": ("No parece el export de pedidos de TEMU: faltan las columnas "
+                            f"{sorted(faltan)}. Si lo que tienes es el extracto financiero "
+                            "(Informes), va en el bloque de TEMU Informes, no aqui.")}
+
+    marca_por_sku = {
+        str(r.combo_sku).strip().lower(): r.brand_id
+        for r in db.execute(_text(
+            "SELECT combo_sku, brand_id FROM combos WHERE store_id = :sid"),
+            {"sid": store_id}).fetchall()
+    }
+
+    filas, resumen = construir_filas_temu_pedidos(df, store_id, batch_id, marca_por_sku)
+    if not filas:
+        return {"total_rows": len(df), "inserted": 0, "updated": 0,
+                "errors": resumen["errores"], "unknown_skus": resumen["sin_combo"],
+                "warning": "El fichero no traia ninguna linea de pedido utilizable."}
+
+    _cols = ["product_name", "quantity", "status", "price", "order_date",
+             "variation", "city", "state", "fulfillment_type",
+             "import_batch_id", "brand_id", "seller_sku", "platform"]
+    BATCH = 500
+    insertadas = actualizadas = 0
+    for i in range(0, len(filas), BATCH):
+        lote = filas[i:i + BATCH]
+        stmt = pg_insert(SalesOrder).values(lote)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_store_order_sku",
+            set_={c: getattr(stmt.excluded, c) for c in _cols},
+        )
+        for (es_alta,) in db.execute(stmt.returning(literal_column("(xmax = 0)"))):
+            if es_alta:
+                insertadas += 1
+            else:
+                actualizadas += 1
+        db.flush()
+    db.commit()
+
+    est = resumen["estados"]
+    return {
+        "total_rows": len(df),
+        "inserted": insertadas,
+        "updated": actualizadas,
+        "errors": resumen["errores"],
+        "unknown_skus": resumen["sin_combo"],
+        "detalle": (
+            f"{insertadas + actualizadas} lineas de pedido "
+            f"({insertadas} nuevas, {actualizadas} ya estaban) · "
+            f"{resumen['unidades_que_descuentan']} unidades descuentan stock "
+            f"(solo {', '.join(sorted(TEMU_ESTADOS_QUE_DESCUENTAN))}) · "
+            f"estados: {', '.join(f'{k} {v}' for k, v in sorted(est.items()))}"
+            + (f" · {resumen['lineas_agrupadas']} lineas del mismo pedido+sku sumadas"
+               if resumen["lineas_agrupadas"] > 0 else "")
         ),
     }

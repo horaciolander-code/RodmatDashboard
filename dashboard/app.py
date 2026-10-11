@@ -2659,18 +2659,43 @@ def page_import_upload():
 
             st.markdown("---")
         if "temu" in get_enabled_platforms():
-            st.markdown("#### TEMU — Informes")
-            st.caption("CSV de informes de TEMU Seller. Es un extracto financiero: la venta, el coste de "
-                       "envío y la devolución van en filas distintas. Las transferencias al banco se "
-                       "ignoran a propósito, no son un coste.")
-            f_temu = st.file_uploader("Fichero TEMU (.csv)", type=["csv"], key="up_temu")
-            if st.button("Importar TEMU", key="btn_temu") and f_temu:
+            st.markdown("#### TEMU — Pedidos  *(esto descuenta inventario)*")
+            st.caption("TEMU Seller Center → Pedidos → exportar CSV (order_export). Es el equivalente "
+                       "de AllBBDD en TikTok. Solo descuentan las líneas Shipped y Delivered.")
+            f_tped = st.file_uploader("Pedidos TEMU (.csv)", type=["csv"], key="up_temu_ped")
+            if st.button("Importar pedidos TEMU", key="btn_temu_ped") and f_tped:
+                with st.spinner("Importando..."):
+                    r_ped = api_post("/import/temu-orders",
+                                     files={"file": (f_tped.name, f_tped.getvalue(), "text/csv")})
+                if r_ped:
+                    if r_ped.get("warning"):
+                        st.error(r_ped["warning"])
+                    else:
+                        st.success(f"TEMU pedidos: {r_ped.get('inserted', 0)} nuevos, "
+                                   f"{r_ped.get('updated', 0)} actualizados, "
+                                   f"{r_ped.get('errors', 0)} errores.")
+                    if r_ped.get("detalle"):
+                        st.info(r_ped["detalle"])
+                    if r_ped.get("unknown_skus"):
+                        st.warning(
+                            f"{len(r_ped['unknown_skus'])} SKU de TEMU sin combo asignado — "
+                            "sus ventas NO descuentan stock hasta que los des de alta en Gestión Combos: "
+                            + ", ".join(r_ped["unknown_skus"][:10]))
+                    _refresh_after_import()
+
+            st.markdown("---")
+            st.markdown("#### TEMU — Informes  *(solo costes, no toca stock)*")
+            st.caption("Extracto financiero, el espejo del Merchant Statement de TikTok: comisiones, "
+                       "envío y devoluciones. NO crea pedidos ni descuenta inventario — sube antes el "
+                       "export de Pedidos o no tendrá a qué engancharse.")
+            f_temu = st.file_uploader("Informes TEMU (.csv)", type=["csv"], key="up_temu")
+            if st.button("Importar informes TEMU", key="btn_temu") and f_temu:
                 with st.spinner("Importando..."):
                     result = api_post("/import/temu",
                                       files={"file": (f_temu.name, f_temu.getvalue(), "text/csv")})
                 if result:
-                    st.success(f"TEMU: {result.get('inserted', 0)} líneas importadas, "
-                               f"{result.get('errors', 0)} errores.")
+                    st.success(f"TEMU informes: {result.get('updated', 0)} líneas enriquecidas con "
+                               f"sus costes, {result.get('errors', 0)} errores.")
                     if result.get("detalle"):
                         st.info(result["detalle"])
                     if result.get("unknown_skus"):
