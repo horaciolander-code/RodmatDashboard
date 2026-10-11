@@ -4,36 +4,17 @@ distinto. Este test fija ese comportamiento con un fichero de juguete.
 Sin base de datos: se prueba `construir_filas_temu`, que es la parte pura.
     python backend/tests/test_temu_import.py
 """
-import importlib
 import io
 import pathlib
 import sys
-import types
 
 _BACKEND = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BACKEND))
 
 
-def _stub(nombre):
-    """Módulo falso SOLO si el real no se puede importar, para no contaminar
-    la sesión de pytest en entornos que sí tienen las dependencias."""
-    if nombre in sys.modules:
-        return
-    try:
-        importlib.import_module(nombre)
-        return
-    except Exception:
-        pass
-    m = types.ModuleType(nombre)
-    for attr in ("Session", "SalesOrder", "AffiliateSale", "Product", "Combo",
-                 "ComboItem", "InitialInventory", "IncomingStock", "and_", "text"):
-        setattr(m, attr, object)
-    sys.modules[nombre] = m
+import _stubs
 
-
-for _n in ("sqlalchemy", "sqlalchemy.orm", "app.models.sales", "app.models.product",
-           "app.models.combo", "app.models.inventory"):
-    _stub(_n)
+_stubs.instalar()
 
 import pandas as pd
 
