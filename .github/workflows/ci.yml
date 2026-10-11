@@ -50,7 +50,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pytest
+      # pandas: lo necesita test_fuga_devoluciones.py, que reproduce la fuga de
+      # 620 u/2026 con DataFrames sintéticos. El resto de tests no lo usan.
+      # pandas: lo necesita test_fuga_devoluciones.py, que reproduce la fuga de
+      # 620 u/2026 con DataFrames sintéticos. Acotado por major: este job bloquea
+      # el merge, y un pandas 4 rompería la puerta por algo ajeno al código.
+      - run: pip install pytest "pandas>=2.0.0,<4.0"
       - name: Cada bug de marca que llego a produccion tiene aqui su test
         run: |
           cd backend
