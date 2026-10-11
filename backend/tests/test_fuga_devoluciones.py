@@ -7,36 +7,14 @@ fugaba 620 u en el catálogo 2026 (Far Away Original 101, Imari Skin Softener 85
 Sin BD: se stubean sqlalchemy y app.models para poder importar el módulo suelto.
     python backend/tests/test_fuga_devoluciones.py
 """
-import importlib, sys, types, pathlib
+import sys, pathlib
 
 _BACKEND = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BACKEND))
 
-def _stub(nombre):
-    """Inyecta un módulo falso SOLO si el real no se puede importar.
+import _stubs
 
-    Los stubs viven en sys.modules el resto de la sesión de pytest, así que un
-    test posterior que importe sqlalchemy de verdad se comería el falso sin
-    enterarse. Comprobando antes, en un entorno con las dependencias instaladas
-    no se inyecta nada y no hay contaminación posible.
-    """
-    if nombre in sys.modules:
-        return
-    try:
-        importlib.import_module(nombre)
-        return
-    except Exception:
-        pass
-    m = types.ModuleType(nombre)
-    for attr in ("Session", "SalesOrder", "Combo", "ComboItem", "Product",
-                 "InitialInventory", "IncomingStock", "text"):
-        setattr(m, attr, object)
-    sys.modules[nombre] = m
-
-
-for _name in ("sqlalchemy", "sqlalchemy.orm", "app.models.sales", "app.models.combo",
-              "app.models.product", "app.models.inventory"):
-    _stub(_name)
+_stubs.instalar()
 
 import pandas as pd
 from app.services.stock_calculator import build_shipped_components
