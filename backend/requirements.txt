@@ -1,17 +1,28 @@
-fastapi>=0.104.0
-uvicorn>=0.24.0
-sqlalchemy>=2.0.0
-pydantic[email]>=2.0.0
-python-jose>=3.3.0
-bcrypt>=4.0.1
-python-multipart>=0.0.6
-pandas>=2.0.0
-openpyxl>=3.1.0
-python-dotenv>=1.0.0
-numpy>=1.24.0
-slowapi>=0.1.9
-psycopg2-binary>=2.9.0
-aiofiles>=23.0.0
-schedule>=1.2.0
-groq>=0.4.0
-httpx>=0.25.0
+# Versiones FIJAS, no mínimos.
+#
+# Con `>=` sin tope, cada build se traía lo último de PyPI. El 11-oct, el
+# primer rebuild desde el 21-sep arrastró SQLAlchemy 2.1.4 y el servicio dejó
+# de arrancar: 2.1 cambió el driver por defecto de postgresql:// a psycopg v3,
+# que no está instalado. Build correcto, healthcheck fallido, tres despliegues
+# caídos seguidos — y producción congelada en el código del 21-sep.
+#
+# Estas son las versiones EXACTAS del último build bueno (21-sep-2026), leídas
+# de su propio log. Subirlas es una decisión deliberada, no un efecto
+# secundario de desplegar otra cosa.
+fastapi==0.141.1
+uvicorn==0.53.0
+sqlalchemy==2.0.54
+pydantic[email]==2.13.5
+python-jose==3.5.0
+bcrypt==5.0.0
+python-multipart==0.0.32
+pandas==3.0.6
+openpyxl==3.1.5
+python-dotenv==1.2.3
+numpy==2.5.3
+slowapi==0.1.10
+psycopg2-binary==2.9.13
+aiofiles==25.1.0
+schedule==1.2.2
+groq==1.7.0
+httpx==0.28.1
