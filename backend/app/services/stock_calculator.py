@@ -264,6 +264,50 @@ def build_shipped_components(decomposed, initial_date):
     return shipped
 
 
+def build_pending_components(decomposed, initial_date):
+    """Unidades YA VENDIDAS que todavia no han salido del almacen.
+
+    No descuentan stock real: un pendiente puede cancelarse, y por eso se
+    dejaron fuera desde el principio. Pero hay que VERLAS. Con varios canales
+    vendiendo del mismo almacen se puede comprometer dos veces la misma
+    unidad y no enterarse hasta que no hay que servir.
+
+    Se define por EXCLUSION, no por lista de estados: pendiente es todo lo que
+    no esta cancelado, no consta enviado y no tiene fecha de salida. Asi, si
+    manana un canal inventa un estado nuevo, cuenta solo — que es el lado
+    seguro del error. Con una lista cerrada, el estado nuevo desapareceria en
+    silencio, que es justo lo que no queremos de una alerta.
+
+    Hoy esto cubre: 'To ship' y 'Pending' (TikTok), 'Unshipped' y 'Pending'
+    (TEMU), 'Awaiting Shipment' (Amazon).
+    """
+    import pandas as pd
+    df = decomposed.copy()
+    if df.empty:
+        return pd.DataFrame(columns=["ComponentKey", "PendienteDeEnviar"])
+    df = df[df["Order_Date"] >= initial_date]
+
+    if "Order Status" in df.columns:
+        est = df["Order Status"].astype(str).str.strip().str.lower()
+        # Fuera lo cancelado y fuera lo que ya salio.
+        df = df[~est.str.contains("cancel", na=False)]
+        est = est.loc[df.index]
+        df = df[~est.isin({e.lower() for e in ("Delivered", "Shipped", "Completed")})]
+
+    if "Shipped Time" in df.columns:
+        # Con marca de salida ya no esta pendiente, diga lo que diga el estado.
+        df = df[df["Shipped Time"].isna()]
+
+    if "Cancelation/Return Type" in df.columns:
+        df = df[_sin_cancelar(df)]
+
+    if df.empty:
+        return pd.DataFrame(columns=["ComponentKey", "PendienteDeEnviar"])
+    return (df.groupby("ComponentKey")
+              .agg(PendienteDeEnviar=("ComponentQty", "sum"))
+              .reset_index())
+
+
 def _filter_orders_by_brand(db, store_id: str, df, brand_slug):
     """Filtra un df de ordenes por marca usando la columna "Brand ID".
     2026-09-20: fail-closed — marca desconocida devuelve vacio."""
@@ -548,6 +592,21 @@ def calculate_stock(db: Session, store_id: str, coverage_days: int = 30, platfor
         stock["PedidosPendiente"] = 0
     stock["PedidosPendiente"] = stock["PedidosPendiente"].fillna(0)
     stock["StockConPedidos"] = stock["StockActualizado"] + stock["PedidosPendiente"]
+
+    # Lo vendido y aun sin salir. SIEMPRE con todos los canales, aunque haya
+    # un canal seleccionado: es un compromiso contra el almacen fisico, que es
+    # uno solo. Filtrarlo por canal haria que StockDisponible saliera alto y
+    # la alerta no saltara, que es el error caro.
+    pend_env = build_pending_components(decomposed, initial_date)
+    if not pend_env.empty:
+        pend_env["ProductKey"] = pend_env["ComponentKey"].str.strip().str.lower()
+        stock["PendienteDeEnviar"] = stock["ProductKey"].map(
+            pend_env.set_index("ProductKey")["PendienteDeEnviar"]).fillna(0)
+    else:
+        stock["PendienteDeEnviar"] = 0
+    stock["PendienteDeEnviar"] = pd.to_numeric(
+        stock["PendienteDeEnviar"], errors="coerce").fillna(0).astype(int)
+    stock["StockDisponible"] = stock["StockActualizado"] - stock["PendienteDeEnviar"]
 
     if stock.empty:
         return stock

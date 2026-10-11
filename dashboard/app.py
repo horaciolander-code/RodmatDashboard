@@ -845,12 +845,37 @@ def page_inventario_summary():
         df = df[df["Days_Coverage"] >= days_filter]
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Stock Actual", f"{int(df['StockActualizado'].sum()):,}")
-    c2.metric("Valor Inventario", f"${df['ValorInventario'].sum():,.2f}")
+    c1.metric("Stock Real", f"{int(df['StockActualizado'].sum()):,}",
+              help="Lo que hay fisicamente en el almacen. Un pedido pendiente NO lo baja: "
+                   "todavia puede cancelarse.")
+    if "StockDisponible" in df.columns:
+        _comp = int(df["PendienteDeEnviar"].sum())
+        c2.metric("Stock Disponible", f"{int(df['StockDisponible'].sum()):,}",
+                  delta=f"-{_comp:,} comprometidos" if _comp else None, delta_color="inverse",
+                  help="Stock real menos lo ya vendido que aun no ha salido del almacen, "
+                       "sumando TODOS los canales. Es lo que de verdad puedes seguir vendiendo.")
+    else:
+        c2.metric("Valor Inventario", f"${df['ValorInventario'].sum():,.2f}")
     low_count = len(df[(df["Days_Coverage"] > 0) & (df["Days_Coverage"] < 7)]) if "Days_Coverage" in df.columns else 0
     c3.metric("Productos Stock Bajo", f"{low_count}")
     c4.metric("Stock Almacén", f"{int(df['Stock_Warehouse'].sum()):,}" if "Stock_Warehouse" in df.columns else "N/A")
     c5.metric("Stock FBT", f"{int(df['Stock_FBT'].sum()):,}" if "Stock_FBT" in df.columns else "N/A")
+
+    # Sobreventa: vendido mas de lo que queda. Es la razon de ser de esta columna.
+    if "StockDisponible" in df.columns:
+        _neg = df[df["StockDisponible"] < 0].sort_values("StockDisponible")
+        if not _neg.empty:
+            st.error(
+                f"**{len(_neg)} producto(s) vendidos por encima del stock que queda.** "
+                "Estan comprometidos en pedidos que aun no han salido, sumando todos los canales. "
+                "Si no entra mercancia, alguno de esos pedidos no se va a poder servir:\n\n"
+                + "\n".join(
+                    f"- **{r.ProductoNombre}** — quedan {int(r.StockActualizado)}, "
+                    f"comprometidas {int(r.PendienteDeEnviar)} → **faltan {abs(int(r.StockDisponible))}**"
+                    for r in _neg.head(12).itertuples()))
+        elif int(df["PendienteDeEnviar"].sum()) > 0:
+            st.info(f"{int(df['PendienteDeEnviar'].sum()):,} unidades comprometidas en pedidos sin salir. "
+                    "Ninguna deja un producto en negativo.")
 
     if "Days_Coverage" in df.columns:
         low_3 = df[df["Days_Coverage"] > 0].nsmallest(3, "Days_Coverage")
@@ -880,7 +905,8 @@ def page_inventario_summary():
     st.subheader("Stock Actual por Producto")
     display_cols = ["ProductoNombre", "Tipo",
                     "Stock_Warehouse", "Stock_FBT", "QtyShipped",
-                    "StockActualizado", "PedidosPendiente", "StockConPedidos",
+                    "StockActualizado", "PendienteDeEnviar", "StockDisponible",
+                    "PedidosPendiente", "StockConPedidos",
                     "Sales_30d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "ValorInventario"]
     available = [c for c in display_cols if c in df.columns]
     display_df = df[available].sort_values("StockActualizado", ascending=True).copy()
