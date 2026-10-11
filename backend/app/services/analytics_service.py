@@ -49,15 +49,19 @@ def _set_cache(store_id: str, key: str, data):
     _cache[(store_id, key)] = (datetime.now(), data)
 
 
-def _get_stock_df(db: Session, store_id: str, coverage_days: int = 30):
-    """Return calculate_stock() DataFrame, cached for _CACHE_TTL seconds."""
-    cache_key = (store_id, coverage_days)
+def _get_stock_df(db: Session, store_id: str, coverage_days: int = 30, platform: str | None = None):
+    """Return calculate_stock() DataFrame, cached for _CACHE_TTL seconds.
+
+    `platform` va en la clave de cache: sin eso, la primera consulta filtrada
+    por un canal envenenaria la cache para todos los demas.
+    """
+    cache_key = (store_id, coverage_days, (platform or "").strip().lower() or None)
     if cache_key in _df_cache:
         ts, df = _df_cache[cache_key]
         if (datetime.now() - ts).total_seconds() < _CACHE_TTL:
             return df
         del _df_cache[cache_key]  # evict on stale read
-    df = calculate_stock(db, store_id, coverage_days)
+    df = calculate_stock(db, store_id, coverage_days, platform=platform)
     _df_cache[cache_key] = (datetime.now(), df)
     return df
 
@@ -300,12 +304,13 @@ def _filter_stock_df_by_brand(db: Session, store_id: str, stock, brand_slug):
     return stock
 
 
-def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None) -> list:
-    _ck = f"stock_{coverage_days}:{brand_slug or 'ALL'}"
+def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None,
+                      platform: str | None = None) -> list:
+    _ck = f"stock_{coverage_days}:{brand_slug or 'ALL'}:{platform or 'ALL'}"
     cached = _get_cached(store_id, _ck)
     if cached:
         return cached
-    stock = _get_stock_df(db, store_id, coverage_days)
+    stock = _get_stock_df(db, store_id, coverage_days, platform=platform)
     stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
     if stock.empty:
         return []
@@ -320,8 +325,9 @@ def get_stock_summary(db: Session, store_id: str, coverage_days: int = 30, brand
     return result
 
 
-def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None) -> list:
-    stock = _get_stock_df(db, store_id, coverage_days)
+def get_stock_detail(db: Session, store_id: str, coverage_days: int = 30, brand_slug: str | None = None,
+                     platform: str | None = None) -> list:
+    stock = _get_stock_df(db, store_id, coverage_days, platform=platform)
     stock = _filter_stock_df_by_brand(db, store_id, stock, brand_slug)
     if stock.empty:
         return []
@@ -625,9 +631,10 @@ def get_combo_sales_summary(db: Session, store_id: str,
 
 def get_monthly_product_sales(db: Session, store_id: str,
                                product_name: Optional[str] = None,
-                               brand_slug: str | None = None) -> list:
+                               brand_slug: str | None = None,
+                               platform: Optional[str] = None) -> list:
     import pandas as pd
-    from app.services.stock_calculator import decompose_orders
+    from app.services.stock_calculator import _solo_plataforma, decompose_orders
     combo_dict = _build_combo_dict(db, store_id)
     orders_df = _load_orders_df(db, store_id)
     orders_df = _filter_df_by_brand(db, store_id, orders_df, brand_slug)  # 2026-09-20
@@ -635,6 +642,8 @@ def get_monthly_product_sales(db: Session, store_id: str,
         return []
 
     decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
+    # Son tablas de VENTAS: si hay canal seleccionado, filtran.
+    decomposed = _solo_plataforma(decomposed, platform)
     if decomposed.empty:
         return []
 
@@ -658,11 +667,12 @@ def get_monthly_product_sales(db: Session, store_id: str,
 
 def get_product_monthly_sales_pivot(db: Session, store_id: str,
                                      year: Optional[int] = None,
-                                     brand_slug: Optional[str] = None) -> dict:
+                                     brand_slug: Optional[str] = None,
+                                     platform: Optional[str] = None) -> dict:
     """Pivot productos × meses (unidades vendidas). Retorna años disponibles + rows.
     Cada row: {producto, categoria, m01..m12, total_año}."""
     import pandas as pd
-    from app.services.stock_calculator import decompose_orders
+    from app.services.stock_calculator import _solo_plataforma, decompose_orders
     combo_dict = _build_combo_dict(db, store_id)
     orders_df = _load_orders_df(db, store_id)
     if orders_df.empty:
@@ -677,6 +687,8 @@ def get_product_monthly_sales_pivot(db: Session, store_id: str,
         return {"years": [], "rows": []}
 
     decomposed = decompose_orders(orders_df, combo_dict, db=db, store_id=store_id)
+    # Son tablas de VENTAS: si hay canal seleccionado, filtran.
+    decomposed = _solo_plataforma(decomposed, platform)
     if decomposed.empty:
         return {"years": [], "rows": []}
 
@@ -724,7 +736,8 @@ def get_product_monthly_sales_pivot(db: Session, store_id: str,
 
 def get_combo_monthly_sales_pivot(db: Session, store_id: str,
                                    year: Optional[int] = None,
-                                   brand_slug: Optional[str] = None) -> dict:
+                                   brand_slug: Optional[str] = None,
+                                   platform: Optional[str] = None) -> dict:
     """Pivot combos × meses (unidades). Combo = Seller SKU + Product Name (nivel orden, sin descomponer)."""
     import pandas as pd
     df = _load_orders_df(db, store_id)
@@ -735,6 +748,13 @@ def get_combo_monthly_sales_pivot(db: Session, store_id: str,
     # NO se aplicaba nunca. La tabla salia con los datos de todas las marcas.
     df = _filter_df_by_brand(db, store_id, df, brand_slug)
     if df is None or df.empty:
+        return {"years": [], "rows": []}
+
+    # Esta pivot NO descompone combos: trabaja sobre el pedido. El canal se
+    # filtra igual, sobre la misma columna Platform que trae _load_orders_df.
+    from app.services.stock_calculator import _solo_plataforma as _canal
+    df = _canal(df, platform)
+    if df.empty:
         return {"years": [], "rows": []}
 
     if "Order Status" in df.columns:
