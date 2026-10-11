@@ -64,9 +64,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: cd frontend/setup-panel && npm ci
       - run: cd frontend/setup-panel && npm run build
-# test branch protection
+      # El navegador no ejecuta el codigo fuente: ejecuta el bundle commiteado
+      # en backend/static/, que se genera a mano con `npm run build` y se copia.
+      # El 11-oct TEMU se mergeo con los tres checks en verde y el panel
+      # desplegado siguio sin el paso: este job compilaba y tiraba el resultado.
+      - name: El panel compilado no se queda atras del codigo fuente
+        if: github.event_name == 'pull_request'
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch -q origin "${{ github.base_ref }}"
+          cambios=$(git diff --name-only "$base...HEAD")
+          fuente=$(echo "$cambios" | grep -cE '^frontend/setup-panel/(src/|index\.html|package(-lock)?\.json)' || true)
+          build=$(echo "$cambios" | grep -cE '^backend/static/' || true)
+          echo "ficheros de fuente del panel tocados: $fuente"
+          echo "ficheros de backend/static tocados:   $build"
+          if [ "$fuente" -gt 0 ] && [ "$build" -eq 0 ]; then
+            echo
+            echo "Este PR cambia el panel pero no el bundle que sirve produccion."
+            echo "Sin recompilar, el cambio NO llega al navegador."
+            echo
+            echo "  cd frontend/setup-panel && npm ci && npm run build"
+            echo "  rm -f ../../backend/static/assets/*.js ../../backend/static/assets/*.css"
+            echo "  cp -r dist/. ../../backend/static/"
+            echo
+            exit 1
+          fi
+
