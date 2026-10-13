@@ -139,6 +139,44 @@ def test_los_estados_que_descuentan_son_los_mismos_que_en_tiktok():
     assert TEMU_ESTADOS_QUE_DESCUENTAN == {"shipped", "delivered", "completed"}
 
 
+
+def test_la_linea_lleva_el_subtotal_facturado():
+    """De aqui sale el "Facturado" del dashboard y del email diario.
+
+    Sin esta columna TEMU sumaba ordenes y unidades pero facturaba CERO: los
+    dias 10, 11 y 12 de octubre salian con 22, 15 y 16 pedidos y 0 $.
+    """
+    filas, _ = _construir([_linea("P1", "AV-MBB/2", "111", "Shipped", 3)])
+    assert filas[0]["sku_subtotal_after_discount"] == 104.70, "34.90 x 3"
+
+
+def test_el_precio_base_es_por_unidad_no_por_linea():
+    """Comprobado en los ficheros reales: AV-SSS/8 vale 34.79 con cantidad
+    1, 2 y 7. Si se tratara como total de linea, el facturado saldria bajo."""
+    una, _ = _construir([_linea("P1", "AV-MBB/2", "111", "Shipped", 1)])
+    dos, _ = _construir([_linea("P2", "AV-MBB/2", "111", "Shipped", 2)])
+    assert dos[0]["sku_subtotal_after_discount"] == 2 * una[0]["sku_subtotal_after_discount"]
+
+
+def test_al_agrupar_dos_lineas_el_subtotal_tambien_se_suma():
+    """Si se suman las unidades pero no el importe, el facturado sale corto."""
+    filas, _ = _construir([
+        _linea("PO-211-18704138184313299", "AV-MBB/2", "172056389900572", "Shipped", 1),
+        _linea("PO-211-18704138184313299", "AV-MBB/2", "172056389900572", "Shipped", 1),
+    ])
+    assert filas[0]["quantity"] == 2
+    assert filas[0]["sku_subtotal_after_discount"] == 69.80
+
+
+def test_sin_precio_el_subtotal_queda_vacio_no_a_cero():
+    """Vacio deja que el extracto lo rellene despues. Un 0 se quedaria ahi
+    para siempre, porque el UPSERT solo rellena lo que esta a NULL."""
+    l = _linea("P1", "AV-MBB/2", "111", "Shipped", 2)
+    l["goods base price"] = ""
+    filas, _ = _construir([l])
+    assert filas[0]["sku_subtotal_after_discount"] is None
+
+
 if __name__ == "__main__":
     fallos = 0
     for _n, _f in sorted(globals().items()):
