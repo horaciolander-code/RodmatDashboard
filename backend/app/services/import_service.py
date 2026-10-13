@@ -1486,11 +1486,15 @@ def construir_filas_temu_pedidos(df, store_id: str, batch_id: str | None,
             if combo_sku and combo_sku.lower() not in marca_por_sku:
                 sin_combo.add(combo_sku)
 
+            precio_unidad = _dinero(r.get("goods base price"))
             clave = (pedido, sku_temu or combo_sku)
             fila = acumulado.get(clave)
             if fila is not None:
                 # Misma (pedido, sku) otra vez: se SUMA, no se pisa.
                 fila["quantity"] += cantidad
+                if precio_unidad:
+                    fila["sku_subtotal_after_discount"] = round(
+                        (fila["sku_subtotal_after_discount"] or 0) + precio_unidad * cantidad, 2)
                 continue
 
             acumulado[clave] = {
@@ -1503,7 +1507,16 @@ def construir_filas_temu_pedidos(df, store_id: str, batch_id: str | None,
                 "product_name": _txt(r.get("product name"))[:255] or None,
                 "quantity": cantidad,
                 "status": estado or None,
-                "price": _dinero(r.get("goods base price")),
+                "price": precio_unidad,
+                # De aqui sale el "Facturado" del dashboard y del email diario
+                # (get_sales_by_day agrega por SKU Subtotal After Discount). Sin
+                # esto TEMU sumaba ordenes y unidades pero facturaba CERO.
+                # `goods base price` es por unidad: el mismo SKU aparece al mismo
+                # precio con cantidad 1, 2 y 7 en los ficheros reales.
+                # Es el BRUTO de catalogo. El neto real llega despues con el
+                # extracto financiero, que manda sobre este (ver el UPSERT).
+                "sku_subtotal_after_discount": (
+                    round(precio_unidad * cantidad, 2) if precio_unidad else None),
                 "variation": _txt(r.get("variation"))[:255] or None,
                 "city": _txt(r.get("ship city"))[:255] or None,
                 "state": _txt(r.get("ship state"))[:100] or None,
@@ -1536,7 +1549,7 @@ def parse_temu_orders_csv(content: bytes, store_id: str, db: Session,
     mes suelto no borra el historico.
     """
     import pandas as pd
-    from sqlalchemy import literal_column, text as _text
+    from sqlalchemy import func, literal_column, text as _text
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     df = pd.read_csv(io.BytesIO(content), encoding="utf-8-sig",
@@ -1572,10 +1585,14 @@ def parse_temu_orders_csv(content: bytes, store_id: str, db: Session,
     for i in range(0, len(filas), BATCH):
         lote = filas[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(lote)
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_store_order_sku",
-            set_={c: getattr(stmt.excluded, c) for c in _cols},
-        )
+        _set = {c: getattr(stmt.excluded, c) for c in _cols}
+        # El extracto financiero manda sobre el bruto de catalogo: si ya hay un
+        # subtotal (lo puso el extracto, que trae el neto despues de descuentos
+        # de plataforma), resubir los pedidos NO lo pisa. Solo rellena el hueco.
+        _set["sku_subtotal_after_discount"] = func.coalesce(
+            SalesOrder.__table__.c.sku_subtotal_after_discount,
+            stmt.excluded.sku_subtotal_after_discount)
+        stmt = stmt.on_conflict_do_update(constraint="uq_store_order_sku", set_=_set)
         for (es_alta,) in db.execute(stmt.returning(literal_column("(xmax = 0)"))):
             if es_alta:
                 insertadas += 1
