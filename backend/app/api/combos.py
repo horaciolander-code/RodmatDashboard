@@ -9,6 +9,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.schemas.combo import ComboCreate, ComboResponse
 from app.dependencies import get_current_user
+from app.services.marcas import marca_de_los_componentes
 
 router = APIRouter(prefix="/api/combos", tags=["combos"])
 
@@ -37,7 +38,9 @@ def create_combo(
     for item in payload.items:
         totals[item.product_id] += item.quantity
 
-    combo = Combo(store_id=user.store_id, combo_sku=payload.combo_sku, combo_name=payload.combo_name)
+    combo = Combo(store_id=user.store_id, combo_sku=payload.combo_sku,
+                  combo_name=payload.combo_name,
+                  brand_id=marca_de_los_componentes(products))
     db.add(combo)
     db.flush()
     for pid, qty in totals.items():
@@ -104,6 +107,11 @@ def update_combo(
 
     combo.combo_sku = payload.combo_sku
     combo.combo_name = payload.combo_name
+    # Si cambian los componentes puede cambiar la marca: se recalcula igual
+    # que al crear. Sin esto, cambiar un combo de Avon a Lattafa lo dejaria
+    # etiquetado con la marca vieja.
+    if product_ids:
+        combo.brand_id = marca_de_los_componentes(products)
 
     # Replace items: delete current then re-add (dedup quantities)
     db.query(ComboItem).filter(ComboItem.combo_id == combo.id).delete()
