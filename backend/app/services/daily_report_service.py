@@ -173,14 +173,23 @@ def build_report(db: Session, store_id: str,
     # CSV subido esa misma mañana — la forma más rápida de que alguien deje de
     # fiarse del informe.
     _fresh_df = _load_orders_df(db, store_id) if brand_id else df
-    max_date = _fresh_df["Order_Date"].dropna().max() if not _fresh_df.empty else pd.NaT
-    data_lag_days = (today - max_date).days if pd.notna(max_date) else 999
-    if data_lag_days >= 2:
+    # El aviso va POR CANAL. Mirar la fecha maxima de todas las plataformas
+    # juntas tapaba el problema: con TEMU subido hoy el conjunto parece
+    # fresco aunque TikTok lleve dos dias sin cargar, y el informe sale con
+    # pinta de completo faltandole el canal que mas vende.
+    from app.services.frescura_canales import canales_desactualizados, texto_aviso
+    _ventas = []
+    if not _fresh_df.empty and "Platform" in _fresh_df.columns:
+        _sub = _fresh_df[["Platform", "Order_Date"]].dropna()
+        _ventas = list(zip(_sub["Platform"], _sub["Order_Date"]))
+    _viejos = canales_desactualizados(_ventas, today.date())
+    if _viejos:
+        _plural = "ES" if len(_viejos) > 1 else ""
         sections.append(f"""
         <div style="background-color:#3d2810;border:1px solid #FF9F45;border-radius:8px;padding:15px;margin-bottom:20px;">
-          <strong style="color:#FF9F45;">&#9888; DATOS DESACTUALIZADOS</strong>
-          <span style="color:#FF9F45;"> — El CSV m&aacute;s reciente en BD es del {max_date.strftime('%d/%m/%Y') if pd.notna(max_date) else 'desconocido'} ({data_lag_days} d&iacute;as de retraso).
-          Importa el CSV actualizado para que los KPIs sean correctos.</span>
+          <strong style="color:#FF9F45;">&#9888; FALTAN DATOS DE {len(_viejos)} CANAL{_plural}</strong>
+          <span style="color:#FF9F45;"> &mdash; sin cargar: <b>{texto_aviso(_viejos)}</b>.
+          Las cifras de abajo NO incluyen sus ventas de esos d&iacute;as. Sube su fichero y el informe se recalcula.</span>
         </div>
         """)
 

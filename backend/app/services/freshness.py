@@ -25,7 +25,18 @@ from sqlalchemy.orm import Session
 from app.models.import_history import ImportHistory
 
 
-DEFAULT_TYPES: tuple[str, ...] = ("tiktok", "amazon")
+# Todo lo que trae PEDIDOS. Si falta un tipo aqui, una carga de ese canal
+# no cuenta como dato fresco: el informe se queda en skipped_stale y el
+# disparador de recuperacion tampoco lo rescata.
+#
+# Paso de verdad: el 17-oct-2026 solo se subio TEMU. Como "temu_orders"
+# no estaba en esta lista, ese dia NO salio el informe diario.
+#
+# El statement de TikTok NO va aqui a proposito: es dinero, no pedidos.
+# Que llegue el extracto no significa que las ventas esten cargadas.
+DEFAULT_TYPES: tuple[str, ...] = (
+    "tiktok", "amazon", "walmart", "temu", "temu_orders",
+)
 
 
 @dataclass(frozen=True)
