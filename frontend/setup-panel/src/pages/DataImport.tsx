@@ -23,6 +23,7 @@ interface StepResult {
   total_rows: number;
   inserted: number;
   updated: number;
+  unchanged?: number;
   errors: number;
   unknown_skus?: string[];
   warning?: string;
@@ -121,7 +122,7 @@ export default function DataImport() {
 
     return (
       <span className="text-sm text-green-600 font-medium">
-        {result.inserted} insertados, {result.updated} actualizados
+        {result.inserted} insertados, {result.updated} actualizados{result.unchanged ? `, ${result.unchanged} sin cambios` : ''}
         {result.errors > 0 && <span className="text-red-500"> ({result.errors} errores)</span>}
       </span>
     );
