@@ -67,10 +67,20 @@ def test_temu_informa_pero_no_bloquea():
 
 
 def test_el_schema_no_bloquea_por_defecto():
-    from app.schemas.import_schemas import ImportResult
-    r = ImportResult(total_rows=1, inserted=1, updated=0, errors=0,
-                     unknown_skus=["AV-MS/2"])
-    assert r.bloqueado is False, "un SKU sin asignar no es un bloqueo"
+    """Por fuente, no importando el schema: `import_schemas` trae pydantic y
+    el job de aislamiento del CI solo tiene pytest y pandas."""
+    esquema = (_BACKEND / "app" / "schemas" / "import_schemas.py").read_text(
+        encoding="utf-8")
+    assert "bloqueado: bool = False" in esquema, (
+        "un SKU sin asignar no es un bloqueo: el campo tiene que nacer en False")
+
+
+def test_los_avisos_nuevos_llegan_al_panel():
+    """Sin estar en el schema, el response_model los descarta en silencio."""
+    esquema = (_BACKEND / "app" / "schemas" / "import_schemas.py").read_text(
+        encoding="utf-8")
+    for campo in ("a_confirmar", "sellers_duplicados"):
+        assert f"{campo}: List[dict] = []" in esquema, campo
 
 
 # ── Lo que lee el panel ──────────────────────────────────────────────────
