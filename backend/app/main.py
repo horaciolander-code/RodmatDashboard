@@ -120,6 +120,28 @@ def _start_scheduler():
         evicted = _evict_stale_cache()
         logger.info("Cache eviction after reports: %d entries freed", evicted)
 
+    def _run_rescate():
+        """Red de seguridad de la tarde.
+
+        A las 11:00 y 12:00 el informe espera a que esten TODOS los canales
+        que venden. Si a media tarde sigue faltando uno, es que ese dia no
+        va a llegar: mejor el informe con un aviso en cabecera de que canal
+        le falta que ningun informe.
+        """
+        from app.services.scheduled_jobs import (run_scheduled_agents,
+                                                 run_scheduled_reports)
+        logger.info("Scheduler: pasada de rescate (envia aunque falte un canal)")
+        db = SessionLocal()
+        try:
+            logger.info("Rescate agentes: %s",
+                        run_scheduled_agents(db, exigir_todos_los_canales=False))
+            logger.info("Rescate informes: %s",
+                        run_scheduled_reports(db, exigir_todos_los_canales=False))
+        except Exception as exc:
+            logger.exception("Pasada de rescate fallo: %s", exc)
+        finally:
+            db.close()
+
     def _run_cache_eviction():
         from app.services.analytics_service import _evict_stale_cache
         evicted = _evict_stale_cache()
@@ -129,8 +151,12 @@ def _start_scheduler():
     # 11:00 UTC = 7AM EDT (UTC-4) | 12:00 UTC = 8AM EDT — report at 8AM Miami time
     sched.every().day.at("11:00").do(_run_agents)
     sched.every().day.at("12:00").do(_run_reports)
+    # 20:00 UTC = 16:00 EDT. Rescate: si a esta hora sigue faltando el
+    # fichero de un canal, se envia con lo que haya y el informe lo dice.
+    sched.every().day.at("20:00").do(_run_rescate)
     sched.every(15).minutes.do(_run_cache_eviction)
-    logger.info("Scheduler configured: agents at 11:00 UTC, reports at 12:00 UTC (8AM EDT), eviction every 15 min")
+    logger.info("Scheduler configured: agents 11:00 UTC, reports 12:00 UTC (8AM EDT), "
+                "rescate 20:00 UTC (4PM EDT), eviction every 15 min")
 
     def _loop():
         while True:
