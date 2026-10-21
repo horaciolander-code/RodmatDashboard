@@ -2707,6 +2707,25 @@ def page_import_upload():
                             f"{len(r_ped['unknown_skus'])} SKU de TEMU sin combo asignado — "
                             "sus ventas NO descuentan stock hasta que los des de alta en Gestión Combos: "
                             + ", ".join(r_ped["unknown_skus"][:10]))
+                    # Un SKU sin asignar no descuenta, asi que no puede
+                    # equivocarse. Estos dos SI descuentan: si el anuncio no
+                    # es ese producto, resta del stock de otro.
+                    if r_ped.get("sellers_duplicados"):
+                        st.error(
+                            f"{len(r_ped['sellers_duplicados'])} seller SKU llegan con DOS "
+                            "anuncios distintos de TEMU en el mismo fichero. Uno de los dos "
+                            "descuenta del producto equivocado: "
+                            + " · ".join(f"{d['seller_sku']} → {', '.join(d['anuncios'][:3])}"
+                                         for d in r_ped["sellers_duplicados"][:5]))
+                    if r_ped.get("a_confirmar"):
+                        st.error(
+                            f"{len(r_ped['a_confirmar'])} anuncio(s) de TEMU nuevos reclaman un "
+                            "seller SKU que YA descuenta por sus componentes. Confirma que son "
+                            "el mismo producto antes de fiarte del stock: "
+                            + " · ".join(
+                                f"{a['seller_sku']} → anuncio {a['anuncio']}"
+                                + (f" ({a.get('producto','')[:40]})" if a.get("producto") else "")
+                                for a in r_ped["a_confirmar"][:8]))
                     _refresh_after_import()
 
             st.markdown("---")
