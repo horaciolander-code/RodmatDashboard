@@ -164,10 +164,27 @@ def _is_agent_day(agent_name: str, today: Optional[datetime] = None) -> bool:
     return False
 
 
+def _texto_esperando(f) -> str:
+    """'TEMU' cuando el informe se salta por falta de un canal, '' si no.
+
+    Distingue "hoy no se ha subido nada" de "se subio TikTok y falta TEMU".
+    Confundir las dos cosas es lo que hacia que los numeros del email no
+    cuadraran sin que nadie se enterara.
+    """
+    if getattr(f, "reason", "") != "incomplete":
+        return ""
+    from app.services.frescura_canales import texto_canales
+    return texto_canales(list(getattr(f, "canales_pendientes", ()) or ()))
+
+
 # ── scheduled report (12:00 UTC) ─────────────────────────────────────────────
 
-def run_scheduled_reports(db: Session) -> dict:
+def run_scheduled_reports(db: Session, exigir_todos_los_canales: bool = True) -> dict:
     """Run daily reports for every report-enabled store, gated by freshness.
+
+    `exigir_todos_los_canales=False` es la pasada de rescate de la tarde:
+    envia con lo que haya en vez de dejar el dia sin informe. El propio
+    informe avisa en cabecera de que canal le falta.
 
     Behavior per store:
       - if not report_enabled            -> skipped_disabled
@@ -183,6 +200,7 @@ def run_scheduled_reports(db: Session) -> dict:
     results: dict[str, str] = {}
     skipped_by_store: dict[str, list[dict]] = {}
     latest_by_store: dict[str, Optional[datetime]] = {}
+    esperando_by_store: dict[str, str] = {}
 
     for store in stores:
         settings = store.settings or {}
@@ -198,7 +216,8 @@ def run_scheduled_reports(db: Session) -> dict:
                         store.name)
             continue
 
-        f = check_data_freshness(db, store.id, store=store)
+        f = check_data_freshness(db, store.id, store=store,
+                                 exigir_todos_los_canales=exigir_todos_los_canales)
         if not f.is_fresh:
             _log_report(db, store.id, status="skipped_stale")
             results[store.name] = "skipped_stale"
@@ -208,6 +227,7 @@ def run_scheduled_reports(db: Session) -> dict:
                 "reason": f.detail,
             })
             latest_by_store[store.name] = f.latest_import_at
+            esperando_by_store[store.name] = _texto_esperando(f)
             logger.info("[scheduled_reports] %s skipped (stale): %s",
                         store.name, f.reason)
             continue
@@ -253,13 +273,14 @@ def run_scheduled_reports(db: Session) -> dict:
             store_name=store_name,
             skipped=items,
             latest_import_at=latest_by_store.get(store_name),
+            esperando=esperando_by_store.get(store_name, ""),
         )
     return results
 
 
 # ── scheduled agents (11:00 UTC) ─────────────────────────────────────────────
 
-def run_scheduled_agents(db: Session) -> dict:
+def run_scheduled_agents(db: Session, exigir_todos_los_canales: bool = True) -> dict:
     """Run all four agents for every store, gated by freshness.
 
     Per (store, agent):
@@ -275,10 +296,12 @@ def run_scheduled_agents(db: Session) -> dict:
     results: dict[str, dict] = {}
     skipped_by_store: dict[str, list[dict]] = {}
     latest_by_store: dict[str, Optional[datetime]] = {}
+    esperando_by_store: dict[str, str] = {}
 
     for store in stores:
         store_results: dict[str, str] = {}
-        f = check_data_freshness(db, store.id, store=store)
+        f = check_data_freshness(db, store.id, store=store,
+                                 exigir_todos_los_canales=exigir_todos_los_canales)
 
         for agent_name, mod_path in AGENT_MODULES.items():
             try:
@@ -301,6 +324,7 @@ def run_scheduled_agents(db: Session) -> dict:
                             "reason": f.detail,
                         })
                         latest_by_store[store.name] = f.latest_import_at
+                        esperando_by_store[store.name] = _texto_esperando(f)
                         store_results[agent_name] = "skipped_stale"
                     else:
                         # don't pollute the audit table with daily noise
@@ -361,6 +385,7 @@ def run_scheduled_agents(db: Session) -> dict:
             store_name=store_name,
             skipped=items,
             latest_import_at=latest_by_store.get(store_name),
+            esperando=esperando_by_store.get(store_name, ""),
         )
     return results
 
