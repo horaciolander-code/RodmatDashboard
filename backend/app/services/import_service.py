@@ -130,6 +130,56 @@ def _safe_datetime(val, dayfirst: bool = False) -> datetime | None:
         return None
 
 
+# ──────────────────────────────────────────────────────────────────────────
+#  UPSERT que no reescribe lo que no ha cambiado
+#
+#  Una UPDATE que deja la fila igual NO es gratis en Postgres: crea una
+#  version nueva, escribe WAL, actualiza TODOS los indices y deja una fila
+#  muerta para el autovacuum. Mas IO despues.
+#
+#  El fichero diario de TikTok son ~18.000 filas y cambian ~100. Reescribir
+#  las otras 17.900 cada manana es lo que agotaba el presupuesto de Disk IO
+#  del proyecto (aviso de Supabase del 19-oct-2026) y lo que explicaba que
+#  el WAL pesara 176 MB y el sistema 777 MB para una base de 107 MB.
+# ──────────────────────────────────────────────────────────────────────────
+
+# Columnas de control que NO cuentan como "cambio". `import_batch_id` es
+# distinta en CADA importacion: si se comparara, el guardia seria siempre
+# cierto y no se saltaria ni una fila — el arreglo no haria nada.
+_COLS_SIN_VALOR_DE_NEGOCIO = {"import_batch_id", "imported_at"}
+
+
+def _solo_si_cambia(tabla, stmt, cols):
+    """Condicion para el DO UPDATE: alguna columna de negocio es distinta.
+
+    `IS DISTINCT FROM` y no `!=` a proposito: con NULL, `!=` da NULL (que no
+    es cierto) y una fila que pasa de NULL a un valor no se actualizaria.
+    """
+    from sqlalchemy import or_
+    comparables = [c for c in cols if c not in _COLS_SIN_VALOR_DE_NEGOCIO]
+    if not comparables:
+        return None
+    return or_(*[tabla.c[c].is_distinct_from(getattr(stmt.excluded, c))
+                 for c in comparables])
+
+
+def _contar_upsert(db, stmt, total_lote):
+    """Ejecuta el UPSERT y devuelve (altas, actualizadas, sin_cambios).
+
+    `xmax` vale 0 solo en las filas creadas por ESE comando. Las que el
+    guardia se salta no vuelven en el RETURNING, asi que se cuentan por
+    diferencia: son las que llegaron iguales a como ya estaban.
+    """
+    from sqlalchemy import literal_column
+    altas = cambios = 0
+    for (es_alta,) in db.execute(stmt.returning(literal_column("(xmax = 0)"))):
+        if es_alta:
+            altas += 1
+        else:
+            cambios += 1
+    return altas, cambios, total_lote - altas - cambios
+
+
 def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str | None = None) -> dict:
     """Parse TikTok orders CSV (AllBBDD format). Replaces TikTok orders only (keeps Amazon).
     Multi-brand aware: resuelve brand_id por SKU (product.brand_id) o fallback por prefijo."""
@@ -210,20 +260,26 @@ def parse_orders_csv(content: bytes, store_id: str, db: Session, batch_id: str |
     ]
 
     BATCH = 500   # micro-batches: evita statement_timeout Supabase Micro
-    inserted, updated = 0, 0
+    inserted, updated, sin_cambios = 0, 0, 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(batch)
         stmt = stmt.on_conflict_do_update(
             constraint='uq_store_order_sku',
             set_={col: getattr(stmt.excluded, col) for col in _update_cols},
+            where=_solo_si_cambia(SalesOrder.__table__, stmt, _update_cols),
         )
-        db.execute(stmt)
+        _a, _c, _s = _contar_upsert(db, stmt, len(batch))
         db.flush()
-        inserted += len(batch)
+        inserted += _a
+        updated += _c
+        sin_cambios += _s
 
     db.commit()
-    return {"total_rows": len(df), "inserted": inserted, "updated": 0, "errors": errors}
+    return {"total_rows": len(df), "inserted": inserted, "updated": updated,
+            "unchanged": sin_cambios, "errors": errors,
+            "detalle": (f"{inserted} nuevos, {updated} actualizados, "
+                        f"{sin_cambios} ya estaban igual (no se reescriben)")}
 
 
 def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
@@ -297,20 +353,26 @@ def parse_affiliate_csv(content: bytes, store_id: str, db: Session) -> dict:
                    'content_type', 'payment_amount', 'order_status', 'time_created',
                    'commission_rate', 'est_commission_base', 'brand_id']
     BATCH = 1000
-    total = 0
+    total = _afl_act = _afl_igual = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(AffiliateSale).values(batch)
         stmt = stmt.on_conflict_do_update(
             constraint='uq_store_affiliate_order_sku',
             set_={col: getattr(stmt.excluded, col) for col in update_cols},
+            where=_solo_si_cambia(AffiliateSale.__table__, stmt, update_cols),
         )
-        db.execute(stmt)
+        _a, _c, _s = _contar_upsert(db, stmt, len(batch))
         db.flush()
-        total += len(batch)
+        total += _a
+        _afl_act += _c
+        _afl_igual += _s
 
     db.commit()
-    return {"total_rows": len(df), "inserted": total, "updated": 0, "errors": errors}
+    return {"total_rows": len(df), "inserted": total, "updated": _afl_act,
+            "unchanged": _afl_igual, "errors": errors,
+            "detalle": (f"{total} nuevos, {_afl_act} actualizados, "
+                        f"{_afl_igual} ya estaban igual (no se reescriben)")}
 
 
 def parse_products_excel(content: bytes, store_id: str, db: Session) -> dict:
@@ -641,20 +703,26 @@ def parse_amazon_txt(content: bytes, store_id: str, db: Session, batch_id: str |
     ]
 
     BATCH = 500   # micro-batches: evita statement_timeout Supabase Micro
-    total_processed = 0
+    total_processed = _act = _igual = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(batch)
         stmt = stmt.on_conflict_do_update(
             constraint='uq_store_order_sku',
             set_={col: getattr(stmt.excluded, col) for col in _update_cols},
+            where=_solo_si_cambia(SalesOrder.__table__, stmt, _update_cols),
         )
-        db.execute(stmt)
+        _a, _c, _s = _contar_upsert(db, stmt, len(batch))
         db.flush()
-        total_processed += len(batch)
+        total_processed += _a
+        _act += _c
+        _igual += _s
 
     db.commit()
-    return {"total_rows": len(df), "inserted": total_processed, "updated": 0, "errors": errors}
+    return {"total_rows": len(df), "inserted": total_processed, "updated": _act,
+            "unchanged": _igual, "errors": errors,
+            "detalle": (f"{total_processed} nuevos, {_act} actualizados, "
+                        f"{_igual} ya estaban igual (no se reescriben)")}
 
 
 def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) -> dict:
@@ -876,21 +944,27 @@ def parse_walmart_xlsx(content: bytes, store_id: str, db: Session, batch_id: str
     ]
 
     BATCH = 3000
-    total_processed = 0
+    total_processed = _act = _igual = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i:i + BATCH]
         stmt = pg_insert(SalesOrder).values(batch)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_store_order_sku",
             set_={col: getattr(stmt.excluded, col) for col in _update_cols},
+            where=_solo_si_cambia(SalesOrder.__table__, stmt, _update_cols),
         )
-        db.execute(stmt)
+        _a, _c, _s = _contar_upsert(db, stmt, len(batch))
         db.flush()
-        total_processed += len(batch)
+        total_processed += _a
+        _act += _c
+        _igual += _s
 
     db.commit()
     wb.close()
-    return {"total_rows": len(rows), "inserted": total_processed, "updated": 0, "errors": errors}
+    return {"total_rows": len(rows), "inserted": total_processed, "updated": _act,
+            "unchanged": _igual, "errors": errors,
+            "detalle": (f"{total_processed} nuevos, {_act} actualizados, "
+                        f"{_igual} ya estaban igual (no se reescriben)")}
 
 
 
@@ -1088,17 +1162,19 @@ def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batc
     lines_deduped = list(_dedup.values())
 
     BATCH = 500
-    upserted_lines = 0
+    upserted_lines = _lin_igual = 0
     for i in range(0, len(lines_deduped), BATCH):
         batch = lines_deduped[i:i+BATCH]
         stmt_sql = pg_insert(TiktokStatementLine).values(batch)
         stmt_sql = stmt_sql.on_conflict_do_update(
             constraint="uq_tt_line",
             set_={col: getattr(stmt_sql.excluded, col) for col in line_update_cols},
+            where=_solo_si_cambia(TiktokStatementLine.__table__, stmt_sql, line_update_cols),
         )
-        db.execute(stmt_sql)
+        _a, _c, _s = _contar_upsert(db, stmt_sql, len(batch))
         db.flush()
-        upserted_lines += len(batch)
+        upserted_lines += _a + _c
+        _lin_igual += _s
 
     # UPSERT statement headers
     stmt_headers = []
@@ -1129,6 +1205,7 @@ def parse_tiktok_statement_xlsx(content: bytes, store_id: str, db: Session, batc
         stmt_sql = stmt_sql.on_conflict_do_update(
             constraint="uq_tt_stmt",
             set_={col: getattr(stmt_sql.excluded, col) for col in hdr_update_cols},
+            where=_solo_si_cambia(TiktokStatement.__table__, stmt_sql, hdr_update_cols),
         )
         db.execute(stmt_sql)
         db.flush()
@@ -1629,7 +1706,14 @@ def parse_temu_orders_csv(content: bytes, store_id: str, db: Session,
         _set["sku_subtotal_after_discount"] = func.coalesce(
             SalesOrder.__table__.c.sku_subtotal_after_discount,
             stmt.excluded.sku_subtotal_after_discount)
-        stmt = stmt.on_conflict_do_update(constraint="uq_store_order_sku", set_=_set)
+        # El subtotal queda FUERA de la comparacion: lo decide el COALESCE de
+        # arriba, no el fichero de pedidos. Si entrara, una fila ya enriquecida
+        # por el extracto se veria "distinta" en cada subida y se reescribiria
+        # para acabar poniendo el mismo valor.
+        _comparables = [c for c in _cols if c != "sku_subtotal_after_discount"]
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_store_order_sku", set_=_set,
+            where=_solo_si_cambia(SalesOrder.__table__, stmt, _comparables))
         for (es_alta,) in db.execute(stmt.returning(literal_column("(xmax = 0)"))):
             if es_alta:
                 insertadas += 1

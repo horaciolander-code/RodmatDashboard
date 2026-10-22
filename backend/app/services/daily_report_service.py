@@ -177,12 +177,37 @@ def build_report(db: Session, store_id: str,
     # juntas tapaba el problema: con TEMU subido hoy el conjunto parece
     # fresco aunque TikTok lleve dos dias sin cargar, y el informe sale con
     # pinta de completo faltandole el canal que mas vende.
-    from app.services.frescura_canales import canales_desactualizados, texto_aviso
+    from app.services.frescura_canales import (canales_desactualizados,
+                                            texto_aviso, texto_canales)
     _ventas = []
     if not _fresh_df.empty and "Platform" in _fresh_df.columns:
         _sub = _fresh_df[["Platform", "Order_Date"]].dropna()
         _ventas = list(zip(_sub["Platform"], _sub["Order_Date"]))
     _viejos = canales_desactualizados(_ventas, today.date())
+
+    # Canal cuyo fichero NO ha llegado hoy. No es lo mismo que "lleva 2 dias
+    # viejo": aqui el canal esta al dia y lo que falta es la carga de esta
+    # manana. El informe normal ya no sale en ese caso (espera), pero la
+    # pasada de rescate de la tarde y /send-now?force=true si envian — y
+    # entonces esto es lo unico que avisa de que la cifra esta incompleta.
+    _ya_avisados = {c for c, _ in _viejos}
+    try:
+        from app.services.freshness import canales_sin_cargar_hoy
+        _sin_cargar = [c for c in canales_sin_cargar_hoy(db, store_id, store=store)
+                       if c not in _ya_avisados]
+    except Exception as _e:   # el aviso nunca debe tumbar el informe
+        print(f"[daily] no se pudo calcular canales sin cargar: {_e}")
+        _sin_cargar = []
+    if _sin_cargar:
+        sections.append(f"""
+        <div style="background-color:#3d1010;border:1px solid #FF3D6B;border-radius:8px;padding:15px;margin-bottom:20px;">
+          <strong style="color:#FF3D6B;">&#9888; CIFRAS INCOMPLETAS</strong>
+          <span style="color:#FF3D6B;"> &mdash; hoy no se ha subido el fichero de
+          <b>{texto_canales(_sin_cargar)}</b>. Las ventas de ese canal NO est&aacute;n
+          en los n&uacute;meros de abajo. S&uacute;belo y el informe se recalcula.</span>
+        </div>
+        """)
+
     if _viejos:
         _plural = "ES" if len(_viejos) > 1 else ""
         sections.append(f"""
