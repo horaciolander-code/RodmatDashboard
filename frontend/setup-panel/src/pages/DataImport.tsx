@@ -26,6 +26,9 @@ interface StepResult {
   unchanged?: number;
   errors: number;
   unknown_skus?: string[];
+  bloqueado?: boolean;
+  a_confirmar?: { seller_sku: string; anuncio: string; producto?: string }[];
+  sellers_duplicados?: { seller_sku: string; anuncios: string[] }[];
   warning?: string;
 }
 
@@ -106,16 +109,21 @@ export default function DataImport() {
       );
     }
 
-    if (result.unknown_skus && result.unknown_skus.length > 0) {
+    // Rojo SOLO si el backend abandono sin escribir nada. Un SKU sin asignar
+    // no para una carga de pedidos: las lineas entran igual y el SKU se revisa
+    // en Gestion > Gestion Combos, donde ya esta el asistente para asignarlo.
+    // Pintarlo como "Bloqueado" escondia el resultado real y hacia parecer
+    // fallida una carga que habia entrado entera.
+    if (result.bloqueado) {
       return (
         <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 max-w-sm">
-          <p className="font-semibold mb-1">Bloqueado — {result.unknown_skus.length} SKU(s) no encontrados en el catálogo:</p>
+          <p className="font-semibold mb-1">Bloqueado — {result.unknown_skus?.length ?? 0} SKU(s) no encontrados en el catálogo:</p>
           <ul className="list-disc list-inside space-y-0.5">
-            {result.unknown_skus.map(sku => (
+            {(result.unknown_skus ?? []).map(sku => (
               <li key={sku} className="font-mono text-xs">{sku}</li>
             ))}
           </ul>
-          <p className="mt-1 text-xs text-red-500">Carga primero el fichero de Productos o corrige los nombres.</p>
+          <p className="mt-1 text-xs text-red-500">No se ha escrito nada. Carga primero el fichero de Productos o corrige los nombres.</p>
         </div>
       );
     }
@@ -124,6 +132,29 @@ export default function DataImport() {
       <span className="text-sm text-green-600 font-medium">
         {result.inserted} insertados, {result.updated} actualizados{result.unchanged ? `, ${result.unchanged} sin cambios` : ''}
         {result.errors > 0 && <span className="text-red-500"> ({result.errors} errores)</span>}
+        {result.unknown_skus && result.unknown_skus.length > 0 && (
+          <span className="block font-normal text-gray-400 text-xs mt-0.5">
+            {result.unknown_skus.length} SKU sin asignar — se revisan en Gestión &gt; Gestión Combos
+          </span>
+        )}
+        {/* Esto NO bloquea, pero no es un detalle gris: un anuncio nuevo bajo
+            un SKU que ya descuenta puede estar restando del stock equivocado. */}
+        {result.sellers_duplicados && result.sellers_duplicados.length > 0 && (
+          <span className="block font-normal text-red-600 text-xs mt-1">
+            ⚠ {result.sellers_duplicados.length} SKU con DOS anuncios distintos en el mismo fichero
+            — uno de los dos descuenta mal:{' '}
+            <span className="font-mono">{result.sellers_duplicados.slice(0, 5).map(d => d.seller_sku).join(', ')}</span>
+          </span>
+        )}
+        {result.a_confirmar && result.a_confirmar.length > 0 && (
+          <span className="block font-normal text-amber-700 text-xs mt-1">
+            ⚠ {result.a_confirmar.length} anuncio(s) nuevo(s) reclaman un SKU que YA descuenta.
+            Confirma que son el mismo producto:{' '}
+            <span className="font-mono">
+              {result.a_confirmar.slice(0, 5).map(a => `${a.seller_sku}→${a.anuncio}`).join(', ')}
+            </span>
+          </span>
+        )}
       </span>
     );
   };
@@ -189,7 +220,7 @@ export default function DataImport() {
         <div className="space-y-3">
           {RODMAT_STEPS.filter(step => !isWarehouse || step.key === 'initial' || step.key === 'incoming').map(step => {
             const result = results[step.key];
-            const hasUnknownSkus = result?.unknown_skus && result.unknown_skus.length > 0;
+            const hasUnknownSkus = !!result?.bloqueado;
             return (
             <div key={step.key} className={`bg-white border rounded-lg p-4 ${hasUnknownSkus ? 'border-red-300' : ''}`}>
               <div className="flex items-center justify-between">

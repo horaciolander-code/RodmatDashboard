@@ -547,12 +547,15 @@ def parse_initial_inventory_excel(content: bytes, store_id: str, db: Session) ->
             unknown_skus.append(producto)
 
     if unknown_skus:
+        # Aqui si hay que parar: estas filas van a `product_id` y no existe el
+        # producto. Dejarlas pasar seria escribir inventario huerfano.
         return {
             "total_rows": len(df),
             "inserted": 0,
             "updated": 0,
             "errors": len(unknown_skus),
             "unknown_skus": unknown_skus,
+            "bloqueado": True,
         }
 
     from datetime import date as date_type
@@ -752,12 +755,15 @@ def parse_pending_inventory_excel(content: bytes, store_id: str, db: Session) ->
             unknown_skus.append(producto)
 
     if unknown_skus:
+        # Aqui si hay que parar: estas filas van a `product_id` y no existe el
+        # producto. Dejarlas pasar seria escribir inventario huerfano.
         return {
             "total_rows": len(df),
             "inserted": 0,
             "updated": 0,
             "errors": len(unknown_skus),
             "unknown_skus": unknown_skus,
+            "bloqueado": True,
         }
 
     for _, row in df.iterrows():
@@ -1545,6 +1551,10 @@ def construir_filas_temu_pedidos(df, store_id: str, batch_id: str | None,
     errores = 0
     sin_combo = set()
     estados = {}
+    # (id_de_anuncio, seller_sku, nombre) de cada linea legible. Se usa para
+    # detectar un anuncio nuevo que reclama un seller SKU que YA descuenta:
+    # si no es ese producto, cada venta descuenta del stock equivocado.
+    lineas_vistas = []
 
     for _, r in df.iterrows():
         try:
@@ -1562,6 +1572,9 @@ def construir_filas_temu_pedidos(df, store_id: str, batch_id: str | None,
 
             if combo_sku and combo_sku.lower() not in marca_por_sku:
                 sin_combo.add(combo_sku)
+            if sku_temu and combo_sku:
+                lineas_vistas.append(
+                    (sku_temu, combo_sku, _txt(r.get("product name"))))
 
             precio_unidad = _dinero(r.get("goods base price"))
             clave = (pedido, sku_temu or combo_sku)
@@ -1612,6 +1625,7 @@ def construir_filas_temu_pedidos(df, store_id: str, batch_id: str | None,
     return filas, {
         "errores": errores,
         "sin_combo": sorted(sin_combo),
+        "lineas_vistas": lineas_vistas,
         "estados": estados,
         "lineas_agrupadas": max(0, int(len(df)) - len(filas) - errores),
         "unidades_que_descuentan": int(descuentan),
@@ -1649,6 +1663,29 @@ def parse_temu_orders_csv(content: bytes, store_id: str, db: Session,
     }
 
     filas, resumen = construir_filas_temu_pedidos(df, store_id, batch_id, marca_por_sku)
+
+    # ── Un SKU nuevo entra; uno que YA descuenta se confirma ───────────────
+    # Un seller SKU sin componentes no descuenta nada, asi que no puede
+    # equivocarse: entra y se asigna en Gestion Combos. Pero un anuncio de
+    # TEMU que no habiamos visto nunca y que reclama un seller SKU con
+    # componentes asignados SI descuenta — y en TEMU ya ha pasado reusar un
+    # seller SKU para un articulo distinto al de TikTok. Eso se avisa.
+    #
+    # Se mide por ID de anuncio, no por el texto del SKU: la relacion nuestra
+    # es el ID de producto de la plataforma. Y salta solo la primera vez que
+    # se ve el anuncio, que es cuando aun se puede corregir.
+    from app.services.colision_skus import (anuncios_a_confirmar,
+                                            sellers_con_varios_anuncios)
+    _lineas = resumen.pop("lineas_vistas", [])
+    _ids_conocidos = [r[0] for r in db.execute(_text(
+        "SELECT DISTINCT sku FROM sales_orders "
+        "WHERE store_id = :sid AND platform = 'temu' AND sku IS NOT NULL"),
+        {"sid": store_id}).fetchall()]
+    _a_confirmar = anuncios_a_confirmar(_lineas, _ids_conocidos, marca_por_sku.keys())
+    _duplicados = sellers_con_varios_anuncios(_lineas, _ids_conocidos)
+    resumen["a_confirmar"] = _a_confirmar
+    resumen["sellers_duplicados"] = _duplicados
+
     if not filas:
         return {"total_rows": len(df), "inserted": 0, "updated": 0,
                 "errors": resumen["errores"], "unknown_skus": resumen["sin_combo"],
@@ -1692,6 +1729,15 @@ def parse_temu_orders_csv(content: bytes, store_id: str, db: Session,
         "updated": actualizadas,
         "errors": resumen["errores"],
         "unknown_skus": resumen["sin_combo"],
+        # Lo que hay que mirar ANTES de fiarse del descuento de stock.
+        "a_confirmar": [
+            {"seller_sku": s_, "anuncio": i_, "producto": n_}
+            for s_, i_, n_ in resumen["a_confirmar"]
+        ],
+        "sellers_duplicados": [
+            {"seller_sku": s_, "anuncios": ids_}
+            for s_, ids_ in resumen["sellers_duplicados"]
+        ],
         "detalle": (
             f"{insertadas + actualizadas} lineas de pedido "
             f"({insertadas} nuevas, {actualizadas} ya estaban) · "
