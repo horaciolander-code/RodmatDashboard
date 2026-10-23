@@ -32,6 +32,7 @@ from app.models.store import Store
 from app.models.report_log import ReportLog
 from app.models.agent_run import AgentRun
 from app.services.freshness import check_data_freshness
+from app.services.pausa import en_pausa
 from app.services.alert_service import send_freshness_alert
 
 logger = logging.getLogger("rodmat.scheduled")
@@ -204,6 +205,11 @@ def run_scheduled_reports(db: Session, exigir_todos_los_canales: bool = True) ->
 
     for store in stores:
         settings = store.settings or {}
+        # Una tienda en pausa no genera NADA: ni informe ni aviso de que no
+        # salio. El aviso es justamente el ruido del que se la quiere quitar.
+        if en_pausa(settings):
+            results[store.name] = "skipped_on_hold"
+            continue
         if not settings.get("report_enabled", False):
             results[store.name] = "skipped_disabled"
             continue
@@ -299,6 +305,12 @@ def run_scheduled_agents(db: Session, exigir_todos_los_canales: bool = True) -> 
     esperando_by_store: dict[str, str] = {}
 
     for store in stores:
+        # Antes de nada: una tienda en pausa ni se consulta. Poner
+        # `agents_enabled` a false no bastaba, porque el salto se registra y
+        # se avisa ANTES de llegar a mirar esa opcion.
+        if en_pausa(store.settings or {}):
+            results[store.id] = {"_": "skipped_on_hold"}
+            continue
         store_results: dict[str, str] = {}
         f = check_data_freshness(db, store.id, store=store,
                                  exigir_todos_los_canales=exigir_todos_los_canales)
@@ -419,6 +431,8 @@ def trigger_pending_jobs(store_id: str) -> dict:
             return {"error": "store_not_found"}
 
         settings = store.settings or {}
+        if en_pausa(settings):
+            return {"estado": "tienda_en_pausa"}
         f = check_data_freshness(db, store_id, store=store)
 
         # ── 1) Daily report ───────────────────────────────────────────
