@@ -67,6 +67,17 @@ def login(request: Request, form: OAuth2PasswordRequestForm = Depends(), db: Ses
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Tienda en pausa: credenciales validas, pero no se entra. Se comprueba
+    # DESPUES de la contrasena a proposito, para no revelar que cuentas
+    # existen a quien solo esta probando correos.
+    from app.services.pausa import en_pausa, motivo
+    _store = db.query(Store).filter(Store.id == user.store_id).first()
+    if _store and en_pausa(_store.settings or {}):
+        logger.warning("Login rechazado: tienda en pausa (store=%s, email=%s)",
+                       user.store_id[:8], username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail=motivo(_store.settings or {}))
+
     token = create_access_token(user.id, user.store_id, user.role)
     return TokenResponse(access_token=token)
 
