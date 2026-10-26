@@ -543,8 +543,17 @@ def build_report(db: Session, store_id: str,
     """
 
     # ── Build subject ────────────────────────────────────────────────────────
-    if data_lag_days >= 2:
-        subject = f"⚠️ {store_name} Daily Report - DATOS {data_lag_days}d desactualizados - importa CSV"
+    # 2026-10-26: aqui ponia `data_lag_days`, una variable que el cambio del
+    # aviso por canal (19-oct) dejo de definir y nadie quito de aqui. Cada
+    # construccion del informe moria con NameError ANTES de llegar al envio:
+    # el diario estuvo siete dias sin salir y en report_logs solo se veia
+    # "failed", sin decir por que. Ahora el asunto usa lo mismo que el cuerpo.
+    if _sin_cargar:
+        subject = (f"⚠️ {store_name} Daily Report - CIFRAS INCOMPLETAS, "
+                   f"falta {texto_canales(_sin_cargar)}")
+    elif _viejos:
+        subject = (f"⚠️ {store_name} Daily Report - sin cargar "
+                   f"{texto_aviso(_viejos)} - sube su fichero")
     else:
         subject = f"{store_name} Daily Report - {yesterday.strftime('%d/%m/%Y')} | ${rev_y:,.0f} | {orders_y} ordenes"
         if total_awaiting > 0:

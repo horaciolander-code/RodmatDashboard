@@ -18,6 +18,19 @@ jobs:
         run: |
           cd backend
           python -m compileall -q app
+      # `compileall` solo mira la sintaxis: un nombre que no existe compila
+      # perfectamente y revienta en ejecucion. El 19-oct-2026 un cambio dejo
+      # `data_lag_days` usada pero sin definir en el informe diario, y el
+      # email estuvo SIETE DIAS sin salir — en report_logs solo se veia
+      # "failed", sin decir por que. Esto lo habria cazado en el acto.
+      - name: Nombres indefinidos (el fallo que compila y revienta)
+        run: |
+          pip install -q pyflakes
+          echo "--- backend ---"
+          python -m pyflakes backend/app | grep "undefined name" && exit 1 || true
+          echo "--- dashboard ---"
+          python -m pyflakes dashboard | grep "undefined name" && exit 1 || true
+          echo "sin nombres indefinidos"
       - name: Verify routers import individually (sin DB)
         run: |
           cd backend
