@@ -54,6 +54,25 @@ def require_superadmin(user: User = Depends(get_current_user)) -> User:
 def get_current_store_id(user: User = Depends(get_current_user)) -> str:
     return user.store_id
 
+
+ROLES_DE_ALMACEN = ("warehouse", "admin", "superadmin")
+
+
+def require_almacen(user: User = Depends(get_current_user)) -> User:
+    """Deja pasar al almacen y a quien ya puede verlo todo.
+
+    El rol `warehouse` existe desde antes, pero hasta ahora solo decidia que
+    pestanas pintaba el dashboard — el backend le abria lo mismo que a un
+    viewer. Aqui se le da una puerta propia, que es la unica que necesita.
+    """
+    if user.role not in ROLES_DE_ALMACEN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Warehouse access required",
+        )
+    return user
+
+
 def require_finance_enabled(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
