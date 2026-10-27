@@ -67,40 +67,6 @@ def componentes_de(clave, nombre_producto, cantidad, combos, *,
             for p in piezas]
 
 
-def anuncios_de_un_solo_producto(combos) -> dict:
-    """Que anuncios son, de hecho, una foto de un producto suelto.
-
-    El catalogo de fotos esta ordenado por ANUNCIO. Las piezas de un pack
-    son PRODUCTOS del maestro, y sus nombres no se parecen a los titulos de
-    los anuncios: el titulo lo escribe el equipo para que lo encuentren en
-    la tienda. Buscar la foto de "Avon Imari Skin Softener" entre titulos
-    como "Avon Imari Skin Softener (2 Packs)" por parecido seria adivinar.
-
-    Pero no hace falta adivinar. Un anuncio que contiene un unico producto
-    distinto es una foto de ese producto, lleve una unidad o seis: una caja
-    de seis desodorantes Imari ensena el desodorante Imari. Eso sale de los
-    combos, que son datos, no de un parecido entre textos.
-
-    Devuelve {nombre de producto: [(unidades, combo_sku)]} ordenado de menos
-    a mas unidades. Quien tiene las fotos elige: el de menos unidades que
-    este fotografiado. Varios anuncios del mismo producto no son ambiguos
-    — son varias fotos de la misma cosa.
-    """
-    por_producto: dict = {}
-    for sku, piezas in (combos or {}).items():
-        if len(piezas) != 1:
-            continue
-        try:
-            unidades = int(piezas[0]["units"])
-        except (TypeError, ValueError, KeyError):
-            continue
-        nombre = str(piezas[0].get("product") or "").strip()
-        if not nombre:
-            continue
-        por_producto.setdefault(nombre, []).append((unidades, str(sku)))
-    return {nombre: sorted(lista) for nombre, lista in por_producto.items()}
-
-
 def total_piezas(lineas) -> int:
     """Cuantas unidades sueltas salen del almacen para un pedido entero."""
     return sum(c["cantidad"] for linea in lineas for c in linea)

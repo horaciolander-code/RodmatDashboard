@@ -273,12 +273,6 @@ def test_si_la_api_falla_la_pagina_no_revienta():
 
 # ── fotos: ninguna dudosa, y los huecos explicados ─────────────────────────
 
-def test_la_pieza_que_no_esta_en_el_catalogo_sale_como_hueco():
-    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
-    assert "Sin foto" in salida
-    assert "alm-sinfoto" in salida
-
-
 def test_un_sku_de_dos_anuncios_pinta_aviso_y_no_foto():
     """El caso que hay que proteger: la foto equivocada en vez del aviso."""
     real = cat.cargar()
@@ -333,26 +327,6 @@ def test_las_existencias_no_traen_ninguna_columna_de_dinero():
     salida = _pintar("", existencias=EXISTENCIAS).lower()
     for palabra in ("coste", "precio", "valor", "importe", "margen"):
         assert palabra not in salida, f"la pagina del almacen pinta «{palabra}»"
-
-
-def test_las_piezas_de_un_pack_salen_CON_foto():
-    """El test que faltaba, y por el que esto se desplego roto.
-
-    Habia tests de que una pieza desconocida sale como hueco y de que una
-    dudosa no pinta foto. Ninguno comprobaba lo contrario: que una pieza
-    normal, de las que el almacen empaqueta todos los dias, llegue a tener
-    su foto. Las 63 piezas distintas de los packs salian en gris y los
-    tests pasaban.
-    """
-    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
-    assert salida.count("data:image/jpeg;base64") >= 3, (
-        "las piezas del pack vuelven a salir sin foto")
-
-
-def test_una_pieza_sin_anuncios_sigue_saliendo_como_hueco():
-    """Lo de siempre: sin foto se dice, no se adivina."""
-    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
-    assert "Sin foto" in salida
 
 
 def test_un_pedido_viejo_sin_el_campo_anuncios_no_revienta():
@@ -501,6 +475,59 @@ def test_el_contador_no_ensena_dinero():
     salida = _pintar_con_contador(CONTADOR).lower()
     for palabra in ("coste", "precio", "valor", "importe", "margen"):
         assert palabra not in salida
+
+# ── las piezas NO llevan foto, y es a proposito ───────────────────────────
+#
+# La llevaron hasta el 27-oct-2026 y fue un error. Una pieza es un producto
+# del maestro; de muchos solo existe la foto del set en que se venden, asi
+# que el 37% de las piezas (3.301 de 8.919 en 90 dias) ensenaba una cantidad
+# distinta de la que habia que meter. Una crema que va sola con la foto de
+# dos es un paquete mal montado.
+
+def test_cada_linea_tiene_UNA_foto_y_las_piezas_ninguna():
+    """La foto buena es la del anuncio: es la foto de lo que se vendio."""
+    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
+    fotos = salida.count("data:image/jpeg;base64")
+    lineas = len(PEDIDO_CON_PACK["lineas"])
+    assert fotos == lineas, (
+        f"{fotos} fotos para {lineas} lineas: alguna pieza ha recuperado la suya")
+
+
+def test_la_foto_grande_del_anuncio_sigue_estando():
+    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
+    assert "data:image/jpeg;base64" in salida
+
+
+def test_las_piezas_siguen_con_su_nombre_y_su_cantidad():
+    """Quitar la foto no puede quitar lo que hace falta para contar."""
+    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
+    for pieza in ("Avon Far Away Eau de Parfume", "Far Away Bali EDP",
+                  "Producto que no esta en el catalogo"):
+        assert pieza in salida
+    assert salida.count('class="alm-x"') == 4
+
+
+def test_una_pieza_con_nombre_de_anuncio_tampoco_pinta_foto():
+    """La guardia de verdad: que no se cuele una foto por la puerta de atras.
+
+    Si manana alguien pasa por el nombre de la pieza un titulo que SI esta
+    en el catalogo, no puede aparecer una miniatura.
+    """
+    titulo_real = ANUNCIO["nombre"]
+    pedido = {
+        "orden": "123456789", "encontrada": True, "plataforma": "tiktok",
+        "fecha": None, "estado": None, "total_piezas": 1,
+        "lineas": [{"seller_sku": "NO-EXISTE", "sku_plataforma": "1",
+                    "product_id": None, "producto": "titulo que no existe",
+                    "cantidad": 1, "plataforma": "tiktok", "estado": None,
+                    "es_combo": True,
+                    "componentes": [{"producto": titulo_real,
+                                     "sku": titulo_real, "cantidad": 1}]}],
+    }
+    salida = _pintar("123456789", pedido)
+    assert titulo_real in salida, "la pieza tiene que verse"
+    assert "data:image/jpeg;base64" not in salida, (
+        "una pieza ha pintado foto: la linea no la tiene, asi que sobra")
 
 if __name__ == "__main__":
     fallos = 0
