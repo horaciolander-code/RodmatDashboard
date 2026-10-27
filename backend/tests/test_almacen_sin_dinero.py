@@ -53,6 +53,7 @@ CAMPOS_PERMITIDOS_EN_RESPUESTA = {
     "fecha", "estado", "seller_sku", "sku_plataforma", "product_id", "producto",
     "cantidad", "es_combo", "componentes", "sku", "anuncios", "unidades",
     "en_almacen", "en_fbt", "total", "pendiente_de_enviar", "disponible",
+    "dia", "canales",
 }
 
 
@@ -124,10 +125,19 @@ def test_todos_los_campos_que_se_devuelven_estan_declarados():
         "anadelos a CAMPOS_PERMITIDOS_EN_RESPUESTA.")
 
 
-def test_las_dos_rutas_piden_permiso_de_almacen():
-    """Sin la dependencia, cualquier usuario con token entraria."""
+def test_todas_las_rutas_piden_permiso_de_almacen():
+    """Sin la dependencia, cualquier usuario con token entraria.
+
+    Se cuentan las rutas en vez de fijar un numero: una ruta nueva que se
+    olvide el permiso hace fallar esto, y anadir rutas no obliga a venir a
+    tocar el test con un numero a mano.
+    """
     fuente = _ROUTER.read_text(encoding="utf-8")
-    assert fuente.count("Depends(require_almacen)") == 2
+    rutas = fuente.count("@router.get(") + fuente.count("@router.post(")
+    assert rutas > 0, "el router se ha quedado sin rutas"
+    assert fuente.count("Depends(require_almacen)") == rutas, (
+        f"{rutas} rutas pero "
+        f"{fuente.count('Depends(require_almacen)')} con require_almacen")
 
 
 def test_el_rol_de_almacen_no_es_admin_ni_viewer():
@@ -143,6 +153,37 @@ def test_la_orden_se_busca_siempre_dentro_de_su_tienda():
     assert fuente.count("SalesOrder.store_id == user.store_id") == 2, (
         "alguna consulta de pedidos no filtra por tienda")
 
+
+def test_apuntar_la_consulta_no_puede_romper_la_busqueda():
+    """El contador escribe; la busqueda es lo que da de comer.
+
+    Si la insercion del contador propagara su error, un fallo tonto (la
+    tabla sin crear, el indice unico a medias) dejaria al almacen sin poder
+    buscar un pedido. Tiene que estar envuelta y deshacer la transaccion,
+    para no dejar la sesion envenenada.
+    """
+    arbol = ast.parse(_ROUTER.read_text(encoding="utf-8"))
+    funcion = next((n for n in ast.walk(arbol)
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == "_apuntar_consulta"), None)
+    assert funcion is not None, "_apuntar_consulta ya no esta en el router"
+    intentos = [n for n in ast.walk(funcion) if isinstance(n, ast.Try)]
+    assert intentos, "la insercion del contador no esta dentro de un try"
+    manejadores = [h for i in intentos for h in i.handlers]
+    assert manejadores, "el try no captura nada"
+    texto = ast.dump(funcion)
+    assert "rollback" in texto, "no deshace la transaccion al fallar"
+    assert "on_conflict_do_nothing" in texto, (
+        "sin esto, recargar la pagina sumaria otra vez")
+
+
+def test_el_contador_solo_escribe_del_store_de_quien_pregunta():
+    """Regla 2: ni leyendo ni escribiendo se cruzan dos tiendas."""
+    fuente = _ROUTER.read_text(encoding="utf-8")
+    assert "store_id=user.store_id" in fuente, (
+        "la fila del contador no se ata al store del usuario")
+    assert "AlmacenConsulta.store_id == user.store_id" in fuente, (
+        "el contador no filtra por store al leer")
 
 if __name__ == "__main__":
     fallos = 0

@@ -449,6 +449,59 @@ def test_dias_desde_aguanta_zona_horaria():
     con_zona = (_dt.datetime.now() - _dt.timedelta(days=5)).isoformat() + "Z"
     assert pag._dias_desde(con_zona) in (4, 5)
 
+# ── contador diario ────────────────────────────────────────────────────────
+
+CONTADOR = [
+    {"dia": "2026-10-27", "total": 12,
+     "canales": {"tiktok": 8, "temu": 3, "amazon": 1}},
+    {"dia": "2026-10-26", "total": 31, "canales": {"tiktok": 31}},
+    {"dia": "2026-10-25", "total": 0, "canales": {}},
+]
+
+
+def _pintar_con_contador(contador):
+    _st.pintado.clear()
+    _st.respuestas = {"_alm_orden": "", "_alm_busca_stock": "",
+                      "_alm_busca_prod": ""}
+    _api.respuestas = {"/almacen/contador": contador}
+    pag.page_almacen()
+    return "\n".join(_st.pintado)
+
+
+def test_el_contador_ensena_el_total_de_hoy_y_los_canales():
+    salida = _pintar_con_contador(CONTADOR)
+    assert "Ordenes revisadas hoy" in salida
+    assert ">12<" in salida
+    for canal, cuantas in (("tiktok", 8), ("temu", 3), ("amazon", 1)):
+        assert canal in salida, f"falta el canal {canal}"
+        assert f">{cuantas}<" in salida
+
+
+def test_el_contador_ensena_los_dias_anteriores():
+    salida = _pintar_con_contador(CONTADOR)
+    assert "Dias anteriores" in salida
+    assert "26/10 31" in salida
+
+
+def test_sin_contador_la_pagina_sigue_funcionando():
+    """Un contador es apoyo: que falte no puede estorbar al que empaqueta."""
+    salida = _pintar_con_contador(None)
+    assert "Ordenes revisadas hoy" not in salida
+    assert "Empaquetado" in salida
+
+
+def test_un_dia_sin_ninguna_orden_no_revienta():
+    salida = _pintar_con_contador([{"dia": "2026-10-27", "total": 0,
+                                    "canales": {}}])
+    assert "Ordenes revisadas hoy" in salida
+    assert ">0<" in salida
+
+
+def test_el_contador_no_ensena_dinero():
+    salida = _pintar_con_contador(CONTADOR).lower()
+    for palabra in ("coste", "precio", "valor", "importe", "margen"):
+        assert palabra not in salida
+
 if __name__ == "__main__":
     fallos = 0
     for _n, _f in sorted(globals().items()):

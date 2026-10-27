@@ -10,12 +10,18 @@ Las columnas que SI salen van en una lista blanca (COLUMNAS_DE_STOCK). Lista
 blanca y no lista negra a proposito: si manana el calculo de stock gana una
 columna de dinero, aqui no aparece sola.
 """
+import datetime as _dt
+import logging
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as _insert
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_almacen
+from app.models.almacen import AlmacenConsulta
 from app.models.sales import SalesOrder
 from app.models.product import Product
 from app.models.user import User
@@ -35,6 +41,39 @@ COLUMNAS_DE_STOCK = {
 }
 
 LARGO_MINIMO_BUSQUEDA = 6
+
+# Cuantos dias de historico devuelve el contador por defecto.
+DIAS_DE_CONTADOR = 7
+
+_log = logging.getLogger(__name__)
+
+
+def _apuntar_consulta(db: Session, user: User, numero: str, plataforma):
+    """Deja constancia de que esta orden se abrio hoy.
+
+    NUNCA puede romper la busqueda. Esto es un contador, no un dato de
+    negocio: si la insercion falla, el almacen tiene que poder seguir
+    empaquetando igual. Por eso se traga el error, deshace la transaccion
+    para no dejar la sesion envenenada, y lo deja en el log.
+
+    `on_conflict_do_nothing` sobre (store, usuario, orden, dia): abrir la
+    misma orden tres veces en el mismo dia cuenta una.
+    """
+    try:
+        db.execute(
+            _insert(AlmacenConsulta)
+            .values(id=str(uuid.uuid4()),
+                    store_id=user.store_id,
+                    user_id=user.id,
+                    order_id=numero,
+                    platform=(plataforma or None),
+                    dia=_dt.date.today())
+            .on_conflict_do_nothing(index_elements=[
+                "store_id", "user_id", "order_id", "dia"]))
+        db.commit()
+    except Exception as e:                        # noqa: BLE001 — a proposito
+        db.rollback()
+        _log.warning("No se pudo apuntar la consulta del almacen: %s", e)
 MAXIMO_COINCIDENCIAS = 25
 
 
@@ -133,6 +172,7 @@ def buscar_orden(
         })
 
     primera = filas[0]
+    _apuntar_consulta(db, user, numero, primera.platform)
     return {
         "orden": numero,
         "encontrada": True,
@@ -142,6 +182,48 @@ def buscar_orden(
         "lineas": lineas,
         "total_piezas": piezas,
     }
+
+
+@router.get("/contador")
+def contador_de_ordenes(
+    dias: int = Query(DIAS_DE_CONTADOR, ge=1, le=60),
+    user: User = Depends(require_almacen),
+    db: Session = Depends(get_db),
+):
+    """Cuantas ordenes se han abierto cada dia, y de que canal.
+
+    Es el total de la TIENDA, no el de quien pregunta: lo que interesa es
+    cuanto se ha empaquetado hoy, no quien lo miro. Por eso no se filtra por
+    user_id, aunque la fila lo guarde.
+
+    Devuelve siempre los `dias` dias, incluidos los que no tienen ninguna,
+    para que la tabla no se descoloque cuando hay un domingo por medio.
+    """
+    primer_dia = _dt.date.today() - _dt.timedelta(days=dias - 1)
+    filas = (db.query(AlmacenConsulta.dia,
+                      AlmacenConsulta.platform,
+                      func.count().label("cuantas"))
+             .filter(AlmacenConsulta.store_id == user.store_id,
+                     AlmacenConsulta.dia >= primer_dia)
+             .group_by(AlmacenConsulta.dia, AlmacenConsulta.platform)
+             .all())
+
+    por_dia: dict = {}
+    for fila in filas:
+        canal = (fila.platform or "sin canal").lower()
+        dia = por_dia.setdefault(fila.dia, {})
+        dia[canal] = dia.get(canal, 0) + int(fila.cuantas)
+
+    salida = []
+    for resta in range(dias):
+        dia = _dt.date.today() - _dt.timedelta(days=resta)
+        canales = por_dia.get(dia, {})
+        salida.append({
+            "dia": dia.isoformat(),
+            "total": sum(canales.values()),
+            "canales": dict(sorted(canales.items(), key=lambda c: -c[1])),
+        })
+    return salida
 
 
 @router.get("/resumen")

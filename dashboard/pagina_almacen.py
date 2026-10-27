@@ -167,8 +167,41 @@ def page_almacen():
         _almacen_buscar_producto()
 
 
+def _pintar_contador():
+    """La cuenta de ordenes abiertas hoy, con el desglose por canal.
+
+    Va arriba del todo y es lo primero que se ve: el almacen lleva asi su
+    propia cuenta del dia sin tener que preguntarsela a nadie.
+
+    Si la API no responde no se pinta nada. Un contador es informacion de
+    apoyo: que falte no puede estorbar a quien esta empaquetando.
+    """
+    dias = api_get("/almacen/contador")
+    if not dias:
+        return
+
+    hoy = dias[0]
+    canales = "".join(
+        f'<div class="alm-dato"><div class="alm-dato-l">{canal}</div>'
+        f'<div class="alm-dato-v">{cuantas}</div></div>'
+        for canal, cuantas in (hoy.get("canales") or {}).items())
+    anteriores = "  ·  ".join(
+        f'{d["dia"][8:10]}/{d["dia"][5:7]} {d["total"]}' for d in dias[1:])
+
+    st.markdown(
+        f'<div class="alm-cinta">'
+        f'<div class="alm-dato" style="border-color:rgba(0,255,136,.35)">'
+        f'<div class="alm-dato-l">Ordenes revisadas hoy</div>'
+        f'<div class="alm-dato-v" style="color:#00FF88">{hoy["total"]}</div></div>'
+        f'{canales}</div>'
+        + (f'<div class="alm-sub" style="margin-top:-8px">Dias anteriores: '
+           f'{anteriores}</div>' if anteriores else ""),
+        unsafe_allow_html=True)
+
+
 def _almacen_empaquetar():
     st.markdown('<div class="alm-h1">Empaquetado</div>', unsafe_allow_html=True)
+    _pintar_contador()
     st.markdown('<div class="alm-sub">Escribe el numero de orden y aparece todo '
                 'lo que lleva dentro, con los packs ya desmontados en piezas.'
                 '</div>', unsafe_allow_html=True)
