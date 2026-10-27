@@ -48,6 +48,7 @@ except Exception:
 
 
 from api_client import api_get, api_post, api_put, api_patch, api_delete, login, register
+from pagina_almacen import page_almacen
 
 st.set_page_config(
     page_title="Dashboard",
@@ -2961,14 +2962,17 @@ def main():
     _modules = user.get("modules_enabled") or {}
     _finance_enabled = bool(_modules.get("finance", False))
     _chat_ai_enabled = (user.get("email") or "").lower() in CHAT_AI_ALLOWED
+    # El rol `warehouse` ve SOLO Almacen. Hasta el 27-oct-2026 veia la seccion
+    # Gestion entera, y ahi dentro "Listado Productos" trae las columnas Coste
+    # y Precio — ademas editables. Quien empaqueta no tiene por que ver eso.
     if _role in ("admin", "superadmin"):
-        _sections = ["Dashboard", "Gestion"]
+        _sections = ["Dashboard", "Gestion", "Almacen"]
         if _finance_enabled:
             _sections.append("Finance")
         if _chat_ai_enabled:
             _sections.append("🤖 Rod-AI")
     elif _role == "warehouse":
-        _sections = ["Gestion"]
+        _sections = ["Almacen"]
     else:
         _sections = ["Dashboard", "Gestion"]
         if _chat_ai_enabled:
@@ -3005,6 +3009,9 @@ def main():
         with tab_g2: page_listado_productos()
         with tab_g3: page_gestion_combos()
         with tab_g4: page_inventario_fbt()
+
+    elif section == "Almacen":
+        page_almacen()
 
     elif section == "Finance":
         if not _finance_enabled:
