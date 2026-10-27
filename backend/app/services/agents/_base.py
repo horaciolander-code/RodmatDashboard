@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 import os
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:          # solo para las anotaciones: con
+    import pandas as pd    # `from __future__ import annotations` no se evalua
+
 
 # Groq model — Llama 3.3 70B Versatile deprecated 2026-06-30, decommission 2026-08-16.
 # Migration: default to openai/gpt-oss-20b (similar size/speed, ~good quality on structured JSON).
