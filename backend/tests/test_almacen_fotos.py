@@ -14,7 +14,14 @@ import pathlib
 import sys
 
 _RAIZ = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_RAIZ / "dashboard"))
+# `dashboard` va al FINAL de sys.path, no al principio. Al principio,
+# `import app` resuelve a `dashboard/app.py` en vez del paquete
+# `backend/app`, y como sys.path dura toda la sesion de pytest eso
+# tumba los tests que corren despues. Paso el 27-oct-2026: el PR #38
+# anadio `backend/app/__init__.py` y 13 tests ajenos se cayeron con
+# `ModuleNotFoundError: No module named 'plotly'`, importando la pagina
+# del dashboard sin querer.
+sys.path.append(str(_RAIZ / "dashboard"))
 
 import catalogo_fotos as cf
 

@@ -17,7 +17,14 @@ import sys
 import types
 
 _RAIZ = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_RAIZ / "dashboard"))
+# `dashboard` va al FINAL de sys.path, no al principio. Al principio,
+# `import app` resuelve a `dashboard/app.py` en vez del paquete
+# `backend/app`, y como sys.path dura toda la sesion de pytest eso
+# tumba los tests que corren despues. Paso el 27-oct-2026: el PR #38
+# anadio `backend/app/__init__.py` y 13 tests ajenos se cayeron con
+# `ModuleNotFoundError: No module named 'plotly'`, importando la pagina
+# del dashboard sin querer.
+sys.path.append(str(_RAIZ / "dashboard"))
 
 
 # ── dobles de streamlit y api_client ────────────────────────────────────────
@@ -338,6 +345,28 @@ def test_un_pedido_viejo_sin_el_campo_anuncios_no_revienta():
             pieza.pop("anuncios", None)
     salida = _pintar("577639922332832484", sin_campo)
     assert "alm-pieza" in salida
+
+def test_ningun_test_pone_dashboard_al_principio_del_sys_path():
+    """Guardia de la contaminacion que tumbo 13 tests ajenos.
+
+    `sys.path` dura toda la sesion de pytest. Si un fichero de test mete
+    `dashboard` al PRINCIPIO, `import app` deja de resolver al paquete
+    `backend/app` y pasa a cargar `dashboard/app.py`, que arrastra plotly y
+    streamlit. El sintoma aparece en OTRO fichero, el que corra despues, asi
+    que es muy caro de diagnosticar. Al final de sys.path no molesta a nadie.
+    """
+    culpables = []
+    for fichero in sorted((_RAIZ / "backend" / "tests").glob("test_*.py")):
+        for numero, linea in enumerate(
+                fichero.read_text(encoding="utf-8").splitlines(), 1):
+            limpia = linea.strip()
+            # Solo llamadas de verdad: la linea tiene que EMPEZAR por la
+            # llamada. Asi no se señala a si mismo el texto de este aviso.
+            if limpia.startswith("sys.path.insert") and "dashboard" in limpia:
+                culpables.append(f"{fichero.name}:{numero}")
+    assert not culpables, (
+        "usa sys.path.append para dashboard, no insert(0): "
+        + ", ".join(culpables))
 
 if __name__ == "__main__":
     fallos = 0
