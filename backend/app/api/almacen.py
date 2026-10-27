@@ -25,8 +25,7 @@ from app.models.almacen import AlmacenConsulta
 from app.models.sales import SalesOrder
 from app.models.product import Product
 from app.models.user import User
-from app.services.empaquetado import (anuncios_de_un_solo_producto,
-                                      componentes_de, sku_limpio)
+from app.services.empaquetado import componentes_de, sku_limpio
 
 router = APIRouter(prefix="/api/almacen", tags=["almacen"])
 
@@ -140,9 +139,6 @@ def buscar_orden(
     sku_por_nombre = {p.name.strip().lower(): p.sku
                       for p in db.query(Product)
                       .filter(Product.store_id == user.store_id).all()}
-    # Por que: ver anuncios_de_un_solo_producto. Sin esto las piezas de un
-    # pack salen sin foto, que es justo lo que el almacen mira.
-    anuncios_sueltos = anuncios_de_un_solo_producto(combos)
 
     lineas, piezas = [], 0
     for f in filas:
@@ -166,8 +162,6 @@ def buscar_orden(
                 "producto": t["producto"],
                 "sku": sku_por_nombre.get(t["producto"].strip().lower()),
                 "cantidad": t["cantidad"],
-                "anuncios": [{"sku": s, "unidades": u} for u, s in
-                             anuncios_sueltos.get(t["producto"], ())],
             } for t in trozos],
         })
 

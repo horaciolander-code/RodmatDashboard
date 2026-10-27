@@ -287,9 +287,10 @@ def _ficha_del_pedido(datos):
 
     if dudosas:
         st.markdown(
-            f'<div class="alm-aviso">{dudosas} producto(s) sin foto segura. El '
-            'SKU por si solo no basta para saber cual es: compruebalo contra el '
-            'albaran antes de cerrar la caja.</div>', unsafe_allow_html=True)
+            f'<div class="alm-aviso">{dudosas} linea(s) sin foto segura. El '
+            'SKU por si solo no basta para saber cual es: comprueba el detalle '
+            'contra el albaran antes de cerrar la caja.</div>',
+            unsafe_allow_html=True)
 
     if st.button("Limpiar marcas", key=f"_alm_limpiar_{orden}"):
         for clave in [k for k in st.session_state
@@ -299,7 +300,7 @@ def _ficha_del_pedido(datos):
 
 
 def _pintar_linea(orden, i, linea):
-    """Una linea del pedido. Devuelve cuantas piezas quedan sin foto segura."""
+    """Una linea del pedido. Devuelve 1 si su foto no es segura."""
     foto, info = st.columns([1, 3])
     anuncio = _CATALOGO.resolver(product_id=linea.get("product_id"),
                                  nombre=linea.get("producto"),
@@ -321,20 +322,27 @@ def _pintar_linea(orden, i, linea):
             st.markdown(f'<div class="alm-aviso">No enseno la foto del anuncio: '
                         f'{anuncio["motivo"]}.</div>', unsafe_allow_html=True)
         st.markdown("")
-        sin_foto = 0
         for j, pieza in enumerate(componentes):
-            if not _pintar_pieza(orden, i, j, pieza):
-                sin_foto += 1
-    return sin_foto
+            _pintar_pieza(orden, i, j, pieza)
+    return 0 if anuncio["certeza"] == _cat.SEGURA else 1
 
 
 def _pintar_pieza(orden, i, j, pieza):
-    """Una pieza suelta con su casilla. Devuelve si tiene foto segura."""
-    mini, texto, cuenta, marca = st.columns([0.9, 5, 1, 1.1])
-    resuelta = _CATALOGO.resolver_pieza(nombre=pieza.get("producto"),
-                                        anuncios=pieza.get("anuncios"))
-    with mini:
-        _pintar_foto(resuelta, 62)
+    """Una pieza con su cantidad y su casilla. Sin foto, a proposito.
+
+    Las piezas llevaron miniatura hasta el 27-oct-2026 y fue un error. Una
+    pieza es un producto del maestro y de muchos productos no existe foto
+    suelta: solo se venden en set, asi que la unica imagen disponible era la
+    del set. Resultado medido: el 37% de las piezas (3.301 de 8.919 en 90
+    dias, 18 productos) ensenaban una cantidad distinta de la que habia que
+    meter — una crema que iba sola con la foto de dos. En un almacen la foto
+    manda sobre el numero, asi que eso son paquetes mal montados.
+
+    La foto buena es la GRANDE, la del anuncio: esa es exacta porque es la
+    foto de lo que se vendio (99,3% identificadas con certeza). La pieza
+    necesita el nombre y la cantidad, no una imagen aproximada.
+    """
+    texto, cuenta, marca = st.columns([6, 1, 1.1])
     with texto:
         st.markdown(f'<div class="alm-pieza">{pieza.get("producto") or ""}</div>'
                     f'<div class="alm-pieza-sku">{pieza.get("sku") or ""}</div>',
@@ -345,7 +353,6 @@ def _pintar_pieza(orden, i, j, pieza):
     with marca:
         st.checkbox("Hecho", key=_clave_pieza(orden, i, j),
                     label_visibility="collapsed")
-    return resuelta["certeza"] == _cat.SEGURA
 
 
 def _almacen_existencias():
