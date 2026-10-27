@@ -51,7 +51,7 @@ PALABRAS_DE_DINERO = (
 CAMPOS_PERMITIDOS_EN_RESPUESTA = {
     "orden", "encontrada", "parecidas", "lineas", "total_piezas", "plataforma",
     "fecha", "estado", "seller_sku", "sku_plataforma", "product_id", "producto",
-    "cantidad", "es_combo", "componentes", "sku",
+    "cantidad", "es_combo", "componentes", "sku", "anuncios", "unidades",
     "en_almacen", "en_fbt", "total", "pendiente_de_enviar", "disponible",
 }
 

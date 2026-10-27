@@ -233,8 +233,8 @@ def _pintar_linea(orden, i, linea):
 def _pintar_pieza(orden, i, j, pieza):
     """Una pieza suelta con su casilla. Devuelve si tiene foto segura."""
     mini, texto, cuenta, marca = st.columns([0.9, 5, 1, 1.1])
-    resuelta = _CATALOGO.resolver(nombre=pieza.get("producto"),
-                                  seller_sku=pieza.get("sku"))
+    resuelta = _CATALOGO.resolver_pieza(nombre=pieza.get("producto"),
+                                        anuncios=pieza.get("anuncios"))
     with mini:
         _pintar_foto(resuelta, 62)
     with texto:

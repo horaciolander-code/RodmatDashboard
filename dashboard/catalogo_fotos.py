@@ -19,6 +19,11 @@ Tres formas de identificar un anuncio, de mas fiable a menos:
                AV-FM/2 reciben la foto de Far Away Moroccan Nights cuando
                en realidad son Far Away Original + Mesmerize Blue.
 
+Eso vale para una LINEA de pedido, que es un anuncio. Las PIEZAS de dentro
+de un pack son otra cosa: son productos del maestro, y sus nombres no se
+parecen a los titulos de la tienda. Esas van por `resolver_pieza`, que no
+busca por texto — ver alli.
+
 Modulo puro a proposito: sin pandas, sin sqlalchemy, sin red. Asi corre en
 el job de CI de aislamiento, donde solo hay pytest.
 """
@@ -130,6 +135,31 @@ class Catalogo:
         return {"foto": None, "certeza": DUDOSA,
                 "motivo": f"el SKU {seller_sku} apunta a otro anuncio",
                 "alternativas": [unico]}
+
+    def resolver_pieza(self, nombre=None, anuncios=None) -> dict:
+        """La foto de una pieza suelta de dentro de un pack.
+
+        Una pieza es un producto del maestro, no un anuncio, y su nombre no
+        se parece al titulo que lleva el anuncio en la tienda. Por eso NO
+        se busca por texto: el backend manda los anuncios que contienen ese
+        producto y nada mas (`anuncios_de_un_solo_producto`), y aqui se coge
+        el de menos unidades que este fotografiado.
+
+        Que haya varios no es una duda: un anuncio de dos cremas Imari y
+        otro de seis son dos fotos de la misma crema. La unica razon para
+        preferir el de menos unidades es que se ve mejor el frasco.
+
+        Sin candidatos se cae al camino normal, que es lo que resuelve las
+        lineas que no vienen de un pack.
+        """
+        for entrada in (anuncios or []):
+            sku = entrada.get("sku") if isinstance(entrada, dict) else entrada
+            fichas = self.por_sku.get(normalizar(sku), [])
+            if len(fichas) == 1:
+                return {"foto": fichas[0]["foto"], "certeza": SEGURA,
+                        "motivo": "anuncio de este producto solo",
+                        "alternativas": []}
+        return self.resolver(nombre=nombre)
 
 
 def cargar(carpeta=None) -> Catalogo:

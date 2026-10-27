@@ -23,7 +23,8 @@ import _stubs
 _stubs.instalar()
 
 import pandas as pd
-from app.services.empaquetado import (componentes_de, sku_limpio,
+from app.services.empaquetado import (anuncios_de_un_solo_producto,
+                                      componentes_de, sku_limpio,
                                       total_piezas, ya_venia_expandida)
 from app.services.stock_calculator import decompose_orders
 
@@ -131,6 +132,55 @@ def test_el_total_de_piezas_suma_el_pedido_entero():
               componentes_de("AV-IP", "Imari", 3, COMBOS)]
     assert total_piezas(lineas) == 9
 
+
+# ── el puente que da foto a las piezas ─────────────────────────────────────
+
+COMBOS_CON_SUELTOS = dict(COMBOS, **{
+    "AV-IC":   [{"product": "Imari Skin Softener", "product_id": "p9", "units": 1}],
+    "AV-IC/2": [{"product": "Imari Skin Softener", "product_id": "p9", "units": 2}],
+    "AV-IC/6": [{"product": "Imari Skin Softener", "product_id": "p9", "units": 6}],
+    "AV-FA":   [{"product": "Far Away Original", "product_id": "p1", "units": 1}],
+})
+
+
+def test_un_anuncio_de_un_solo_producto_se_reconoce():
+    puente = anuncios_de_un_solo_producto(COMBOS_CON_SUELTOS)
+    assert puente["Far Away Original"] == [(1, "AV-FA"), (3, "AV-FP/3")]
+
+
+def test_los_anuncios_salen_de_menos_a_mas_unidades():
+    """Quien elige la foto coge el primero que este fotografiado."""
+    puente = anuncios_de_un_solo_producto(COMBOS_CON_SUELTOS)
+    assert puente["Imari Skin Softener"] == [
+        (1, "AV-IC"), (2, "AV-IC/2"), (6, "AV-IC/6")]
+
+
+def test_un_pack_de_varios_productos_no_entra_en_el_puente():
+    """AV-FOBM/3 lleva tres perfumes distintos: su foto no es de ninguno."""
+    puente = anuncios_de_un_solo_producto(COMBOS_CON_SUELTOS)
+    assert "AV-FOBM/3" not in {s for lista in puente.values() for _, s in lista}
+
+
+def test_el_puente_aguanta_combos_rotos():
+    roto = {"A": [{"product": "X", "units": "dos"}],
+            "B": [{"product": "", "units": 1}],
+            "C": [{"units": 1}],
+            "D": []}
+    assert anuncios_de_un_solo_producto(roto) == {}
+    assert anuncios_de_un_solo_producto(None) == {}
+
+
+def test_toda_pieza_de_combo_tiene_al_menos_un_anuncio_o_se_sabe():
+    """Las piezas que no tienen anuncio propio salen sin foto, y eso se ve.
+
+    No es un fallo del puente: son productos que solo se venden en set.
+    El test existe para que la lista no crezca sin que nadie lo note.
+    """
+    puente = anuncios_de_un_solo_producto(COMBOS_CON_SUELTOS)
+    piezas = {p["product"] for lista in COMBOS_CON_SUELTOS.values()
+              for p in lista}
+    sin_anuncio = sorted(piezas - set(puente))
+    assert sin_anuncio == ["Far Away Bali", "Far Away Moroccan"]
 
 if __name__ == "__main__":
     fallos = 0

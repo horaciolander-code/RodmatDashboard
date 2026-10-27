@@ -147,6 +147,75 @@ def test_los_sku_que_chocan_en_el_catalogo_real_no_dan_foto():
         assert r["foto"] is None, f"{sku} devuelve foto pese a tener varios anuncios"
 
 
+# ── piezas de dentro de un pack ─────────────────────────────────────────────
+#
+# Una pieza NO es un anuncio. "Avon Imari Skin Softener" es un producto del
+# maestro; en la tienda se vende como "Avon Imari Skin Softener (2 Packs)".
+# Buscar la foto por parecido entre esos dos textos seria adivinar, asi que
+# la pieza llega con los anuncios que contienen SOLO ese producto.
+
+IMARI_CREMA_2 = {"product_id": "1730639117798642581", "sku": "AV-IC/2",
+                 "nombre": "Avon Imari Skin Softener (2 Packs)"}
+IMARI_CREMA_6 = {"product_id": "1731647668338004885", "sku": "AV-IC/6",
+                 "nombre": "Imari Skin Softener 5 oz. Set. of 6"}
+CATALOGO_PIEZAS = cf.Catalogo([IMARI_CREMA_2, IMARI_CREMA_6, MOROCCAN])
+
+
+def test_una_pieza_coge_la_foto_del_anuncio_que_la_lleva_sola():
+    """El caso que estaba roto: 0 de 63 piezas tenian foto."""
+    r = CATALOGO_PIEZAS.resolver_pieza(
+        nombre="Avon Imari Skin Softener",
+        anuncios=[{"sku": "AV-IC/2", "unidades": 2},
+                  {"sku": "AV-IC/6", "unidades": 6}])
+    assert r["certeza"] == cf.SEGURA
+    assert r["foto"] == "1730639117798642581.jpg", "tiene que ganar el de 2"
+
+
+def test_varios_anuncios_del_mismo_producto_no_son_una_duda():
+    """Dos cremas Imari y seis cremas Imari son fotos de la misma crema."""
+    r = CATALOGO_PIEZAS.resolver_pieza(
+        nombre="Avon Imari Skin Softener",
+        anuncios=[{"sku": "AV-IC/6", "unidades": 6}])
+    assert r["certeza"] == cf.SEGURA
+
+
+def test_una_pieza_sin_anuncio_propio_no_inventa_foto():
+    r = CATALOGO_PIEZAS.resolver_pieza(nombre="Avon Candid Skin Softener",
+                                       anuncios=[])
+    assert r["certeza"] == cf.NINGUNA
+    assert r["foto"] is None
+
+
+def test_una_pieza_cuyo_anuncio_choca_no_da_foto():
+    """Si el SKU del anuncio cuelga de dos listados, no se elige por sorteo."""
+    catalogo = cf.Catalogo([TRES_PERFUMES, PERFUME_Y_CREMAS])
+    r = catalogo.resolver_pieza(nombre="lo que sea",
+                                anuncios=[{"sku": "AV-FGS/3", "unidades": 3}])
+    assert r["foto"] is None
+
+
+def test_el_puente_cubre_las_piezas_reales_del_catalogo():
+    """Guardia de regresion contra el fallo de verdad.
+
+    No es una comprobacion de forma: si alguien rompe la cadena que lleva
+    los anuncios desde el backend hasta aqui, esto cae. Los SKU son los que
+    salen de combos de un solo producto en produccion (27-oct-2026).
+    """
+    piezas_reales = [
+        ("Avon Imari Eau de Parfume", "AV-IP"),
+        ("Avon Far Away Eau de Parfume", "AV-FA"),
+        ("Avon Imari Skin Softener", "AV-IC/2"),
+        ("Avon Wild Country Deodorant roll-on", "AV-WD/4"),
+        ("Avon Haiku Skin Softener", "AV-HC/2"),
+    ]
+    sin_foto = []
+    for nombre, sku in piezas_reales:
+        r = CATALOGO_REAL.resolver_pieza(
+            nombre=nombre, anuncios=[{"sku": sku, "unidades": 1}])
+        if r["certeza"] != cf.SEGURA:
+            sin_foto.append(f"{nombre} ({sku}): {r['motivo']}")
+    assert not sin_foto, "piezas reales sin foto: " + "; ".join(sin_foto)
+
 if __name__ == "__main__":
     fallos = 0
     for _n, _f in sorted(globals().items()):

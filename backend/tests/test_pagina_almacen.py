@@ -11,6 +11,7 @@ con un pack, uno vacio, uno que no existe. Si algo revienta, revienta aqui.
 
     python backend/tests/test_pagina_almacen.py
 """
+import json
 import pathlib
 import sys
 import types
@@ -128,18 +129,23 @@ PEDIDO_CON_PACK = {
          "plataforma": "tiktok", "estado": "Awaiting shipment",
          "es_combo": True,
          "componentes": [
-             {"producto": "Avon Far Away Eau de Parfume", "sku": "AV-FA",
-              "cantidad": 1},
-             {"producto": "Far Away Bali EDP", "sku": "AV-FB", "cantidad": 1},
+             {"producto": "Avon Far Away Eau de Parfume",
+              "sku": "Avon Far Away Eau de Parfume",
+              "cantidad": 1,
+              "anuncios": [{"sku": "AV-FA", "unidades": 1}]},
+             {"producto": "Far Away Bali EDP", "sku": "Far Away Bali EDP",
+              "cantidad": 1,
+              "anuncios": [{"sku": "AV-FB", "unidades": 1}]},
              {"producto": "Producto que no esta en el catalogo",
-              "sku": None, "cantidad": 1},
+              "sku": None, "cantidad": 1, "anuncios": []},
          ]},
         {"seller_sku": "AV-IP", "sku_plataforma": "1729592630949483499",
          "product_id": None, "producto": "Avon Imari Pefume EDT Spray for her",
          "cantidad": 2, "plataforma": "tiktok", "estado": "Awaiting shipment",
          "es_combo": False,
-         "componentes": [{"producto": "Avon Imari EDT", "sku": "AV-IP",
-                          "cantidad": 2}]},
+         "componentes": [{"producto": "Avon Imari EDT", "sku": "Avon Imari EDT",
+                          "cantidad": 2,
+                          "anuncios": [{"sku": "AV-IP", "unidades": 1}]}]},
     ],
 }
 
@@ -303,6 +309,35 @@ def test_las_existencias_no_traen_ninguna_columna_de_dinero():
     for palabra in ("coste", "precio", "valor", "importe", "margen"):
         assert palabra not in salida, f"la pagina del almacen pinta «{palabra}»"
 
+
+def test_las_piezas_de_un_pack_salen_CON_foto():
+    """El test que faltaba, y por el que esto se desplego roto.
+
+    Habia tests de que una pieza desconocida sale como hueco y de que una
+    dudosa no pinta foto. Ninguno comprobaba lo contrario: que una pieza
+    normal, de las que el almacen empaqueta todos los dias, llegue a tener
+    su foto. Las 63 piezas distintas de los packs salian en gris y los
+    tests pasaban.
+    """
+    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
+    assert salida.count("data:image/jpeg;base64") >= 3, (
+        "las piezas del pack vuelven a salir sin foto")
+
+
+def test_una_pieza_sin_anuncios_sigue_saliendo_como_hueco():
+    """Lo de siempre: sin foto se dice, no se adivina."""
+    salida = _pintar("577639922332832484", PEDIDO_CON_PACK)
+    assert "Sin foto" in salida
+
+
+def test_un_pedido_viejo_sin_el_campo_anuncios_no_revienta():
+    """Mientras se despliega, el backend puede no mandar todavia el campo."""
+    sin_campo = json.loads(json.dumps(PEDIDO_CON_PACK))
+    for linea in sin_campo["lineas"]:
+        for pieza in linea["componentes"]:
+            pieza.pop("anuncios", None)
+    salida = _pintar("577639922332832484", sin_campo)
+    assert "alm-pieza" in salida
 
 if __name__ == "__main__":
     fallos = 0
