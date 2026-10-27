@@ -41,7 +41,27 @@ class _Hueco:
 
 
 class _Estado(dict):
-    pass
+    """session_state con la regla de Streamlit que nos mordio.
+
+    Una vez pintado el widget con clave K, `st.session_state[K] = ...` revienta
+    con StreamlitWidgetAlreadyInstantiatedError. Solo vale antes de pintarlo, o
+    desde un callback de on_click/on_change, que corre al principio de la pasada
+    siguiente. Sin esta regla aqui el doble se tragaba lo que produccion
+    rechazaba: paso el 27-oct-2026 con el boton de las ordenes parecidas.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.pintados = set()
+        self.en_callback = False
+
+    def __setitem__(self, clave, valor):
+        if clave in self.pintados and not self.en_callback:
+            raise AssertionError(
+                f"se escribe st.session_state[{clave!r}] con su widget ya "
+                "pintado. Streamlit lanza StreamlitWidgetAlreadyInstantiated"
+                "Error: hazlo desde on_click/on_change.")
+        super().__setitem__(clave, valor)
 
 
 class _StreamlitFalso(types.ModuleType):
@@ -50,6 +70,7 @@ class _StreamlitFalso(types.ModuleType):
         self.session_state = _Estado()
         self.pintado = []
         self.respuestas = {}
+        self.pulsados = set()
         self.recargo = False
 
     # lo que escribe
@@ -85,17 +106,48 @@ class _StreamlitFalso(types.ModuleType):
         return _Hueco()
 
     # entradas: devuelven lo que diga el test
+    def _apunta(self, key, valor=None):
+        """El widget queda pintado y deja su valor en session_state.
+
+        Lo deja por la puerta de atras (`dict.__setitem__`) porque el guardia
+        de _Estado es para el codigo de la pagina, no para el propio widget.
+        """
+        if key is None:
+            return
+        self.session_state.pintados.add(key)
+        dict.__setitem__(self.session_state, key, valor)
+
     def text_input(self, label, key=None, **k):
-        return self.respuestas.get(key, "")
+        valor = self.respuestas.get(key, "")
+        self._apunta(key, valor)
+        return valor
 
     def selectbox(self, label, opciones, key=None, **k):
-        return (list(opciones) or [None])[0]
+        valor = (list(opciones) or [None])[0]
+        self._apunta(key, valor)
+        return valor
 
     def checkbox(self, label, key=None, **k):
-        return bool(self.session_state.get(key))
+        valor = bool(self.session_state.get(key))
+        self._apunta(key, valor)
+        return valor
 
-    def button(self, label, key=None, **k):
-        return False
+    def button(self, label, key=None, on_click=None, args=(), kwargs=None, **k):
+        """True si el test dijo que se pulsa esta tecla.
+
+        Si lleva on_click lo ejecuta como Streamlit: al principio de la pasada,
+        antes de pintar ningun widget. De ahi `en_callback`.
+        """
+        self._apunta(key, False)
+        if key not in self.pulsados:
+            return False
+        if on_click is not None:
+            self.session_state.en_callback = True
+            try:
+                on_click(*args, **(kwargs or {}))
+            finally:
+                self.session_state.en_callback = False
+        return True
 
     def rerun(self):
         self.recargo = True
@@ -192,8 +244,10 @@ EXISTENCIAS = [
 ]
 
 
-def _pintar(orden_escrita="", datos=None, existencias=None):
+def _pintar(orden_escrita="", datos=None, existencias=None, pulsa=None):
     _st.pintado.clear()
+    _st.session_state.pintados.clear()
+    _st.pulsados = {pulsa} if pulsa else set()
     _st.respuestas = {"_alm_orden": orden_escrita, "_alm_busca_stock": "",
                       "_alm_busca_prod": ""}
     _api.respuestas = {}
@@ -202,6 +256,9 @@ def _pintar(orden_escrita="", datos=None, existencias=None):
     if existencias is not None:
         _api.respuestas["/almacen/resumen"] = existencias
     pag.page_almacen()
+    # Los tests escriben claves fuera de la pasada: al salir, ninguna
+    # cuenta como widget ya pintado.
+    _st.session_state.pintados.clear()
     return "\n".join(_st.pintado)
 
 
@@ -435,10 +492,15 @@ CONTADOR = [
 
 def _pintar_con_contador(contador):
     _st.pintado.clear()
+    _st.session_state.pintados.clear()
+    _st.pulsados = set()
     _st.respuestas = {"_alm_orden": "", "_alm_busca_stock": "",
                       "_alm_busca_prod": ""}
     _api.respuestas = {"/almacen/contador": contador}
     pag.page_almacen()
+    # Los tests escriben claves fuera de la pasada: al salir, ninguna
+    # cuenta como widget ya pintado.
+    _st.session_state.pintados.clear()
     return "\n".join(_st.pintado)
 
 
@@ -528,6 +590,48 @@ def test_una_pieza_con_nombre_de_anuncio_tampoco_pinta_foto():
     assert titulo_real in salida, "la pieza tiene que verse"
     assert "data:image/jpeg;base64" not in salida, (
         "una pieza ha pintado foto: la linea no la tiene, asi que sobra")
+
+
+# ── los botones: el fallo que llego a produccion ───────────────────────────
+
+def test_abrir_una_parecida_lleva_el_numero_a_la_caja():
+    """El 27-oct-2026 esto reventaba en produccion nada mas pulsarlo.
+
+    El numero se escribia en `_alm_orden`, que es la clave de la caja de
+    busqueda ya pintada, y Streamlit lo prohibe. Ahora va por on_click. Si
+    alguien lo devuelve al cuerpo del `if`, el doble lo caza aqui.
+    """
+    _st.session_state.clear()
+    _pintar("353365", PARECIDAS_CON_FECHA, pulsa="_alm_abrir")
+    assert _st.session_state.get("_alm_orden") == "PO-211-06087367967353365", (
+        "tiene que quedarse la primera, que es la mas reciente")
+    _st.session_state.clear()
+
+
+def test_limpiar_marcas_desmarca_las_casillas_del_pedido():
+    _st.session_state.clear()
+    _st.session_state["_alm_ok_577639922332832484_1_0"] = True
+    _st.session_state["_alm_ok_otro_pedido_0_0"] = True
+    _pintar("577639922332832484", PEDIDO_CON_PACK,
+            pulsa="_alm_limpiar_577639922332832484")
+    assert "_alm_ok_577639922332832484_1_0" not in _st.session_state
+    assert "_alm_ok_otro_pedido_0_0" in _st.session_state, (
+        "solo se limpian las de este pedido")
+    _st.session_state.clear()
+
+
+def test_ningun_boton_escribe_la_clave_de_un_widget_fuera_del_callback():
+    """El guardia de la clase entera, no solo de estos dos botones.
+
+    Recorre la pagina pulsando cada boton que haya, uno por uno. Si alguno
+    toca `st.session_state` de un widget ya pintado, _Estado lo lanza.
+    """
+    _st.session_state.clear()
+    for clave in ("_alm_abrir", "_alm_limpiar_577639922332832484"):
+        _pintar("577639922332832484", PEDIDO_CON_PACK, pulsa=clave)
+        _pintar("353365", PARECIDAS_CON_FECHA, pulsa=clave)
+    _st.session_state.clear()
+
 
 if __name__ == "__main__":
     fallos = 0

@@ -199,6 +199,22 @@ def _pintar_contador():
         unsafe_allow_html=True)
 
 
+def _abrir_la_parecida(etiquetas):
+    """Lleva la orden elegida a la caja de busqueda.
+
+    Va como callback del boton y no dentro de un `if st.button(...)`: en ese
+    momento la caja de busqueda ya esta pintada, y Streamlit no deja escribir
+    `st.session_state` de un widget ya pintado — revienta con
+    StreamlitWidgetAlreadyInstantiatedError. Los callbacks corren al principio
+    de la pasada siguiente, antes de pintar nada, que es cuando si se puede.
+
+    Paso en produccion el 27-oct-2026, con el almacen ya usandolo.
+    """
+    elegida = st.session_state.get("_alm_parecidas")
+    if elegida in etiquetas:
+        st.session_state["_alm_orden"] = etiquetas[elegida]
+
+
 def _almacen_empaquetar():
     st.markdown('<div class="alm-h1">Empaquetado</div>', unsafe_allow_html=True)
     _pintar_contador()
@@ -232,14 +248,23 @@ def _almacen_empaquetar():
         st.warning(f"No hay una orden exacta. {len(parecidas)} que se parecen, "
                    "de la mas reciente a la mas antigua:")
         etiquetas = {_etiqueta_de_parecida(p): p["orden"] for p in parecidas}
-        elegida = st.selectbox("Ordenes parecidas", list(etiquetas),
-                               key="_alm_parecidas")
-        if st.button("Abrir esta orden", type="primary", key="_alm_abrir"):
-            st.session_state["_alm_orden"] = etiquetas[elegida]
-            st.rerun()
+        st.selectbox("Ordenes parecidas", list(etiquetas), key="_alm_parecidas")
+        st.button("Abrir esta orden", type="primary", key="_alm_abrir",
+                  on_click=_abrir_la_parecida, args=(etiquetas,))
         return
 
     _ficha_del_pedido(datos)
+
+
+def _limpiar_las_marcas(orden):
+    """Desmarca todas las casillas de este pedido.
+
+    Callback por la misma razon que _abrir_la_parecida: las casillas son
+    widgets, y su estado solo se puede tocar antes de que se pinten.
+    """
+    for clave in [k for k in st.session_state
+                  if k.startswith(f"_alm_ok_{orden}_")]:
+        st.session_state.pop(clave, None)
 
 
 def _ficha_del_pedido(datos):
@@ -292,11 +317,8 @@ def _ficha_del_pedido(datos):
             'contra el albaran antes de cerrar la caja.</div>',
             unsafe_allow_html=True)
 
-    if st.button("Limpiar marcas", key=f"_alm_limpiar_{orden}"):
-        for clave in [k for k in st.session_state
-                      if k.startswith(f"_alm_ok_{orden}_")]:
-            st.session_state.pop(clave, None)
-        st.rerun()
+    st.button("Limpiar marcas", key=f"_alm_limpiar_{orden}",
+              on_click=_limpiar_las_marcas, args=(orden,))
 
 
 def _pintar_linea(orden, i, linea):
