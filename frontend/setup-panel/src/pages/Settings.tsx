@@ -98,7 +98,7 @@ function UserManager({ storeId }: { storeId: string }) {
           <label className="block text-sm font-medium mb-1">Rol</label>
           <select value={role} onChange={e => setRole(e.target.value as any)}
             className="w-full px-3 py-2 border rounded text-sm">
-            <option value="warehouse">warehouse — solo el módulo de Almacén</option>
+            <option value="warehouse">warehouse — solo inventario e importación</option>
             <option value="viewer">viewer — solo lectura</option>
             <option value="admin">admin — acceso completo</option>
           </select>
