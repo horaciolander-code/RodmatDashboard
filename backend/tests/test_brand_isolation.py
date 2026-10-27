@@ -33,6 +33,7 @@ SIN_MARCA_JUSTIFICADO = {
     "/auth/me":           "identidad del usuario",
     "/health":            "healthcheck",
     "/stores/me":         "configuracion del tenant, no datos de negocio",
+    "/contador":          "cuenta ORDENES abiertas por el almacen, y una orden no es de una marca: puede llevar productos de varias y se empaqueta entera",
 }
 
 
