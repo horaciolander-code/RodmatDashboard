@@ -5,6 +5,7 @@ sobre todo: aqui se puede importar y probar sin arrancar Streamlit ni la API,
 que es lo que hace `backend/tests/test_pagina_almacen.py`.
 """
 import base64 as _b64
+import datetime as _dt
 
 import pandas as pd
 import streamlit as st
@@ -101,6 +102,59 @@ def _clave_pieza(orden, i, j):
     return f"_alm_ok_{orden}_{i}_{j}"
 
 
+# Pasado este plazo, el pedido se avisa como viejo. No es un numero redondo
+# porque si: de los 28.119 pedidos de la tienda, 26.397 tienen mas de un mes
+# (27-oct-2026). Quien escribe seis digitos y acierta de casualidad lo normal
+# es que acierte en uno viejo, no en el de hoy.
+DIAS_PARA_AVISAR_DE_VIEJO = 30
+
+
+def _dias_desde(fecha_iso):
+    """Cuantos dias hace de una fecha ISO. None si no se puede saber.
+
+    Se quita la zona horaria antes de restar: el backend manda la fecha tal
+    como esta en la base, que unas veces trae zona y otras no, y restar una
+    con zona de una sin ella revienta.
+    """
+    if not fecha_iso:
+        return None
+    try:
+        momento = _dt.datetime.fromisoformat(str(fecha_iso).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if momento.tzinfo is not None:
+        momento = momento.replace(tzinfo=None)
+    return (_dt.datetime.now() - momento).days
+
+
+def _parecidas_normalizadas(parecidas):
+    """Acepta la lista nueva (con fecha) y la vieja (numeros pelados).
+
+    El backend y el dashboard son dos servicios distintos en Railway: durante
+    un despliegue uno puede ir por delante del otro unos segundos. Si llega la
+    forma vieja, se pinta sin fecha en vez de romperse.
+    """
+    salida = []
+    for p in parecidas or []:
+        if isinstance(p, dict):
+            salida.append(p)
+        else:
+            salida.append({"orden": str(p), "fecha": None, "plataforma": None})
+    return salida
+
+
+def _etiqueta_de_parecida(p):
+    dias = _dias_desde(p.get("fecha"))
+    trozos = [str(p.get("orden"))]
+    if p.get("fecha"):
+        trozos.append(str(p["fecha"])[:10])
+    if p.get("plataforma"):
+        trozos.append(str(p["plataforma"]).upper())
+    if dias is not None and dias >= DIAS_PARA_AVISAR_DE_VIEJO:
+        trozos.append(f"hace {dias} dias")
+    return "  ·  ".join(trozos)
+
+
 def page_almacen():
     st.markdown(_CSS_ALMACEN, unsafe_allow_html=True)
     tab_pack, tab_stock, tab_prod = st.tabs(
@@ -138,14 +192,17 @@ def _almacen_empaquetar():
         return
 
     if not datos.get("encontrada"):
-        parecidas = datos.get("parecidas") or []
+        parecidas = _parecidas_normalizadas(datos.get("parecidas"))
         if not parecidas:
             st.error(f"No hay ninguna orden que contenga «{numero}».")
             return
-        st.warning(f"No hay una orden exacta. {len(parecidas)} que se parecen:")
-        elegida = st.selectbox("Ordenes parecidas", parecidas, key="_alm_parecidas")
+        st.warning(f"No hay una orden exacta. {len(parecidas)} que se parecen, "
+                   "de la mas reciente a la mas antigua:")
+        etiquetas = {_etiqueta_de_parecida(p): p["orden"] for p in parecidas}
+        elegida = st.selectbox("Ordenes parecidas", list(etiquetas),
+                               key="_alm_parecidas")
         if st.button("Abrir esta orden", type="primary", key="_alm_abrir"):
-            st.session_state["_alm_orden"] = elegida
+            st.session_state["_alm_orden"] = etiquetas[elegida]
             st.rerun()
         return
 
@@ -178,6 +235,14 @@ def _ficha_del_pedido(datos):
           <div class="alm-dato-v" style="color:#00FF88">{piezas}</div></div>
       </div>
     """, unsafe_allow_html=True)
+
+    dias = _dias_desde(datos.get("fecha"))
+    if dias is not None and dias >= DIAS_PARA_AVISAR_DE_VIEJO:
+        st.markdown(
+            f'<div class="alm-aviso"><b>Este pedido es de hace {dias} dias</b> '
+            f'({fecha}). Si has escrito solo los ultimos digitos, comprueba que '
+            'es el que querias: hay numeros de orden que terminan igual.</div>',
+            unsafe_allow_html=True)
 
     if piezas:
         st.progress(min(1.0, hechas / piezas), text=f"{hechas} de {piezas} piezas")

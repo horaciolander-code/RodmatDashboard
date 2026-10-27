@@ -11,6 +11,7 @@ con un pack, uno vacio, uno que no existe. Si algo revienta, revienta aqui.
 
     python backend/tests/test_pagina_almacen.py
 """
+import datetime as _dt
 import json
 import pathlib
 import sys
@@ -165,6 +166,23 @@ NO_ENCONTRADO = {"orden": "999999", "encontrada": False, "lineas": [],
 
 SIN_PARECIDAS = {"orden": "999999", "encontrada": False, "lineas": [],
                  "total_piezas": 0, "parecidas": []}
+
+# El formato nuevo: cada parecida con su fecha y su canal. El de arriba
+# (numeros pelados) es el viejo, y se deja a proposito para comprobar que la
+# pagina lo aguanta mientras los dos servicios de Railway se despliegan.
+_HOY = _dt.datetime.now()
+PARECIDAS_CON_FECHA = {
+    "orden": "353365", "encontrada": False, "lineas": [], "total_piezas": 0,
+    "parecidas": [
+        {"orden": "PO-211-06087367967353365",
+         "fecha": (_HOY - _dt.timedelta(days=2)).isoformat(), "plataforma": "temu"},
+        {"orden": "PO-211-11584896287353365",
+         "fecha": (_HOY - _dt.timedelta(days=400)).isoformat(), "plataforma": "temu"},
+    ]}
+
+PEDIDO_VIEJO = dict(PEDIDO_CON_PACK,
+                    fecha=(_HOY - _dt.timedelta(days=95)).isoformat())
+PEDIDO_DE_HOY = dict(PEDIDO_CON_PACK, fecha=_HOY.isoformat())
 
 EXISTENCIAS = [
     {"producto": "Avon Far Away Eau de Parfume", "en_almacen": 120,
@@ -367,6 +385,69 @@ def test_ningun_test_pone_dashboard_al_principio_del_sys_path():
     assert not culpables, (
         "usa sys.path.append para dashboard, no insert(0): "
         + ", ".join(culpables))
+
+# ── avisar de un pedido viejo, y distinguir las parecidas ──────────────────
+#
+# Medido en produccion el 27-oct-2026: 26.397 de los 28.119 pedidos de la
+# tienda tienen mas de un mes, y 41 de cada 150 colas de seis digitos apuntan
+# a mas de un pedido. Quien escribe seis digitos y acierta de casualidad, lo
+# normal es que acierte en uno viejo.
+
+def test_un_pedido_de_hace_meses_avisa():
+    salida = _pintar("577639922332832484", PEDIDO_VIEJO)
+    assert "Este pedido es de hace 95 dias" in salida
+
+
+def test_un_pedido_de_hoy_no_avisa():
+    salida = _pintar("577639922332832484", PEDIDO_DE_HOY)
+    assert "Este pedido es de hace" not in salida
+
+
+def test_sin_fecha_no_se_inventa_el_aviso():
+    sin_fecha = dict(PEDIDO_CON_PACK, fecha=None)
+    salida = _pintar("577639922332832484", sin_fecha)
+    assert "Este pedido es de hace" not in salida
+
+
+def test_una_fecha_ilegible_no_tumba_la_pagina():
+    rota = dict(PEDIDO_CON_PACK, fecha="ayer por la tarde")
+    salida = _pintar("577639922332832484", rota)
+    assert "alm-pieza" in salida
+
+
+def test_las_parecidas_se_ofrecen_con_su_fecha():
+    salida = _pintar("353365", PARECIDAS_CON_FECHA)
+    assert "2 que se parecen" in salida
+    assert "mas reciente a la mas antigua" in salida
+
+
+def test_la_parecida_vieja_avisa_de_su_edad_en_la_propia_opcion():
+    etiqueta = pag._etiqueta_de_parecida(
+        PARECIDAS_CON_FECHA["parecidas"][1])
+    assert "hace 400 dias" in etiqueta
+    assert "TEMU" in etiqueta
+
+
+def test_la_parecida_reciente_no_lleva_la_coletilla_de_vieja():
+    etiqueta = pag._etiqueta_de_parecida(PARECIDAS_CON_FECHA["parecidas"][0])
+    assert "hace" not in etiqueta
+
+
+def test_la_lista_vieja_de_numeros_pelados_sigue_funcionando():
+    """Backend y dashboard son servicios distintos: uno puede ir por delante."""
+    salida = _pintar("999999", NO_ENCONTRADO)
+    assert "2 que se parecen" in salida
+
+
+def test_el_numero_elegido_es_el_de_la_orden_no_la_etiqueta():
+    """La etiqueta lleva fecha y canal; lo que se abre tiene que ser el numero."""
+    etiqueta = pag._etiqueta_de_parecida(PARECIDAS_CON_FECHA["parecidas"][0])
+    assert etiqueta.startswith("PO-211-06087367967353365")
+
+
+def test_dias_desde_aguanta_zona_horaria():
+    con_zona = (_dt.datetime.now() - _dt.timedelta(days=5)).isoformat() + "Z"
+    assert pag._dias_desde(con_zona) in (4, 5)
 
 if __name__ == "__main__":
     fallos = 0

@@ -11,6 +11,7 @@ blanca y no lista negra a proposito: si manana el calculo de stock gana una
 columna de dinero, aqui no aparece sola.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -74,12 +75,24 @@ def buscar_orden(
              .all())
 
     if not filas:
-        parecidas = (db.query(SalesOrder.tiktok_order_id)
+        # Cada parecida va con su fecha, y las mas nuevas primero. Dos razones
+        # medidas sobre produccion el 27-oct-2026: 41 de cada 150 colas de seis
+        # digitos apuntan a MAS DE UN pedido, y 26.397 de los 28.119 pedidos
+        # tienen mas de un mes. Una lista de numeros pelados ordenada por texto
+        # pone lo viejo arriba y no da forma de distinguirlos.
+        parecidas = (db.query(SalesOrder.tiktok_order_id,
+                              func.max(SalesOrder.order_date).label("fecha"),
+                              func.min(SalesOrder.platform).label("plataforma"))
                      .filter(SalesOrder.store_id == user.store_id,
                              SalesOrder.tiktok_order_id.like(f"%{numero}%"))
-                     .distinct().limit(MAXIMO_COINCIDENCIAS).all())
+                     .group_by(SalesOrder.tiktok_order_id)
+                     .order_by(func.max(SalesOrder.order_date).desc())
+                     .limit(MAXIMO_COINCIDENCIAS).all())
         return {"orden": numero, "encontrada": False,
-                "parecidas": sorted({p[0] for p in parecidas if p[0]}),
+                "parecidas": [{"orden": p[0],
+                               "fecha": p[1].isoformat() if p[1] else None,
+                               "plataforma": p[2]}
+                              for p in parecidas if p[0]],
                 "lineas": [], "total_piezas": 0}
 
     from app.services.stock_calculator import _build_combo_dict
