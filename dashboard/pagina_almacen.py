@@ -9,7 +9,7 @@ import datetime as _dt
 
 import pandas as pd
 import streamlit as st
-from api_client import api_get
+from api_client import api_get, api_post
 
 import catalogo_fotos as _cat
 
@@ -52,8 +52,94 @@ _CSS_ALMACEN = """
 .alm-etq{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.6px;
   text-transform:uppercase;border-radius:6px;padding:2px 8px;margin-left:8px;
   background:rgba(123,97,255,.15);color:#7B61FF;border:1px solid rgba(123,97,255,.4);}
+
+/* La caja del numero de orden, grande. Se teclea de pie, con el movil en una
+   mano, y antes quedaba debajo del contador y de dos parrafos: habia que
+   bajar la pagina para escribir. Ahora va arriba del todo y se ve desde
+   lejos. 30px es lo que se lee a un metro de la pantalla. */
+div[data-testid="stTextInput"] input{font-size:30px !important;height:64px;
+  font-weight:700;letter-spacing:1px;font-family:Menlo,Consolas,monospace;
+  color:#e4e9ff;}
+div[data-testid="stTextInput"] label p{font-size:15px;font-weight:700;}
+div[data-testid="stExpander"] summary p{font-size:17px;font-weight:700;}
 </style>
 """
+
+
+# ── la API, con cache ───────────────────────────────────────────────────────
+# Streamlit repinta la pagina entera en cada interaccion. Sin cache, marcar
+# una casilla costaba tres viajes a la API (contador, pedido y existencias) y
+# ademas una escritura en la base, porque /almacen/orden apunta la consulta
+# del dia. Con la ficha dentro de un fragmento (ver _ficha_del_pedido) las
+# casillas ya no repintan la pagina; la cache cubre el resto de pasadas.
+
+
+def _inquilino():
+    """Tienda y usuario, para que una cache global no cruce clientes.
+
+    `st.cache_data` se comparte entre sesiones de la misma instancia de
+    Streamlit. app.py ya la limpia cuando cambia el usuario, pero eso es
+    higiene de otro fichero y de otra pasada: aqui el inquilino va DENTRO de
+    la clave, asi que dos tiendas no pueden compartir entrada aunque nadie
+    limpie nada. Regla 2: Nokal y Rodmat no se mezclan.
+    """
+    usuario = st.session_state.get("cached_user") or {}
+    return f"{usuario.get('store_id') or '?'}:{usuario.get('email') or '?'}"
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _pedido_desde_la_api(inquilino, numero):
+    return api_get(f"/almacen/orden/{numero}")
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _contador_desde_la_api(inquilino):
+    return api_get("/almacen/contador")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _existencias_desde_la_api(inquilino):
+    return api_get("/almacen/resumen")
+
+
+def _sin_pegar_el_fallo(valor, cacheada):
+    """Devuelve el valor, pero no deja un fallo metido en la cache.
+
+    `api_get` devuelve None cuando la API da error o se cae la red. Cachear
+    ese None dejaria la pagina rota los dos minutos siguientes aunque la API
+    ya hubiera vuelto.
+    """
+    if valor is None:
+        cacheada.clear()
+    return valor
+
+
+def _pedido(numero):
+    return _sin_pegar_el_fallo(_pedido_desde_la_api(_inquilino(), numero),
+                               _pedido_desde_la_api)
+
+
+def _contador():
+    return _sin_pegar_el_fallo(_contador_desde_la_api(_inquilino()),
+                               _contador_desde_la_api)
+
+
+def _existencias():
+    return _sin_pegar_el_fallo(_existencias_desde_la_api(_inquilino()),
+                               _existencias_desde_la_api)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _foto_en_base64(nombre_fichero):
+    """El base64 de una foto. En cache: el fichero en disco no cambia.
+
+    Sin esto se leia de disco y se recodificaba en cada pasada, y son cuatro
+    o cinco fotos por pedido.
+    """
+    ruta = _cat.CARPETA / nombre_fichero
+    if not ruta.exists():
+        return None
+    return _b64.b64encode(ruta.read_bytes()).decode()
 
 
 def _foto_incrustada(nombre_fichero, alto):
@@ -63,10 +149,9 @@ def _foto_incrustada(nombre_fichero, alto):
     mas barato que una peticion por imagen y deja fijar el alto exacto, que es
     lo que hace que la lista se lea de un vistazo.
     """
-    ruta = _cat.CARPETA / nombre_fichero
-    if not ruta.exists():
+    datos = _foto_en_base64(nombre_fichero)
+    if datos is None:
         return None
-    datos = _b64.b64encode(ruta.read_bytes()).decode()
     return (f'<img src="data:image/jpeg;base64,{datos}" '
             f'style="height:{alto}px;width:{alto}px;object-fit:contain;'
             f'background:#fff;border-radius:10px;'
@@ -176,7 +261,7 @@ def _pintar_contador():
     Si la API no responde no se pinta nada. Un contador es informacion de
     apoyo: que falte no puede estorbar a quien esta empaquetando.
     """
-    dias = api_get("/almacen/contador")
+    dias = _contador()
     if not dias:
         return
 
@@ -215,19 +300,61 @@ def _abrir_la_parecida(etiquetas):
         st.session_state["_alm_orden"] = etiquetas[elegida]
 
 
+def _caja_de_actualizar():
+    """Subir el export de TikTok desde aqui, sin depender de nadie.
+
+    Hasta ahora el fichero solo se podia subir desde el panel, al que el
+    almacen no entra: si el dueño no estaba disponible, se empaquetaba con
+    los pedidos de ayer y los de hoy no aparecian al buscarlos.
+
+    No hace falta tocar el backend: `/api/import/orders` pide sesion, no rol
+    (`Depends(get_current_user)`), asi que el almacen ya podia llamarlo — lo
+    que faltaba era la puerta. Va plegada para no estorbar a quien solo
+    viene a empaquetar, que es lo normal.
+    """
+    with st.expander("Actualizar pedidos  ·  subir el CSV de TikTok",
+                     expanded=False):
+        st.markdown(
+            '<div class="alm-sub">Descarga el fichero <b>All order</b> de '
+            'TikTok Shop y sueltalo aqui. Tarda un par de minutos; cuando '
+            'termine, los pedidos nuevos ya se pueden buscar.</div>',
+            unsafe_allow_html=True)
+        fichero = st.file_uploader("CSV de pedidos de TikTok", type=["csv"],
+                                   key="_alm_csv")
+        if not st.button("Subir y actualizar", key="_alm_subir",
+                         type="primary"):
+            return
+        if fichero is None:
+            st.warning("Elige primero el fichero.")
+            return
+        with st.spinner("Subiendo y actualizando. No cierres la pagina."):
+            hecho = api_post("/import/orders",
+                             files={"file": (fichero.name, fichero.getvalue(),
+                                             "text/csv")})
+        if not hecho:
+            return
+        st.success(f"Listo: {hecho.get('inserted', 0)} pedidos nuevos, "
+                   f"{hecho.get('updated', 0)} actualizados, "
+                   f"{hecho.get('unchanged', 0)} ya estaban igual.")
+        # Las existencias y el contador que haya en cache son de antes de la
+        # subida. Se tiran para que lo siguiente que se mire ya sea lo nuevo.
+        st.cache_data.clear()
+
+
 def _almacen_empaquetar():
     st.markdown('<div class="alm-h1">Empaquetado</div>', unsafe_allow_html=True)
-    _pintar_contador()
+    _caja_de_actualizar()
+
+    # La caja va lo primero, antes del contador y de cualquier explicacion:
+    # se teclea de pie y antes habia que bajar la pagina para llegar a ella.
+    numero = st.text_input(
+        "Numero de orden",
+        placeholder="577639922332832484 — o los ultimos digitos",
+        key="_alm_orden").strip()
     st.markdown('<div class="alm-sub">Escribe el numero de orden y aparece todo '
                 'lo que lleva dentro, con los packs ya desmontados en piezas.'
                 '</div>', unsafe_allow_html=True)
-
-    izq, _der = st.columns([2, 1])
-    with izq:
-        numero = st.text_input(
-            "Numero de orden",
-            placeholder="577639922332832484 — o los ultimos digitos",
-            key="_alm_orden").strip()
+    _pintar_contador()
 
     if not numero:
         st.info("Escribe un numero de orden para empezar.")
@@ -236,7 +363,7 @@ def _almacen_empaquetar():
         st.warning("Escribe al menos 6 digitos.")
         return
 
-    datos = api_get(f"/almacen/orden/{numero}")
+    datos = _pedido(numero)
     if datos is None:
         return
 
@@ -267,7 +394,20 @@ def _limpiar_las_marcas(orden):
         st.session_state.pop(clave, None)
 
 
+@st.fragment
 def _ficha_del_pedido(datos):
+    """La ficha del pedido, en un fragmento aparte.
+
+    Es lo que arregla la lentitud. Sin el fragmento, marcar una casilla
+    repintaba la pagina ENTERA: las tres llamadas a la API otra vez, el
+    apunte en `almacen_consultas` otra vez, y las fotos releidas de disco y
+    recodificadas en base64. Marcar cinco piezas de un pedido eran quince
+    viajes a Railway.
+
+    Dentro de un fragmento, Streamlit solo repinta este bloque cuando se
+    toca un widget suyo. Las casillas y la barra de progreso viven aqui, asi
+    que marcar una pieza no cuesta ninguna llamada: ni una.
+    """
     orden = datos["orden"]
     lineas = datos.get("lineas") or []
     piezas = datos.get("total_piezas", 0)
@@ -383,7 +523,7 @@ def _almacen_existencias():
                 'cuadra con lo que ves en el estante, avisalo.</div>',
                 unsafe_allow_html=True)
 
-    filas = api_get("/almacen/resumen")
+    filas = _existencias()
     if not filas:
         st.info("Todavia no hay existencias que mostrar.")
         return
