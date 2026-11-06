@@ -64,6 +64,31 @@ class _Estado(dict):
         super().__setitem__(clave, valor)
 
 
+class _Cache:
+    """Imita `st.cache_data`: decora, pero no cachea.
+
+    A proposito. Lo que los tests comprueban es que la pagina pide los datos
+    y los pinta; que la cache de Streamlit cachee es cosa de Streamlit. Si
+    aqui se cacheara, un test se comeria la llamada que el siguiente espera.
+
+    Lleva `clear` porque la pagina lo llama en dos sitios: al subir un
+    fichero (lo de dentro ya no vale) y cuando la API falla (para no dejar
+    el fallo pegado). Y las funciones decoradas tambien, por lo segundo.
+    """
+
+    def __init__(self):
+        self.limpiezas = 0
+
+    def __call__(self, func=None, **k):
+        def envuelve(f):
+            f.clear = lambda: None
+            return f
+        return envuelve if func is None else envuelve(func)
+
+    def clear(self):
+        self.limpiezas += 1
+
+
 class _StreamlitFalso(types.ModuleType):
     def __init__(self):
         super().__init__("streamlit")
@@ -72,6 +97,7 @@ class _StreamlitFalso(types.ModuleType):
         self.respuestas = {}
         self.pulsados = set()
         self.recargo = False
+        self.cache_data = _Cache()
 
     # lo que escribe
     def markdown(self, texto="", **k):
@@ -87,6 +113,9 @@ class _StreamlitFalso(types.ModuleType):
 
     def error(self, t="", **k):
         self.pintado.append(f"ERROR:{t}")
+
+    def success(self, t="", **k):
+        self.pintado.append(f"OK:{t}")
 
     def progress(self, v, text=None, **k):
         self.pintado.append(f"PROGRESO:{v}:{text}")
@@ -105,6 +134,23 @@ class _StreamlitFalso(types.ModuleType):
     def container(self, **k):
         return _Hueco()
 
+    def expander(self, label="", **k):
+        self.pintado.append(f"PLEGABLE:{label}")
+        return _Hueco()
+
+    def spinner(self, texto="", **k):
+        return _Hueco()
+
+    def fragment(self, func=None, **k):
+        """`st.fragment`: aqui corre en linea, como el resto de la pagina.
+
+        El fragmento sirve para que Streamlit repinte SOLO la ficha cuando
+        se marca una casilla. Eso no se puede imitar sin un navegador, y
+        tampoco hace falta: lo que importa es que la ficha siga pintando lo
+        mismo, y eso si se comprueba.
+        """
+        return func if func is not None else (lambda f: f)
+
     # entradas: devuelven lo que diga el test
     def _apunta(self, key, valor=None):
         """El widget queda pintado y deja su valor en session_state.
@@ -119,6 +165,14 @@ class _StreamlitFalso(types.ModuleType):
 
     def text_input(self, label, key=None, **k):
         valor = self.respuestas.get(key, "")
+        self._apunta(key, valor)
+        # Deja rastro para poder comprobar DONDE queda la caja en la pagina:
+        # el almacen se quejaba de tener que bajar para llegar a ella.
+        self.pintado.append(f"CAJA:{key}")
+        return valor
+
+    def file_uploader(self, label, key=None, **k):
+        valor = self.respuestas.get(key)
         self._apunta(key, valor)
         return valor
 
@@ -165,10 +219,19 @@ _api.respuestas = {}
 
 
 def _api_get(ruta, **k):
+    _api.llamadas.append(ruta)
     return _api.respuestas.get(ruta)
 
 
+def _api_post(ruta, json_data=None, files=None, **k):
+    _api.subidas.append((ruta, files))
+    return _api.respuestas.get(f"POST {ruta}")
+
+
+_api.llamadas = []
+_api.subidas = []
 _api.api_get = _api_get
+_api.api_post = _api_post
 sys.modules["api_client"] = _api
 
 import catalogo_fotos as cat  # noqa: E402  (despues de instalar los dobles)
@@ -244,17 +307,22 @@ EXISTENCIAS = [
 ]
 
 
-def _pintar(orden_escrita="", datos=None, existencias=None, pulsa=None):
+def _pintar(orden_escrita="", datos=None, existencias=None, pulsa=None,
+            csv=None, respuesta_subida=None):
     _st.pintado.clear()
     _st.session_state.pintados.clear()
     _st.pulsados = {pulsa} if pulsa else set()
     _st.respuestas = {"_alm_orden": orden_escrita, "_alm_busca_stock": "",
-                      "_alm_busca_prod": ""}
+                      "_alm_busca_prod": "", "_alm_csv": csv}
     _api.respuestas = {}
+    _api.llamadas = []
+    _api.subidas = []
     if datos is not None:
         _api.respuestas[f"/almacen/orden/{orden_escrita}"] = datos
     if existencias is not None:
         _api.respuestas["/almacen/resumen"] = existencias
+    if respuesta_subida is not None:
+        _api.respuestas["POST /import/orders"] = respuesta_subida
     pag.page_almacen()
     # Los tests escriben claves fuera de la pasada: al salir, ninguna
     # cuenta como widget ya pintado.
@@ -631,6 +699,101 @@ def test_ningun_boton_escribe_la_clave_de_un_widget_fuera_del_callback():
         _pintar("577639922332832484", PEDIDO_CON_PACK, pulsa=clave)
         _pintar("353365", PARECIDAS_CON_FECHA, pulsa=clave)
     _st.session_state.clear()
+
+
+# ── la caja de subir el CSV y el sitio de la caja del numero ───────────────
+
+class _FicheroFalso:
+    """Lo que devuelve st.file_uploader: un nombre y unos bytes."""
+
+    def __init__(self, nombre="All order-2026-11-06.csv", datos=None):
+        self.name = nombre
+        self._datos = datos if datos is not None else b"Order ID,Quantity"
+
+    def getvalue(self):
+        return self._datos
+
+
+SUBIDA_OK = {"total_rows": 17221, "inserted": 31, "updated": 146,
+             "unchanged": 17044, "errors": 0}
+
+
+def test_la_caja_de_subir_esta_en_la_pagina_y_plegada():
+    """Plegada: quien entra a empaquetar no tiene que sortearla."""
+    salida = _pintar("")
+    assert "PLEGABLE:" in salida
+    assert "subir el CSV de TikTok" in salida
+
+
+def test_la_caja_del_numero_va_antes_del_contador():
+    """La queja del almacen: habia que bajar la pagina para escribir.
+
+    El contador y la explicacion ocupaban la primera pantalla y la caja
+    quedaba debajo. Ahora la caja es lo primero despues del plegable.
+    """
+    _pintar("")
+    orden = _st.pintado
+    caja = orden.index("CAJA:_alm_orden")
+    contador = [i for i, t in enumerate(orden) if "Ordenes revisadas hoy" in t]
+    explicacion = [i for i, t in enumerate(orden) if "aparece todo" in t]
+    assert explicacion and caja < explicacion[0], "la caja va antes del texto"
+    if contador:
+        assert caja < contador[0], "la caja va antes del contador"
+
+
+def test_subir_el_csv_llama_al_import_y_cuenta_lo_que_hizo():
+    salida = _pintar("", csv=_FicheroFalso(), pulsa="_alm_subir",
+                     respuesta_subida=SUBIDA_OK)
+    assert _api.subidas, "no se llamo a la API de importacion"
+    ruta, ficheros = _api.subidas[0]
+    assert ruta == "/import/orders"
+    assert ficheros["file"][0] == "All order-2026-11-06.csv"
+    assert "31" in salida and "146" in salida and "17044" in salida
+    assert "OK:" in salida
+
+
+def test_subir_sin_elegir_fichero_avisa_y_no_llama_a_la_api():
+    salida = _pintar("", csv=None, pulsa="_alm_subir")
+    assert not _api.subidas, "no hay fichero: no se puede llamar al import"
+    assert "AVISO:" in salida
+
+
+def test_tras_subir_se_tira_la_cache():
+    """Lo cacheado es de antes de la subida: existencias y contador."""
+    antes = _st.cache_data.limpiezas
+    _pintar("", csv=_FicheroFalso(), pulsa="_alm_subir",
+            respuesta_subida=SUBIDA_OK)
+    assert _st.cache_data.limpiezas > antes
+
+
+def test_si_la_subida_falla_no_se_canta_victoria():
+    """api_post devuelve None cuando la API da error."""
+    salida = _pintar("", csv=_FicheroFalso(), pulsa="_alm_subir",
+                     respuesta_subida=None)
+    assert "OK:" not in salida
+
+
+# ── que la cache no cruce clientes (regla 2) ───────────────────────────────
+
+def test_la_clave_de_cache_lleva_la_tienda_dentro():
+    """Dos tiendas distintas no pueden compartir entrada de cache.
+
+    `st.cache_data` es global a la instancia de Streamlit. La clave lleva
+    store_id y email para que Nokal no vea un pedido de Rodmat aunque nadie
+    se acuerde de limpiar la cache.
+    """
+    _st.session_state["cached_user"] = {"store_id": "rodmat", "email": "a@x"}
+    uno = pag._inquilino()
+    _st.session_state["cached_user"] = {"store_id": "nokal", "email": "a@x"}
+    otro = pag._inquilino()
+    _st.session_state.pop("cached_user", None)
+    assert uno != otro, "la misma clave para dos tiendas"
+    assert "rodmat" in uno and "nokal" in otro
+
+
+def test_sin_usuario_en_sesion_la_clave_no_revienta():
+    _st.session_state.pop("cached_user", None)
+    assert isinstance(pag._inquilino(), str)
 
 
 if __name__ == "__main__":
