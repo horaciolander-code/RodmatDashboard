@@ -906,7 +906,7 @@ def page_inventario_summary():
     st.subheader("Stock Actual por Producto")
     display_cols = ["ProductoNombre", "Tipo",
                     "Stock_Warehouse", "Stock_FBT", "QtyShipped",
-                    "StockActualizado", "PendienteDeEnviar", "StockDisponible",
+                    "StockActualizado", "PendienteDeEnviar",
                     "PedidosPendiente", "StockConPedidos",
                     "Sales_30d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "ValorInventario"]
     available = [c for c in display_cols if c in df.columns]
