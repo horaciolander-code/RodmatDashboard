@@ -904,20 +904,29 @@ def page_inventario_summary():
             st.plotly_chart(fig, use_container_width=True, key="inv_valor_tipo")
 
     st.subheader("Stock Actual por Producto")
-    display_cols = ["ProductoNombre", "Tipo",
+    # Orden de lectura, no orden historico: primero lo que se mira para decidir
+    # (que queda libre, que hay, que esta comprometido), y al final las columnas
+    # de detalle. StockDisponible va el primero porque es la que dice si se
+    # puede seguir vendiendo; lo demas explica de donde sale ese numero.
+    display_cols = ["ProductoNombre", "StockDisponible",
+                    "StockActualizado", "PendienteDeEnviar",
+                    "Sales_30d", "Days_Coverage", "ValorInventario", "Tipo",
                     "Stock_Warehouse", "Stock_FBT", "QtyShipped",
-                    "StockActualizado", "PendienteDeEnviar", "StockDisponible",
                     "PedidosPendiente", "StockConPedidos",
-                    "Sales_30d", "Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT", "ValorInventario"]
+                    "Days_Cov_WH", "Days_Cov_FBT"]
     available = [c for c in display_cols if c in df.columns]
-    display_df = df[available].sort_values("StockActualizado", ascending=True).copy()
+    # Lo mas urgente arriba: lo vendido por encima del stock que queda.
+    _orden = "StockDisponible" if "StockDisponible" in df.columns else "StockActualizado"
+    display_df = df[available].sort_values(_orden, ascending=True).copy()
     # Mostrar 0 como "—" en cobertura (visualmente más limpio, indica "sin ventas")
     for cov_col in ["Days_Coverage", "Days_Cov_WH", "Days_Cov_FBT"]:
         if cov_col in display_df.columns:
             display_df[cov_col] = display_df[cov_col].apply(
                 lambda v: "—" if isinstance(v, (int, float)) and v == 0 else v
             )
-    st.dataframe(display_df, use_container_width=True, height=400)
+    st.dataframe(display_df, use_container_width=True, height=400,
+                 column_config={"ProductoNombre": st.column_config.TextColumn(
+                     "Producto", pinned=True, width="medium")})
 
     # ─── Ventas Mensuales por Producto (pivot) ───
     st.markdown("---")
