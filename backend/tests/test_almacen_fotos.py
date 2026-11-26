@@ -208,6 +208,19 @@ def test_un_alias_no_anade_anuncios_al_catalogo():
     assert len(CATALOGO_REAL) == len(solo_indice)
 
 
+def test_ningun_anuncio_comparte_titulo_con_otro():
+    """El titulo es el unico camino que tienen las ventas de Temu.
+
+    `sales_orders` no guarda el ID de anuncio, asi que en Temu la foto se
+    resuelve por titulo. Dos anuncios con el mismo titulo dejan sin foto a
+    los dos, y el aviso tiene que saltar al anadir el segundo, no meses
+    despues en el almacen.
+    """
+    repes = {t: [e["product_id"] for e in v]
+             for t, v in CATALOGO_REAL.por_nombre.items() if len(v) > 1}
+    assert not repes, f"{len(repes)} titulos repetidos: {list(repes.items())[:3]}"
+
+
 def test_los_sku_que_chocan_en_el_catalogo_real_no_dan_foto():
     """Los cinco de verdad, leidos del indice publicado."""
     chocan = [s for s, v in CATALOGO_REAL.por_sku.items() if len(v) > 1]
