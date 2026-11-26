@@ -123,6 +123,50 @@ def test_normalizar_quita_acentos_y_puntuacion():
     assert cf.normalizar("Prismé  Vert, EDP!") == "prisme vert edp"
 
 
+# ── alias: el mismo pack anunciado en Temu con otro titulo ──────────────────
+
+TITULO_TEMU = ("Avon Far Away Gold Eau de Parfum for Women, 1.7 fl oz Each"
+               " - Pack of 3, Long-Lasting Floral Fragrance, Gift Set")
+
+
+def _catalogo_con_alias():
+    c = cf.Catalogo([TRES_PERFUMES, PERFUME_Y_CREMAS, MOROCCAN])
+    return c, c.anadir_alias(TRES_PERFUMES["product_id"], TITULO_TEMU)
+
+
+def test_un_alias_da_la_foto_del_anuncio_que_le_toca():
+    """El titulo de Temu no se parece al de TikTok ni por asomo, y el SKU
+    choca con dos anuncios: sin alias esta venta no tiene foto."""
+    catalogo, motivo = _catalogo_con_alias()
+    assert motivo == ""
+    r = catalogo.resolver(nombre=TITULO_TEMU, seller_sku="AV-FGP/3")
+    assert r["certeza"] == cf.SEGURA
+    assert r["foto"] == "1732519334887854997.jpg"
+
+
+def test_un_alias_no_puede_tapar_el_titulo_de_otro_anuncio():
+    """Un alias mal copiado no puede quitarle la foto a quien ya la tiene."""
+    catalogo = cf.Catalogo([TRES_PERFUMES, PERFUME_Y_CREMAS, MOROCCAN])
+    motivo = catalogo.anadir_alias(MOROCCAN["product_id"],
+                                   TRES_PERFUMES["nombre"])
+    assert "ya es de otro anuncio" in motivo
+    r = catalogo.resolver(nombre=TRES_PERFUMES["nombre"], seller_sku="AV-FGS/3")
+    assert r["foto"] == "1732519334887854997.jpg"
+
+
+def test_un_alias_a_un_anuncio_que_no_esta_se_rechaza():
+    """Apuntaria a una foto que no existe en disco."""
+    catalogo = cf.Catalogo([TRES_PERFUMES])
+    assert "no esta en el indice" in catalogo.anadir_alias("999", "lo que sea")
+    assert catalogo.resolver(nombre="lo que sea")["certeza"] == cf.NINGUNA
+
+
+def test_repetir_el_mismo_alias_no_lo_vuelve_dudoso():
+    catalogo, _ = _catalogo_con_alias()
+    assert catalogo.anadir_alias(TRES_PERFUMES["product_id"], TITULO_TEMU) == ""
+    assert catalogo.resolver(nombre=TITULO_TEMU)["certeza"] == cf.SEGURA
+
+
 # ── el catalogo que se publica de verdad ────────────────────────────────────
 
 CATALOGO_REAL = cf.cargar()
@@ -143,6 +187,38 @@ def test_ningun_anuncio_comparte_id_con_otro():
     """Si dos compartieran id, uno pisaria la foto del otro al generarlas."""
     ids = [e["product_id"] for e in CATALOGO_REAL.por_id.values()]
     assert len(ids) == len(set(ids))
+
+
+def test_los_alias_publicados_se_aplican_todos():
+    """Un alias rechazado es una linea sin foto que nadie ve venir.
+
+    En el almacen se ignora en silencio a proposito — el pedido se tiene que
+    poder empaquetar igual — asi que el aviso tiene que saltar aqui.
+    """
+    sobre_el_indice = cf.Catalogo(cf._leer(cf.CARPETA / "_indice.csv"))
+    malos = cf.alias_rechazados(sobre_el_indice,
+                                cf._leer(cf.CARPETA / "_alias.csv"))
+    assert not malos, f"{len(malos)} alias no se aplican: {malos[:3]}"
+
+
+def test_un_alias_no_anade_anuncios_al_catalogo():
+    """Son titulos de anuncios que ya estan, no anuncios nuevos: si contaran
+    como uno mas, saldrian repetidos en el buscador de producto."""
+    solo_indice = cf.Catalogo(cf._leer(cf.CARPETA / "_indice.csv"))
+    assert len(CATALOGO_REAL) == len(solo_indice)
+
+
+def test_ningun_anuncio_comparte_titulo_con_otro():
+    """El titulo es el unico camino que tienen las ventas de Temu.
+
+    `sales_orders` no guarda el ID de anuncio, asi que en Temu la foto se
+    resuelve por titulo. Dos anuncios con el mismo titulo dejan sin foto a
+    los dos, y el aviso tiene que saltar al anadir el segundo, no meses
+    despues en el almacen.
+    """
+    repes = {t: [e["product_id"] for e in v]
+             for t, v in CATALOGO_REAL.por_nombre.items() if len(v) > 1}
+    assert not repes, f"{len(repes)} titulos repetidos: {list(repes.items())[:3]}"
 
 
 def test_los_sku_que_chocan_en_el_catalogo_real_no_dan_foto():

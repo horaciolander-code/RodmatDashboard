@@ -19,6 +19,14 @@ Tres formas de identificar un anuncio, de mas fiable a menos:
                AV-FM/2 reciben la foto de Far Away Moroccan Nights cuando
                en realidad son Far Away Original + Mesmerize Blue.
 
+El indice se genero del catalogo de TikTok, y en Temu el MISMO pack se
+anuncia con otro titulo. Por eso hay un segundo fichero, `_alias.csv`: otro
+titulo para un anuncio que ya esta, con su foto, comprobado pieza a pieza.
+Va aparte de `_indice.csv` porque el indice lo reescribe entero
+`scripts/generar_fotos_almacen.py` cada vez que cambia el catalogo, y una
+linea anadida a mano ahi se perderia en silencio. Un alias NUNCA tapa un
+titulo que ya existe: si chocara, se descarta y el anuncio sigue sin foto.
+
 Esto vale para una LINEA de pedido, que es un anuncio. Las PIEZAS de dentro
 de un pack NO llevan foto, a proposito: de muchos productos solo existe la
 foto del set en que se venden, y ensenar dos frascos donde hay que meter uno
@@ -97,6 +105,28 @@ class Catalogo:
     def __len__(self):
         return len(self.por_id)
 
+    def anadir_alias(self, product_id, titulo) -> str:
+        """Otro titulo para un anuncio que ya esta. Devuelve el motivo del
+        rechazo, o cadena vacia si se acepto.
+
+        Se rechaza si el anuncio no esta en el indice (la foto no existiria)
+        o si ese titulo ya esta cogido por otro anuncio: un alias que pisa un
+        titulo bueno convierte en dudosas las ventas que hoy salen seguras.
+        """
+        pid = str(product_id or "").strip()
+        clave = normalizar(titulo)
+        if not pid or pid not in self.por_id:
+            return f"el anuncio {pid or '(vacio)'} no esta en el indice"
+        if not clave:
+            return "alias sin titulo"
+        ya = self.por_nombre.get(clave, [])
+        if ya:
+            if all(e["product_id"] == pid for e in ya):
+                return ""
+            return f"el titulo ya es de otro anuncio ({ya[0]['product_id']})"
+        self.por_nombre[clave] = [self.por_id[pid]]
+        return ""
+
     def resolver(self, product_id=None, nombre=None, seller_sku=None) -> dict:
         """Devuelve {foto, certeza, motivo, alternativas}.
 
@@ -137,11 +167,33 @@ class Catalogo:
                 "alternativas": [unico]}
 
 
-def cargar(carpeta=None) -> Catalogo:
-    """Lee dashboard/fotos/_indice.csv. Sin catalogo, devuelve uno vacio."""
-    carpeta = pathlib.Path(carpeta) if carpeta else CARPETA
-    fichero = carpeta / "_indice.csv"
+def _leer(fichero) -> list:
     if not fichero.exists():
-        return Catalogo([])
-    with open(fichero, encoding="utf-8", newline="") as f:
-        return Catalogo(list(csv.DictReader(f, delimiter=";")))
+        return []
+    with open(fichero, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f, delimiter=";"))
+
+
+def alias_rechazados(catalogo: Catalogo, filas) -> list:
+    """Los alias que no se pudieron aplicar, con su motivo.
+
+    Separado de `cargar` para que el test pueda exigir que el fichero
+    publicado no tenga ninguno. En el almacen un alias malo se ignora y ya:
+    el pedido se tiene que poder empaquetar igual, sin foto si hace falta.
+    """
+    malos = []
+    for fila in filas:
+        motivo = catalogo.anadir_alias(fila.get("product_id"),
+                                       fila.get("titulo"))
+        if motivo:
+            malos.append({"titulo": (fila.get("titulo") or "")[:60],
+                          "motivo": motivo})
+    return malos
+
+
+def cargar(carpeta=None) -> Catalogo:
+    """Lee dashboard/fotos/_indice.csv y, si esta, _alias.csv."""
+    carpeta = pathlib.Path(carpeta) if carpeta else CARPETA
+    catalogo = Catalogo(_leer(carpeta / "_indice.csv"))
+    alias_rechazados(catalogo, _leer(carpeta / "_alias.csv"))
+    return catalogo

@@ -121,6 +121,7 @@ product_id;sku;nombre
 1731158374327554965;AV-KFP;Avon Haiku Kyoto Flower Eau de Parfum Spray 1.7 oz
 1731158421914751893;AV-KFP/2;Avon Haiku Kyoto Flower Eau de Parfum Spray 1.7 oz SET of 2
 1732519303382209429;AV-KFP/3;Avon Haiku Kyoto Flower Eau de Parfum Spray 1.7 oz SET of 3 Eau De Perfum Enchanting Fragrance Fragrance Discovery Set
+610761443262396;AV-M/3;Avon Mesmerize Blue, Mesmerize Black & Mesmerize Aqua for Men Eau de Toilette 3.4 fl oz - Set of 3, Men's Cologne Gift Set with Aquatic, Woody & Citrus Notes for Everyday Wear or Special Events
 1730765032649692053;AV-MB/2;Avon Mesmerize Blue for Men Cologne Spray 3.4. fl oz. 2 PACK. Generous Fragrance with Bergamot & Spicy Cardamom Notes Woody Amber Scent
 1731632506866602901;AV-MBB/2;Mesmerize Blue EDC & Mesmerize Black EDT 3.4 fl oz Set of 2 - Liquid Fragrance for Everyday Wear or Special Events
 1731920954395693973;AV-MBBB/3;Black Suede, Mermerize Blue & Black Perfume 3.4 fl. oz. Set of 3
@@ -196,7 +197,6 @@ product_id;sku;nombre
 1731703785125090197;AV-WP;Wild Country Cologne 3 fl. oz.
 1731248448228004757;AV-WP/2;Wild Country Cologne 3fl. oz. Set of 2
 1732755424573494165;IN;Ingenious Ginger eau de parfum
-1732616944127480725;LT-PL.S;Lattafa Peace & Love Gift Set incluided 3.4 fl.oz 100 ml EDP, 0.5 fl oz. 20 ml EDP
 1729523343340705685;LT-GMCC/2;Lattafa Cookie Crave Give me Gourmand Collection EDP 2.5 fl. oz. 75 ml. Spray (Set of 2)
 1729523280876312469;LT-GMCO;Lattafa Choco Overdose Give me Gourmand Collection EDP 2.5 fl. oz. 75ml Spray
 1729523255464138645;LT-GMCO/2;Lattafa Choco Overdose Give me Gourmand Collection EDP 2.5 fl. oz. 75ml Spray (Set of 2)
@@ -204,6 +204,9 @@ product_id;sku;nombre
 1729524114090792853;LT-GMS/4;Lattafa Give Me Gourmand Collection Vanilla Freak, Whipped Pleasure, Cookie Crave & Choco Overdose EDP. 2.5 fl.oz 75 ml (Set of 4)
 1732587340700881813;LT-GMVF;Lattafa Vanilla Freak Give me Gourmand Collection EDP 2.5 fl. oz. 75ml Spray
 1732587318368572309;LT-GMVF/2;Lattafa Vanilla Freak Give me Gourmand Collection EDP 2.5 fl. oz. 75ml Spray (Set of 2)
+610822914966157;LT-GMVW/2;Lattafa Vanilla Freak & Whipped Pleasure Eau de Parfum for Women 2.5 fl oz (75ml) Each, Give Me Gourmand Collection Original - Sweet Vanilla Caramel Arabian Perfume Set of 2
+610135720216058;LT-GMWC/2;Lattafa Whipped Pleasure & Cookie Crave, Give Me Gourmand Collection Original Eau de Parfum for Women 2.5 fl oz (75ml) Each – Sweet Vanilla Caramel Arabian Perfume Set of 2
 1729523320555280277;LT-GMWP;Lattafa Whipped Pleasure Give me Gourmand Collection EDP 2.5 fl. oz. 75ml Spray
 1729523296572905365;LT-GMWP/2;Lattafa Whipped Pleasure Give me Gourmand Collection EDP 2.5 fl. oz. 75ml Spray (Set of 2)
+1732616944127480725;LT-PL.S;Lattafa Peace & Love Gift Set incluided 3.4 fl.oz 100 ml EDP, 0.5 fl oz. 20 ml EDP
 1732755383678178197;VERTINTENSE;Prisme Vert Intense
