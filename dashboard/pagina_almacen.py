@@ -12,6 +12,7 @@ import streamlit as st
 from api_client import api_get, api_post
 
 import catalogo_fotos as _cat
+import subir_pedidos
 
 # ============================================================================
 #  ALMACEN — empaquetado por numero de orden
@@ -300,50 +301,9 @@ def _abrir_la_parecida(etiquetas):
         st.session_state["_alm_orden"] = etiquetas[elegida]
 
 
-def _caja_de_actualizar():
-    """Subir el export de TikTok desde aqui, sin depender de nadie.
-
-    Hasta ahora el fichero solo se podia subir desde el panel, al que el
-    almacen no entra: si el dueño no estaba disponible, se empaquetaba con
-    los pedidos de ayer y los de hoy no aparecian al buscarlos.
-
-    No hace falta tocar el backend: `/api/import/orders` pide sesion, no rol
-    (`Depends(get_current_user)`), asi que el almacen ya podia llamarlo — lo
-    que faltaba era la puerta. Va plegada para no estorbar a quien solo
-    viene a empaquetar, que es lo normal.
-    """
-    with st.expander("Actualizar pedidos  ·  subir el CSV de TikTok",
-                     expanded=False):
-        st.markdown(
-            '<div class="alm-sub">Descarga el fichero <b>All order</b> de '
-            'TikTok Shop y sueltalo aqui. Tarda un par de minutos; cuando '
-            'termine, los pedidos nuevos ya se pueden buscar.</div>',
-            unsafe_allow_html=True)
-        fichero = st.file_uploader("CSV de pedidos de TikTok", type=["csv"],
-                                   key="_alm_csv")
-        if not st.button("Subir y actualizar", key="_alm_subir",
-                         type="primary"):
-            return
-        if fichero is None:
-            st.warning("Elige primero el fichero.")
-            return
-        with st.spinner("Subiendo y actualizando. No cierres la pagina."):
-            hecho = api_post("/import/orders",
-                             files={"file": (fichero.name, fichero.getvalue(),
-                                             "text/csv")})
-        if not hecho:
-            return
-        st.success(f"Listo: {hecho.get('inserted', 0)} pedidos nuevos, "
-                   f"{hecho.get('updated', 0)} actualizados, "
-                   f"{hecho.get('unchanged', 0)} ya estaban igual.")
-        # Las existencias y el contador que haya en cache son de antes de la
-        # subida. Se tiran para que lo siguiente que se mire ya sea lo nuevo.
-        st.cache_data.clear()
-
-
 def _almacen_empaquetar():
     st.markdown('<div class="alm-h1">Empaquetado</div>', unsafe_allow_html=True)
-    _caja_de_actualizar()
+    subir_pedidos.caja()
 
     # La caja va lo primero, antes del contador y de cualquier explicacion:
     # se teclea de pie y antes habia que bajar la pagina para llegar a ella.
