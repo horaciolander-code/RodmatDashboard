@@ -236,6 +236,7 @@ sys.modules["api_client"] = _api
 
 import catalogo_fotos as cat  # noqa: E402  (despues de instalar los dobles)
 import pagina_almacen as pag  # noqa: E402
+import subir_pedidos as sub  # noqa: E402
 
 
 # ── pedidos de prueba ───────────────────────────────────────────────────────
@@ -308,12 +309,14 @@ EXISTENCIAS = [
 
 
 def _pintar(orden_escrita="", datos=None, existencias=None, pulsa=None,
-            csv=None, respuesta_subida=None):
+            csv=None, respuesta_subida=None, csv_temu=None,
+            respuesta_temu=None):
     _st.pintado.clear()
     _st.session_state.pintados.clear()
     _st.pulsados = {pulsa} if pulsa else set()
     _st.respuestas = {"_alm_orden": orden_escrita, "_alm_busca_stock": "",
-                      "_alm_busca_prod": "", "_alm_csv": csv}
+                      "_alm_busca_prod": "", "_alm_csv": csv,
+                      "_alm_csv_temu": csv_temu}
     _api.respuestas = {}
     _api.llamadas = []
     _api.subidas = []
@@ -323,6 +326,8 @@ def _pintar(orden_escrita="", datos=None, existencias=None, pulsa=None,
         _api.respuestas["/almacen/resumen"] = existencias
     if respuesta_subida is not None:
         _api.respuestas["POST /import/orders"] = respuesta_subida
+    if respuesta_temu is not None:
+        _api.respuestas["POST /import/temu-orders"] = respuesta_temu
     pag.page_almacen()
     # Los tests escriben claves fuera de la pasada: al salir, ninguna
     # cuenta como widget ya pintado.
@@ -703,12 +708,22 @@ def test_ningun_boton_escribe_la_clave_de_un_widget_fuera_del_callback():
 
 # ── la caja de subir el CSV y el sitio de la caja del numero ───────────────
 
+# Las cabeceras de verdad de cada export, que es lo unico que mira el
+# portero de subir_pedidos. La de TikTok no trae ni una columna de Temu y al
+# contrario; "Product Name" y "product name" son la misma en minusculas, por
+# eso ninguna de las dos huellas las usa.
+CABECERA_TIKTOK = (b"Order ID,Order Status,Seller SKU,Product Name,"
+                   b"Quantity,Created Time")
+CABECERA_TEMU = (b"Order ID,order item status,contribution sku,"
+                 b"SKU ID,quantity purchased,purchase date,product name")
+
+
 class _FicheroFalso:
     """Lo que devuelve st.file_uploader: un nombre y unos bytes."""
 
     def __init__(self, nombre="All order-2026-11-06.csv", datos=None):
         self.name = nombre
-        self._datos = datos if datos is not None else b"Order ID,Quantity"
+        self._datos = datos if datos is not None else CABECERA_TIKTOK
 
     def getvalue(self):
         return self._datos
@@ -794,6 +809,152 @@ def test_la_clave_de_cache_lleva_la_tienda_dentro():
 def test_sin_usuario_en_sesion_la_clave_no_revienta():
     _st.session_state.pop("cached_user", None)
     assert isinstance(pag._inquilino(), str)
+
+
+# ── la caja de Temu, al lado de la de TikTok ───────────────────────────────
+
+SUBIDA_TEMU_OK = {"total_rows": 1200, "inserted": 12, "updated": 3,
+                  "errors": 0, "unknown_skus": []}
+
+
+def test_el_plegable_nombra_las_dos_tiendas():
+    salida = _pintar("")
+    assert "subir el CSV de TikTok o de Temu" in salida
+    assert "TikTok" in salida and "Temu" in salida
+
+
+def test_subir_el_de_temu_llama_a_su_propio_import():
+    """`/import/temu-orders` es el que mueve stock en Temu. El otro
+    (`/import/temu`) es el extracto financiero y no crea pedidos."""
+    salida = _pintar("", csv_temu=_FicheroFalso("order_export.csv",
+                                                CABECERA_TEMU),
+                     pulsa="_alm_subir_temu", respuesta_temu=SUBIDA_TEMU_OK)
+    assert _api.subidas, "no se llamo a la API de importacion"
+    ruta, ficheros = _api.subidas[0]
+    assert ruta == "/import/temu-orders"
+    assert ficheros["file"][0] == "order_export.csv"
+    assert "12" in salida and "OK:" in salida
+
+
+def test_cada_caja_llama_solo_a_la_suya():
+    """Las dos cajas comparten pasada: pulsar una no puede disparar la otra."""
+    _pintar("", csv=_FicheroFalso(), csv_temu=_FicheroFalso(
+        "order_export.csv", CABECERA_TEMU), pulsa="_alm_subir",
+        respuesta_subida=SUBIDA_OK, respuesta_temu=SUBIDA_TEMU_OK)
+    assert [r for r, _ in _api.subidas] == ["/import/orders"]
+
+
+def test_tras_subir_el_de_temu_se_tira_la_cache():
+    antes = _st.cache_data.limpiezas
+    _pintar("", csv_temu=_FicheroFalso("order_export.csv", CABECERA_TEMU),
+            pulsa="_alm_subir_temu", respuesta_temu=SUBIDA_TEMU_OK)
+    assert _st.cache_data.limpiezas > antes
+
+
+def test_subir_temu_sin_elegir_fichero_avisa_y_no_llama_a_la_api():
+    salida = _pintar("", csv_temu=None, pulsa="_alm_subir_temu")
+    assert not _api.subidas
+    assert "AVISO:" in salida
+
+
+# ── el portero: el fichero de una tienda no entra por la caja de la otra ───
+
+def test_el_de_temu_por_la_caja_de_tiktok_se_para_antes_de_subir():
+    """Lo que esto evita, que no es un aviso cosmetico.
+
+    El importador de TikTok no comprueba columnas: de cada fila solo mira
+    "Order ID" y "SKU ID", y el export de Temu trae las dos. Sin portero
+    entraria sin una queja y esos pedidos quedarian guardados como de TikTok,
+    con cantidad 1 y sin estado. Desde la pantalla ya no se arregla.
+    """
+    salida = _pintar("", csv=_FicheroFalso("order_export.csv", CABECERA_TEMU),
+                     pulsa="_alm_subir", respuesta_subida=SUBIDA_OK)
+    assert not _api.subidas, "se subio un fichero de Temu como si fuera TikTok"
+    assert "ERROR:" in salida and "Temu" in salida
+    assert "OK:" not in salida
+
+
+def test_el_de_tiktok_por_la_caja_de_temu_tampoco():
+    salida = _pintar("", csv_temu=_FicheroFalso(), pulsa="_alm_subir_temu",
+                     respuesta_temu=SUBIDA_TEMU_OK)
+    assert not _api.subidas
+    assert "ERROR:" in salida and "TikTok" in salida
+
+
+def test_un_csv_que_no_se_reconoce_no_se_bloquea():
+    """Si manana TikTok renombra una columna, el almacen sigue pudiendo subir.
+
+    El portero solo se planta cuando reconoce a la OTRA tienda, no cuando no
+    reconoce nada: quedarse sin poder subir es peor que el aviso del backend.
+    """
+    _pintar("", csv=_FicheroFalso("raro.csv", b"A,B,C"),
+            pulsa="_alm_subir", respuesta_subida=SUBIDA_OK)
+    assert [r for r, _ in _api.subidas] == ["/import/orders"]
+
+
+def test_de_quien_es_reconoce_las_dos_cabeceras():
+    assert sub.de_quien_es(CABECERA_TIKTOK) == "TikTok"
+    assert sub.de_quien_es(CABECERA_TEMU) == "Temu"
+    assert sub.de_quien_es(b"") is None
+    assert sub.de_quien_es(None) is None
+
+
+def test_de_quien_es_aguanta_bom_y_punto_y_coma():
+    """TikTok manda el CSV con BOM, y a veces con punto y coma."""
+    assert sub.de_quien_es(
+        b"\xef\xbb\xbfOrder ID;Order Status;Seller SKU"
+    ) == "TikTok"
+
+
+def test_la_huella_de_temu_es_la_que_exige_el_backend():
+    """Si el importador cambia de columnas obligatorias, el portero se queda
+    mirando una que ya no viene y deja pasar el fichero equivocado."""
+    from app.services.import_service import TEMU_PEDIDOS_COLUMNAS_MINIMAS
+    exigidas = {c.lower() for c in TEMU_PEDIDOS_COLUMNAS_MINIMAS}
+    assert set(sub.COLUMNAS_PROPIAS["Temu"]) <= exigidas
+
+
+# ── lo que el import devuelve, dicho para quien empaqueta ──────────────────
+
+def test_el_aviso_del_backend_se_pinta_y_no_se_canta_victoria():
+    """Con el fichero equivocado el backend devuelve 0 y un warning. Sin
+    pintarlo, "0 pedidos nuevos" se lee como "ya estaba todo subido"."""
+    salida = _pintar("", csv_temu=_FicheroFalso("x.csv", CABECERA_TEMU),
+                     pulsa="_alm_subir_temu",
+                     respuesta_temu={"inserted": 0, "updated": 0,
+                                     "errors": 3, "unknown_skus": [],
+                                     "warning": "No parece el export de Temu"})
+    assert "ERROR:No parece el export de Temu" in salida
+    assert "OK:" not in salida
+
+
+def test_un_sku_sin_combo_se_avisa_porque_sale_sin_piezas():
+    salida = _pintar("", csv_temu=_FicheroFalso("x.csv", CABECERA_TEMU),
+                     pulsa="_alm_subir_temu",
+                     respuesta_temu=dict(SUBIDA_TEMU_OK,
+                                         unknown_skus=["AV-NUEVO", "LT-X/2"]))
+    assert "AVISO:" in salida and "sin piezas" in salida
+    assert "AV-NUEVO" in salida
+
+
+def test_los_anuncios_dudosos_se_avisan_sin_el_detalle_del_panel():
+    """Aqui no se pueden arreglar: se dice cuantos y que avisen."""
+    salida = _pintar("", csv_temu=_FicheroFalso("x.csv", CABECERA_TEMU),
+                     pulsa="_alm_subir_temu",
+                     respuesta_temu=dict(
+                         SUBIDA_TEMU_OK,
+                         a_confirmar=[{"seller_sku": "AV-FGS/3",
+                                       "anuncio": "610"}],
+                         sellers_duplicados=[{"seller_sku": "AV-M/3",
+                                              "anuncios": ["1", "2"]}]))
+    assert "ERROR:2 anuncio(s)" in salida
+    assert "restando mal" in salida
+
+
+def test_si_la_subida_de_temu_falla_no_se_canta_victoria():
+    salida = _pintar("", csv_temu=_FicheroFalso("x.csv", CABECERA_TEMU),
+                     pulsa="_alm_subir_temu", respuesta_temu=None)
+    assert "OK:" not in salida
 
 
 if __name__ == "__main__":
